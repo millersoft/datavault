@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>trf_stg_determine_source_files_to_load_in_directory</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description>Generic staging transformation: get file names in source file directory</description>
+    <extended_description>This transformations determines the files to load in a specific file directory (parameter).
+The necessary metadata is stored in the tables:
+
+ref_source_file_directories
+ref_source_files</extended_description>
+    <pipeline_version>1.2</pipeline_version>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>2</pipeline_status>
+    <parameters>
+      <parameter>
+        <name>id_srcfile_directory</name>
+        <default_value/>
+        <description/>
+      </parameter>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user/>
+    <created_date>2014/12/15 01:10:16.802</created_date>
+    <modified_user>admin</modified_user>
+    <modified_date>2014/12/12 09:49:57.503</modified_date>
+  </info>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Ariel</fontname>
+      <fontsize>10</fontsize>
+      <height>22</height>
+      <xloc>512</xloc>
+      <yloc>256</yloc>
+      <note>Process the newest files last</note>
+      <width>195</width>
+    </notepad>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Ariel</fontname>
+      <fontsize>10</fontsize>
+      <height>22</height>
+      <xloc>224</xloc>
+      <yloc>128</yloc>
+      <note>Get the files that match the wildcard</note>
+      <width>248</width>
+    </notepad>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Ariel</fontname>
+      <fontsize>10</fontsize>
+      <height>22</height>
+      <xloc>32</xloc>
+      <yloc>32</yloc>
+      <note>Description: see transformation settings</note>
+      <width>272</width>
+    </notepad>
+  </notepads>
+  <order>
+    <hop>
+      <from>source_files_to_load</from>
+      <to>Get File Names</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>Get File Names</from>
+      <to>Sort rows</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>Sort rows</from>
+      <to>Copy rows to result</to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>Copy rows to result</name>
+    <type>RowsToResult</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <attributes/>
+    <GUI>
+      <xloc>768</xloc>
+      <yloc>192</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>Get File Names</name>
+    <type>GetFileNames</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <doNotFailIfNoFile>N</doNotFailIfNoFile>
+    <dynamic_include_subfolders>N</dynamic_include_subfolders>
+    <file>
+      <file_required>N</file_required>
+      <include_subfolders>N</include_subfolders>
+    </file>
+    <filefield>Y</filefield>
+    <filename_Field>file_directory</filename_Field>
+    <filter>
+      <filterfiletype>all_files</filterfiletype>
+    </filter>
+    <isaddresult>N</isaddresult>
+    <limit>0</limit>
+    <raiseAnExceptionIfNoFile>N</raiseAnExceptionIfNoFile>
+    <rownum>N</rownum>
+    <wildcard_Field>wildcard</wildcard_Field>
+    <attributes/>
+    <GUI>
+      <xloc>288</xloc>
+      <yloc>192</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>Sort rows</name>
+    <type>SortRows</type>
+    <description/>
+    <distribute>N</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <compress>N</compress>
+    <directory>%%java.io.tmpdir%%</directory>
+    <fields>
+      <field>
+        <ascending>Y</ascending>
+        <case_sensitive>N</case_sensitive>
+        <collator_enabled>N</collator_enabled>
+        <collator_strength>0</collator_strength>
+        <name>file_directory</name>
+        <presorted>N</presorted>
+      </field>
+      <field>
+        <ascending>Y</ascending>
+        <case_sensitive>N</case_sensitive>
+        <collator_enabled>N</collator_enabled>
+        <collator_strength>0</collator_strength>
+        <name>id_srcfile</name>
+        <presorted>N</presorted>
+      </field>
+      <field>
+        <ascending>Y</ascending>
+        <case_sensitive>N</case_sensitive>
+        <collator_enabled>N</collator_enabled>
+        <collator_strength>0</collator_strength>
+        <name>lastmodifiedtime</name>
+        <presorted>N</presorted>
+      </field>
+    </fields>
+    <sort_size>1000000</sort_size>
+    <unique_rows>N</unique_rows>
+    <attributes/>
+    <GUI>
+      <xloc>576</xloc>
+      <yloc>192</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>source_files_to_load</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>N</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>pdi_meta</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>select     ref_fdir.file_directory
+,          ref_file.file_name as wildcard
+,          ref_file.staging_table_name  as stg_target_table
+,          case
+              when ref_file.file_type = 'fixed' then 'trf_stg_inject_metadata_fixed_file'
+              when ref_file.file_type = 'csv'   then 'trf_stg_inject_metadata_csv_file'
+              else '?'
+           end                            as trf_stg_inject_metadata_to_execute   
+,          ref_file.id_srcfile            as id_srcfile
+from       ref_source_file_directories      ref_fdir
+inner join ref_source_files                 ref_file
+on         ref_fdir.id_srcfile_directory  = ref_file.id_srcfile_directory
+where      ref_fdir.id_srcfile_directory  = ${id_srcfile_directory}
+AND        (   ${var_subruntype} = 0 
+            or ${PROP_DATABASE_STRING_SEARCH_FUNCTION}(concat('|',cast(${var_subruntype} as char),'|'),ref_file.process_in_subruntypes) > 0
+           )
+and        ref_file.ind_current           = 1 </sql>
+    <variables_active>Y</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>96</xloc>
+      <yloc>192</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>

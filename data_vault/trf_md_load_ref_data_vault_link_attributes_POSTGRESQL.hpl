@@ -1,0 +1,1507 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>trf_md_load_ref_data_vault_link_attributes_POSTGRESQL</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description>Load design metadata: link attributes</description>
+    <extended_description>This transformation loads the Data Vault link attributes from the staging table into the ref table.
+</extended_description>
+    <pipeline_version>1.1</pipeline_version>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>2</pipeline_status>
+    <parameters>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user>admin</created_user>
+    <created_date>2011/02/02 21:09:33.000</created_date>
+    <modified_user>admin</modified_user>
+    <modified_date>2018/01/16 10:21:31.206</modified_date>
+  </info>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Ariel</fontname>
+      <fontsize>10</fontsize>
+      <height>22</height>
+      <xloc>64</xloc>
+      <yloc>32</yloc>
+      <note>Description: see transformation settings</note>
+      <width>272</width>
+    </notepad>
+  </notepads>
+  <order>
+    <hop>
+      <from>stg_management_link_attributes</from>
+      <to>ref_data_vault_link_attributes</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>stg_management_link_attributes 2</from>
+      <to>ref_data_vault_link_attributes</to>
+      <enabled>N</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>ref_data_vault_link_attributes</name>
+    <type>InsertUpdate</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <commit>${PROP_COMMIT_SIZE_PDI_META}</commit>
+    <connection>pdi_meta</connection>
+    <lookup>
+      <key>
+        <condition>=</condition>
+        <field>id_data_vault_link</field>
+        <name>id_data_vault_link</name>
+      </key>
+      <key>
+        <condition>=</condition>
+        <field>record_source_id</field>
+        <name>record_source_id</name>
+      </key>
+      <schema/>
+      <table>ref_data_vault_link_attributes</table>
+      <value>
+        <name>id_data_vault_link</name>
+        <rename>id_data_vault_link</rename>
+        <update>N</update>
+      </value>
+      <value>
+        <name>record_source_id</name>
+        <rename>record_source_id</rename>
+        <update>N</update>
+      </value>
+      <value>
+        <name>ind_current</name>
+        <rename>ind_current</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_attributes</name>
+        <rename>link_attributes</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_attributes_dv</name>
+        <rename>link_attributes_dv</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_attributes_concat</name>
+        <rename>link_attributes_concat</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_attributes_concat_dv</name>
+        <rename>link_attributes_concat_dv</rename>
+        <update>Y</update>
+      </value>
+    </lookup>
+    <update_bypassed>N</update_bypassed>
+    <attributes/>
+    <GUI>
+      <xloc>416</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>stg_management_link_attributes</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>pdi_meta</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>select          ref_links.id_data_vault_link
+,               ref_srctab.id_srctab              as record_source_id
+-- ,               ref_rs.record_source_id                as system_source_id
+,               stg_lnka.ind_current
+,               stg_lnka.link_attributes
+,               stg_lnka.link_attributes_dv
+,               stg_lnka.link_attributes_concat
+,               stg_lnka.link_attributes_concat_dv
+from
+(            
+select          iv.link_name
+,               iv.ind_current
+,               iv.source_concat
+,                      attribute_source_column_1||' as '||attribute_target_column_1
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_2, attribute_target_column_2)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_3, attribute_target_column_3)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_4, attribute_target_column_4)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_5, attribute_target_column_5)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_6, attribute_target_column_6)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_7, attribute_target_column_7)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_8, attribute_target_column_8)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_9, attribute_target_column_9)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_10, attribute_target_column_10)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_11, attribute_target_column_11)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_12, attribute_target_column_12)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_13, attribute_target_column_13)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_14, attribute_target_column_14)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_15, attribute_target_column_15)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_16, attribute_target_column_16)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_17, attribute_target_column_17)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_18, attribute_target_column_18)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_19, attribute_target_column_19)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_20, attribute_target_column_20)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_21, attribute_target_column_21)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_22, attribute_target_column_22)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_23, attribute_target_column_23)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_24, attribute_target_column_24)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_25, attribute_target_column_25)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_26, attribute_target_column_26)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_27, attribute_target_column_27)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_28, attribute_target_column_28)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_29, attribute_target_column_29)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_30, attribute_target_column_30)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_31, attribute_target_column_31)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_32, attribute_target_column_32)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_33, attribute_target_column_33)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_34, attribute_target_column_34)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_35, attribute_target_column_35)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_36, attribute_target_column_36)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_37, attribute_target_column_37)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_38, attribute_target_column_38)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_39, attribute_target_column_39)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_40, attribute_target_column_40)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_41, attribute_target_column_41)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_42, attribute_target_column_42)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_43, attribute_target_column_43)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_44, attribute_target_column_44)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_45, attribute_target_column_45)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_46, attribute_target_column_46)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_47, attribute_target_column_47)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_48, attribute_target_column_48)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_49, attribute_target_column_49)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_50, attribute_target_column_50)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_51, attribute_target_column_51)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_52, attribute_target_column_52)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_53, attribute_target_column_53)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_54, attribute_target_column_54)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_55, attribute_target_column_55)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_56, attribute_target_column_56)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_57, attribute_target_column_57)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_58, attribute_target_column_58)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_59, attribute_target_column_59)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_60, attribute_target_column_60)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_61, attribute_target_column_61)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_62, attribute_target_column_62)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_63, attribute_target_column_63)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_64, attribute_target_column_64)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_65, attribute_target_column_65)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_66, attribute_target_column_66)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_67, attribute_target_column_67)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_68, attribute_target_column_68)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_69, attribute_target_column_69)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_70, attribute_target_column_70)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_71, attribute_target_column_71)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_72, attribute_target_column_72)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_73, attribute_target_column_73)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_74, attribute_target_column_74)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_75, attribute_target_column_75)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_76, attribute_target_column_76)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_77, attribute_target_column_77)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_78, attribute_target_column_78)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_79, attribute_target_column_79)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_80, attribute_target_column_80)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_81, attribute_target_column_81)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_82, attribute_target_column_82)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_83, attribute_target_column_83)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_84, attribute_target_column_84)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_85, attribute_target_column_85)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_86, attribute_target_column_86)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_87, attribute_target_column_87)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_88, attribute_target_column_88)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_89, attribute_target_column_89)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_90, attribute_target_column_90)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_91, attribute_target_column_91)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_92, attribute_target_column_92)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_93, attribute_target_column_93)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_94, attribute_target_column_94)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_95, attribute_target_column_95)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_96, attribute_target_column_96)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_97, attribute_target_column_97)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_98, attribute_target_column_98)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_99, attribute_target_column_99)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_100, attribute_target_column_100)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_101, attribute_target_column_101)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_102, attribute_target_column_102)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_103, attribute_target_column_103)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_104, attribute_target_column_104)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_105, attribute_target_column_105)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_106, attribute_target_column_106)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_107, attribute_target_column_107)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_108, attribute_target_column_108)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_109, attribute_target_column_109)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_110, attribute_target_column_110)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_111, attribute_target_column_111)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_112, attribute_target_column_112)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_113, attribute_target_column_113)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_114, attribute_target_column_114)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_115, attribute_target_column_115)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_116, attribute_target_column_116)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_117, attribute_target_column_117)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_118, attribute_target_column_118)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_119, attribute_target_column_119)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_120, attribute_target_column_120)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_121, attribute_target_column_121)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_122, attribute_target_column_122)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_123, attribute_target_column_123)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_124, attribute_target_column_124)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_125, attribute_target_column_125)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_126, attribute_target_column_126)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_127, attribute_target_column_127)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_128, attribute_target_column_128)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_129, attribute_target_column_129)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_130, attribute_target_column_130)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_131, attribute_target_column_131)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_132, attribute_target_column_132)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_133, attribute_target_column_133)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_134, attribute_target_column_134)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_135, attribute_target_column_135)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_136, attribute_target_column_136)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_137, attribute_target_column_137)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_138, attribute_target_column_138)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_139, attribute_target_column_139)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_140, attribute_target_column_140)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_141, attribute_target_column_141)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_142, attribute_target_column_142)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_143, attribute_target_column_143)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_144, attribute_target_column_144)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_145, attribute_target_column_145)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_146, attribute_target_column_146)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_147, attribute_target_column_147)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_148, attribute_target_column_148)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_149, attribute_target_column_149)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_150, attribute_target_column_150)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_151, attribute_target_column_151)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_152, attribute_target_column_152)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_153, attribute_target_column_153)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_154, attribute_target_column_154)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_155, attribute_target_column_155)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_156, attribute_target_column_156)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_157, attribute_target_column_157)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_158, attribute_target_column_158)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_159, attribute_target_column_159)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_160, attribute_target_column_160)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_161, attribute_target_column_161)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_162, attribute_target_column_162)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_163, attribute_target_column_163)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_164, attribute_target_column_164)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_165, attribute_target_column_165)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_166, attribute_target_column_166)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_167, attribute_target_column_167)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_168, attribute_target_column_168)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_169, attribute_target_column_169)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_170, attribute_target_column_170)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_171, attribute_target_column_171)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_172, attribute_target_column_172)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_173, attribute_target_column_173)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_174, attribute_target_column_174)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_175, attribute_target_column_175)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_176, attribute_target_column_176)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_177, attribute_target_column_177)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_178, attribute_target_column_178)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_179, attribute_target_column_179)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_180, attribute_target_column_180)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_181, attribute_target_column_181)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_182, attribute_target_column_182)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_183, attribute_target_column_183)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_184, attribute_target_column_184)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_185, attribute_target_column_185)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_186, attribute_target_column_186)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_187, attribute_target_column_187)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_188, attribute_target_column_188)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_189, attribute_target_column_189)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_190, attribute_target_column_190)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_191, attribute_target_column_191)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_192, attribute_target_column_192)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_193, attribute_target_column_193)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_194, attribute_target_column_194)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_195, attribute_target_column_195)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_196, attribute_target_column_196)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_197, attribute_target_column_197)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_198, attribute_target_column_198)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_199, attribute_target_column_199)
+                     ||pdi_meta.ms_dv_cl_wrp_typ2(attribute_source_column_200, attribute_target_column_200) as link_attributes 
+,                     attribute_target_column_1
+                     ||case when attribute_target_column_2   is not null then concat(',',attribute_target_column_2)   else '' end
+                     ||case when attribute_target_column_3   is not null then concat(',',attribute_target_column_3)   else '' end
+                     ||case when attribute_target_column_4   is not null then concat(',',attribute_target_column_4)   else '' end
+                     ||case when attribute_target_column_5   is not null then concat(',',attribute_target_column_5)   else '' end
+                     ||case when attribute_target_column_6   is not null then concat(',',attribute_target_column_6)   else '' end
+                     ||case when attribute_target_column_7   is not null then concat(',',attribute_target_column_7)   else '' end
+                     ||case when attribute_target_column_8   is not null then concat(',',attribute_target_column_8)   else '' end
+                     ||case when attribute_target_column_9   is not null then concat(',',attribute_target_column_9)   else '' end
+                     ||case when attribute_target_column_10  is not null then concat(',',attribute_target_column_10)  else '' end
+                     ||case when attribute_target_column_11  is not null then concat(',',attribute_target_column_11)  else '' end
+                     ||case when attribute_target_column_12  is not null then concat(',',attribute_target_column_12)  else '' end
+                     ||case when attribute_target_column_13  is not null then concat(',',attribute_target_column_13)  else '' end
+                     ||case when attribute_target_column_14  is not null then concat(',',attribute_target_column_14)  else '' end
+                     ||case when attribute_target_column_15  is not null then concat(',',attribute_target_column_15)  else '' end
+                     ||case when attribute_target_column_16  is not null then concat(',',attribute_target_column_16)  else '' end
+                     ||case when attribute_target_column_17  is not null then concat(',',attribute_target_column_17)  else '' end
+                     ||case when attribute_target_column_18  is not null then concat(',',attribute_target_column_18)  else '' end
+                     ||case when attribute_target_column_19  is not null then concat(',',attribute_target_column_19)  else '' end
+                     ||case when attribute_target_column_20  is not null then concat(',',attribute_target_column_20)  else '' end
+                     ||case when attribute_target_column_21  is not null then concat(',',attribute_target_column_21)  else '' end
+                     ||case when attribute_target_column_22  is not null then concat(',',attribute_target_column_22)  else '' end
+                     ||case when attribute_target_column_23  is not null then concat(',',attribute_target_column_23)  else '' end
+                     ||case when attribute_target_column_24  is not null then concat(',',attribute_target_column_24)  else '' end
+                     ||case when attribute_target_column_25  is not null then concat(',',attribute_target_column_25)  else '' end
+                     ||case when attribute_target_column_26  is not null then concat(',',attribute_target_column_26)  else '' end
+                     ||case when attribute_target_column_27  is not null then concat(',',attribute_target_column_27)  else '' end
+                     ||case when attribute_target_column_28  is not null then concat(',',attribute_target_column_28)  else '' end
+                     ||case when attribute_target_column_29  is not null then concat(',',attribute_target_column_29)  else '' end
+                     ||case when attribute_target_column_30  is not null then concat(',',attribute_target_column_30)  else '' end
+                     ||case when attribute_target_column_31  is not null then concat(',',attribute_target_column_31)  else '' end
+                     ||case when attribute_target_column_32  is not null then concat(',',attribute_target_column_32)  else '' end
+                     ||case when attribute_target_column_33  is not null then concat(',',attribute_target_column_33)  else '' end
+                     ||case when attribute_target_column_34  is not null then concat(',',attribute_target_column_34)  else '' end
+                     ||case when attribute_target_column_35  is not null then concat(',',attribute_target_column_35)  else '' end
+                     ||case when attribute_target_column_36  is not null then concat(',',attribute_target_column_36)  else '' end
+                     ||case when attribute_target_column_37  is not null then concat(',',attribute_target_column_37)  else '' end
+                     ||case when attribute_target_column_38  is not null then concat(',',attribute_target_column_38)  else '' end
+                     ||case when attribute_target_column_39  is not null then concat(',',attribute_target_column_39)  else '' end
+                     ||case when attribute_target_column_40  is not null then concat(',',attribute_target_column_40)  else '' end
+                     ||case when attribute_target_column_41  is not null then concat(',',attribute_target_column_41)  else '' end
+                     ||case when attribute_target_column_42  is not null then concat(',',attribute_target_column_42)  else '' end
+                     ||case when attribute_target_column_43  is not null then concat(',',attribute_target_column_43)  else '' end
+                     ||case when attribute_target_column_44  is not null then concat(',',attribute_target_column_44)  else '' end
+                     ||case when attribute_target_column_45  is not null then concat(',',attribute_target_column_45)  else '' end
+                     ||case when attribute_target_column_46  is not null then concat(',',attribute_target_column_46)  else '' end
+                     ||case when attribute_target_column_47  is not null then concat(',',attribute_target_column_47)  else '' end
+                     ||case when attribute_target_column_48  is not null then concat(',',attribute_target_column_48)  else '' end
+                     ||case when attribute_target_column_49  is not null then concat(',',attribute_target_column_49)  else '' end
+                     ||case when attribute_target_column_50  is not null then concat(',',attribute_target_column_50)  else '' end                 
+                     ||case when attribute_target_column_51   is not null then concat(',',attribute_target_column_51)   else '' end
+                     ||case when attribute_target_column_52   is not null then concat(',',attribute_target_column_52)   else '' end
+                     ||case when attribute_target_column_53   is not null then concat(',',attribute_target_column_53)   else '' end
+                     ||case when attribute_target_column_54   is not null then concat(',',attribute_target_column_54)   else '' end
+                     ||case when attribute_target_column_55   is not null then concat(',',attribute_target_column_55)   else '' end
+                     ||case when attribute_target_column_56   is not null then concat(',',attribute_target_column_56)   else '' end
+                     ||case when attribute_target_column_57   is not null then concat(',',attribute_target_column_57)   else '' end
+                     ||case when attribute_target_column_58   is not null then concat(',',attribute_target_column_58)   else '' end
+                     ||case when attribute_target_column_59   is not null then concat(',',attribute_target_column_59)   else '' end
+                     ||case when attribute_target_column_60   is not null then concat(',',attribute_target_column_60)   else '' end
+                     ||case when attribute_target_column_61   is not null then concat(',',attribute_target_column_61)   else '' end
+                     ||case when attribute_target_column_62   is not null then concat(',',attribute_target_column_62)   else '' end
+                     ||case when attribute_target_column_63   is not null then concat(',',attribute_target_column_63)   else '' end
+                     ||case when attribute_target_column_64   is not null then concat(',',attribute_target_column_64)   else '' end
+                     ||case when attribute_target_column_65   is not null then concat(',',attribute_target_column_65)   else '' end
+                     ||case when attribute_target_column_66   is not null then concat(',',attribute_target_column_66)   else '' end
+                     ||case when attribute_target_column_67   is not null then concat(',',attribute_target_column_67)   else '' end
+                     ||case when attribute_target_column_68   is not null then concat(',',attribute_target_column_68)   else '' end
+                     ||case when attribute_target_column_69   is not null then concat(',',attribute_target_column_69)   else '' end
+                     ||case when attribute_target_column_70   is not null then concat(',',attribute_target_column_70)   else '' end
+                     ||case when attribute_target_column_71   is not null then concat(',',attribute_target_column_71)   else '' end
+                     ||case when attribute_target_column_72   is not null then concat(',',attribute_target_column_72)   else '' end
+                     ||case when attribute_target_column_73   is not null then concat(',',attribute_target_column_73)   else '' end
+                     ||case when attribute_target_column_74   is not null then concat(',',attribute_target_column_74)   else '' end
+                     ||case when attribute_target_column_75   is not null then concat(',',attribute_target_column_75)   else '' end
+                     ||case when attribute_target_column_76   is not null then concat(',',attribute_target_column_76)   else '' end
+                     ||case when attribute_target_column_77   is not null then concat(',',attribute_target_column_77)   else '' end
+                     ||case when attribute_target_column_78   is not null then concat(',',attribute_target_column_78)   else '' end
+                     ||case when attribute_target_column_79   is not null then concat(',',attribute_target_column_79)   else '' end
+                     ||case when attribute_target_column_80   is not null then concat(',',attribute_target_column_80)   else '' end
+                     ||case when attribute_target_column_81   is not null then concat(',',attribute_target_column_81)   else '' end
+                     ||case when attribute_target_column_82   is not null then concat(',',attribute_target_column_82)   else '' end
+                     ||case when attribute_target_column_83   is not null then concat(',',attribute_target_column_83)   else '' end
+                     ||case when attribute_target_column_84   is not null then concat(',',attribute_target_column_84)   else '' end
+                     ||case when attribute_target_column_85   is not null then concat(',',attribute_target_column_85)   else '' end
+                     ||case when attribute_target_column_86   is not null then concat(',',attribute_target_column_86)   else '' end
+                     ||case when attribute_target_column_87   is not null then concat(',',attribute_target_column_87)   else '' end
+                     ||case when attribute_target_column_88   is not null then concat(',',attribute_target_column_88)   else '' end
+                     ||case when attribute_target_column_89   is not null then concat(',',attribute_target_column_89)   else '' end
+                     ||case when attribute_target_column_90   is not null then concat(',',attribute_target_column_90)   else '' end
+                     ||case when attribute_target_column_91   is not null then concat(',',attribute_target_column_91)   else '' end
+                     ||case when attribute_target_column_92   is not null then concat(',',attribute_target_column_92)   else '' end
+                     ||case when attribute_target_column_93   is not null then concat(',',attribute_target_column_93)   else '' end
+                     ||case when attribute_target_column_94   is not null then concat(',',attribute_target_column_94)   else '' end
+                     ||case when attribute_target_column_95   is not null then concat(',',attribute_target_column_95)   else '' end
+                     ||case when attribute_target_column_96   is not null then concat(',',attribute_target_column_96)   else '' end
+                     ||case when attribute_target_column_97   is not null then concat(',',attribute_target_column_97)   else '' end
+                     ||case when attribute_target_column_98   is not null then concat(',',attribute_target_column_98)   else '' end
+                     ||case when attribute_target_column_99   is not null then concat(',',attribute_target_column_99)   else '' end
+                     ||case when attribute_target_column_100   is not null then concat(',',attribute_target_column_100)   else '' end
+                     ||case when attribute_target_column_101   is not null then concat(',',attribute_target_column_101)   else '' end
+                     ||case when attribute_target_column_102   is not null then concat(',',attribute_target_column_102)   else '' end
+                     ||case when attribute_target_column_103   is not null then concat(',',attribute_target_column_103)   else '' end
+                     ||case when attribute_target_column_104   is not null then concat(',',attribute_target_column_104)   else '' end
+                     ||case when attribute_target_column_105   is not null then concat(',',attribute_target_column_105)   else '' end
+                     ||case when attribute_target_column_106   is not null then concat(',',attribute_target_column_106)   else '' end
+                     ||case when attribute_target_column_107   is not null then concat(',',attribute_target_column_107)   else '' end
+                     ||case when attribute_target_column_108   is not null then concat(',',attribute_target_column_108)   else '' end
+                     ||case when attribute_target_column_109   is not null then concat(',',attribute_target_column_109)   else '' end
+                     ||case when attribute_target_column_110   is not null then concat(',',attribute_target_column_110)   else '' end
+                     ||case when attribute_target_column_111   is not null then concat(',',attribute_target_column_111)   else '' end
+                     ||case when attribute_target_column_112   is not null then concat(',',attribute_target_column_112)   else '' end
+                     ||case when attribute_target_column_113   is not null then concat(',',attribute_target_column_113)   else '' end
+                     ||case when attribute_target_column_114   is not null then concat(',',attribute_target_column_114)   else '' end
+                     ||case when attribute_target_column_115   is not null then concat(',',attribute_target_column_115)   else '' end
+                     ||case when attribute_target_column_116   is not null then concat(',',attribute_target_column_116)   else '' end
+                     ||case when attribute_target_column_117   is not null then concat(',',attribute_target_column_117)   else '' end
+                     ||case when attribute_target_column_118   is not null then concat(',',attribute_target_column_118)   else '' end
+                     ||case when attribute_target_column_119   is not null then concat(',',attribute_target_column_119)   else '' end
+                     ||case when attribute_target_column_120   is not null then concat(',',attribute_target_column_120)   else '' end
+                     ||case when attribute_target_column_121   is not null then concat(',',attribute_target_column_121)   else '' end
+                     ||case when attribute_target_column_122   is not null then concat(',',attribute_target_column_122)   else '' end
+                     ||case when attribute_target_column_123   is not null then concat(',',attribute_target_column_123)   else '' end
+                     ||case when attribute_target_column_124   is not null then concat(',',attribute_target_column_124)   else '' end
+                     ||case when attribute_target_column_125   is not null then concat(',',attribute_target_column_125)   else '' end
+                     ||case when attribute_target_column_126   is not null then concat(',',attribute_target_column_126)   else '' end
+                     ||case when attribute_target_column_127   is not null then concat(',',attribute_target_column_127)   else '' end
+                     ||case when attribute_target_column_128   is not null then concat(',',attribute_target_column_128)   else '' end
+                     ||case when attribute_target_column_129   is not null then concat(',',attribute_target_column_129)   else '' end
+                     ||case when attribute_target_column_130   is not null then concat(',',attribute_target_column_130)   else '' end
+                     ||case when attribute_target_column_131   is not null then concat(',',attribute_target_column_131)   else '' end
+                     ||case when attribute_target_column_132   is not null then concat(',',attribute_target_column_132)   else '' end
+                     ||case when attribute_target_column_133   is not null then concat(',',attribute_target_column_133)   else '' end
+                     ||case when attribute_target_column_134   is not null then concat(',',attribute_target_column_134)   else '' end
+                     ||case when attribute_target_column_135   is not null then concat(',',attribute_target_column_135)   else '' end
+                     ||case when attribute_target_column_136   is not null then concat(',',attribute_target_column_136)   else '' end
+                     ||case when attribute_target_column_137   is not null then concat(',',attribute_target_column_137)   else '' end
+                     ||case when attribute_target_column_138   is not null then concat(',',attribute_target_column_138)   else '' end
+                     ||case when attribute_target_column_139   is not null then concat(',',attribute_target_column_139)   else '' end
+                     ||case when attribute_target_column_140   is not null then concat(',',attribute_target_column_140)   else '' end
+                     ||case when attribute_target_column_141   is not null then concat(',',attribute_target_column_141)   else '' end
+                     ||case when attribute_target_column_142   is not null then concat(',',attribute_target_column_142)   else '' end
+                     ||case when attribute_target_column_143   is not null then concat(',',attribute_target_column_143)   else '' end
+                     ||case when attribute_target_column_144   is not null then concat(',',attribute_target_column_144)   else '' end
+                     ||case when attribute_target_column_145   is not null then concat(',',attribute_target_column_145)   else '' end
+                     ||case when attribute_target_column_146   is not null then concat(',',attribute_target_column_146)   else '' end
+                     ||case when attribute_target_column_147   is not null then concat(',',attribute_target_column_147)   else '' end
+                     ||case when attribute_target_column_148   is not null then concat(',',attribute_target_column_148)   else '' end
+                     ||case when attribute_target_column_149   is not null then concat(',',attribute_target_column_149)   else '' end
+                     ||case when attribute_target_column_150   is not null then concat(',',attribute_target_column_150)   else '' end
+                     ||case when attribute_target_column_151   is not null then concat(',',attribute_target_column_151)   else '' end
+                     ||case when attribute_target_column_152   is not null then concat(',',attribute_target_column_152)   else '' end
+                     ||case when attribute_target_column_153   is not null then concat(',',attribute_target_column_153)   else '' end
+                     ||case when attribute_target_column_154   is not null then concat(',',attribute_target_column_154)   else '' end
+                     ||case when attribute_target_column_155   is not null then concat(',',attribute_target_column_155)   else '' end
+                     ||case when attribute_target_column_156   is not null then concat(',',attribute_target_column_156)   else '' end
+                     ||case when attribute_target_column_157   is not null then concat(',',attribute_target_column_157)   else '' end
+                     ||case when attribute_target_column_158   is not null then concat(',',attribute_target_column_158)   else '' end
+                     ||case when attribute_target_column_159   is not null then concat(',',attribute_target_column_159)   else '' end
+                     ||case when attribute_target_column_160   is not null then concat(',',attribute_target_column_160)   else '' end
+                     ||case when attribute_target_column_161   is not null then concat(',',attribute_target_column_161)   else '' end
+                     ||case when attribute_target_column_162   is not null then concat(',',attribute_target_column_162)   else '' end
+                     ||case when attribute_target_column_163   is not null then concat(',',attribute_target_column_163)   else '' end
+                     ||case when attribute_target_column_164   is not null then concat(',',attribute_target_column_164)   else '' end
+                     ||case when attribute_target_column_165   is not null then concat(',',attribute_target_column_165)   else '' end
+                     ||case when attribute_target_column_166   is not null then concat(',',attribute_target_column_166)   else '' end
+                     ||case when attribute_target_column_167   is not null then concat(',',attribute_target_column_167)   else '' end
+                     ||case when attribute_target_column_168   is not null then concat(',',attribute_target_column_168)   else '' end
+                     ||case when attribute_target_column_169   is not null then concat(',',attribute_target_column_169)   else '' end
+                     ||case when attribute_target_column_170   is not null then concat(',',attribute_target_column_170)   else '' end
+                     ||case when attribute_target_column_171   is not null then concat(',',attribute_target_column_171)   else '' end
+                     ||case when attribute_target_column_172   is not null then concat(',',attribute_target_column_172)   else '' end
+                     ||case when attribute_target_column_173   is not null then concat(',',attribute_target_column_173)   else '' end
+                     ||case when attribute_target_column_174   is not null then concat(',',attribute_target_column_174)   else '' end
+                     ||case when attribute_target_column_175   is not null then concat(',',attribute_target_column_175)   else '' end
+                     ||case when attribute_target_column_176   is not null then concat(',',attribute_target_column_176)   else '' end
+                     ||case when attribute_target_column_177   is not null then concat(',',attribute_target_column_177)   else '' end
+                     ||case when attribute_target_column_178   is not null then concat(',',attribute_target_column_178)   else '' end
+                     ||case when attribute_target_column_179   is not null then concat(',',attribute_target_column_179)   else '' end
+                     ||case when attribute_target_column_180   is not null then concat(',',attribute_target_column_180)   else '' end
+                     ||case when attribute_target_column_181   is not null then concat(',',attribute_target_column_181)   else '' end
+                     ||case when attribute_target_column_182   is not null then concat(',',attribute_target_column_182)   else '' end
+                     ||case when attribute_target_column_183   is not null then concat(',',attribute_target_column_183)   else '' end
+                     ||case when attribute_target_column_184   is not null then concat(',',attribute_target_column_184)   else '' end
+                     ||case when attribute_target_column_185   is not null then concat(',',attribute_target_column_185)   else '' end
+                     ||case when attribute_target_column_186   is not null then concat(',',attribute_target_column_186)   else '' end
+                     ||case when attribute_target_column_187   is not null then concat(',',attribute_target_column_187)   else '' end
+                     ||case when attribute_target_column_188   is not null then concat(',',attribute_target_column_188)   else '' end
+                     ||case when attribute_target_column_189   is not null then concat(',',attribute_target_column_189)   else '' end
+                     ||case when attribute_target_column_190   is not null then concat(',',attribute_target_column_190)   else '' end
+                     ||case when attribute_target_column_191   is not null then concat(',',attribute_target_column_191)   else '' end
+                     ||case when attribute_target_column_192   is not null then concat(',',attribute_target_column_192)   else '' end
+                     ||case when attribute_target_column_193   is not null then concat(',',attribute_target_column_193)   else '' end
+                     ||case when attribute_target_column_194   is not null then concat(',',attribute_target_column_194)   else '' end
+                     ||case when attribute_target_column_195   is not null then concat(',',attribute_target_column_195)   else '' end
+                     ||case when attribute_target_column_196   is not null then concat(',',attribute_target_column_196)   else '' end
+                     ||case when attribute_target_column_197   is not null then concat(',',attribute_target_column_197)   else '' end
+                     ||case when attribute_target_column_198   is not null then concat(',',attribute_target_column_198)   else '' end
+                     ||case when attribute_target_column_199   is not null then concat(',',attribute_target_column_199)   else '' end
+                     ||case when attribute_target_column_200   is not null then concat(',',attribute_target_column_200)   else '' end as link_attributes_dv 
+,                      replace(pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_1),'||''${CDC_DEL}''||','')
+                    || pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_2)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_3)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_4)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_5)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_6)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_7)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_8)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_9)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_10)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_11)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_12)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_13)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_14)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_15)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_16)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_17)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_18)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_19)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_20)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_21)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_22)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_23)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_24)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_25)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_26)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_27)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_28)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_29)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_30)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_31)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_32)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_33)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_34)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_35)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_36)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_37)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_38)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_39)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_40)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_41)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_42)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_43)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_44)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_45)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_46)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_47)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_48)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_49)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_50)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_51)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_52)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_53)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_54)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_55)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_56)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_57)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_58)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_59)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_60)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_61)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_62)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_63)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_64)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_65)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_66)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_67)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_68)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_69)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_70)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_71)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_72)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_73)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_74)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_75)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_76)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_77)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_78)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_79)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_80)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_81)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_82)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_83)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_84)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_85)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_86)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_87)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_88)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_89)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_90)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_91)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_92)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_93)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_94)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_95)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_96)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_97)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_98)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_99)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_100)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_101)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_102)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_103)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_104)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_105)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_106)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_107)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_108)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_109)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_110)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_111)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_112)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_113)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_114)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_115)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_116)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_117)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_118)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_119)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_120)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_121)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_122)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_123)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_124)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_125)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_126)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_127)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_128)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_129)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_130)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_131)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_132)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_133)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_134)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_135)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_136)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_137)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_138)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_139)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_140)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_141)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_142)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_143)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_144)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_145)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_146)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_147)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_148)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_149)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_150)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_151)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_152)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_153)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_154)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_155)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_156)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_157)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_158)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_159)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_160)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_161)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_162)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_163)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_164)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_165)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_166)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_167)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_168)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_169)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_170)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_171)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_172)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_173)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_174)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_175)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_176)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_177)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_178)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_179)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_180)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_181)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_182)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_183)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_184)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_185)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_186)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_187)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_188)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_189)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_190)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_191)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_192)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_193)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_194)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_195)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_196)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_197)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_198)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_199)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_source_column_200)
+                       as link_attributes_concat   
+,                      replace(pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_1),'||''${CDC_DEL}''||','')
+                    || pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_2)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_3)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_4)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_5)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_6)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_7)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_8)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_9)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_10)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_11)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_12)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_13)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_14)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_15)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_16)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_17)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_18)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_19)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_20)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_21)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_22)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_23)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_24)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_25)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_26)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_27)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_28)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_29)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_30)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_31)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_32)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_33)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_34)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_35)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_36)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_37)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_38)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_39)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_40)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_41)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_42)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_43)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_44)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_45)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_46)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_47)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_48)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_49)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_50)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_51)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_52)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_53)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_54)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_55)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_56)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_57)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_58)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_59)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_60)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_61)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_62)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_63)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_64)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_65)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_66)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_67)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_68)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_69)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_70)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_71)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_72)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_73)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_74)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_75)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_76)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_77)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_78)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_79)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_80)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_81)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_82)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_83)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_84)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_85)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_86)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_87)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_88)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_89)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_90)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_91)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_92)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_93)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_94)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_95)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_96)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_97)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_98)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_99)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_100)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_101)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_102)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_103)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_104)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_105)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_106)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_107)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_108)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_109)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_110)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_111)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_112)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_113)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_114)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_115)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_116)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_117)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_118)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_119)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_120)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_121)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_122)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_123)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_124)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_125)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_126)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_127)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_128)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_129)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_130)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_131)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_132)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_133)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_134)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_135)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_136)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_137)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_138)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_139)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_140)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_141)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_142)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_143)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_144)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_145)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_146)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_147)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_148)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_149)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_150)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_151)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_152)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_153)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_154)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_155)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_156)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_157)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_158)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_159)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_160)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_161)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_162)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_163)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_164)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_165)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_166)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_167)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_168)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_169)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_170)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_171)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_172)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_173)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_174)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_175)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_176)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_177)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_178)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_179)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_180)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_181)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_182)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_183)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_184)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_185)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_186)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_187)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_188)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_189)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_190)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_191)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_192)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_193)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_194)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_195)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_196)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_197)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_198)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_199)
+|| pdi_meta.ms_dv_cl_wrp_typ1(attribute_target_column_200)  
+                       as link_attributes_concat_dv         
+from
+(select         lnka.link_name
+,               lnka.ind_current    
+,               lnka.source_concat 
+,               max(case when lnka.attribute_number =  1 then lnka.attribute_source_column else null end) as attribute_source_column_1
+,               max(case when lnka.attribute_number =  2 then lnka.attribute_source_column else null end) as attribute_source_column_2
+,               max(case when lnka.attribute_number =  3 then lnka.attribute_source_column else null end) as attribute_source_column_3
+,               max(case when lnka.attribute_number =  4 then lnka.attribute_source_column else null end) as attribute_source_column_4
+,               max(case when lnka.attribute_number =  5 then lnka.attribute_source_column else null end) as attribute_source_column_5
+,               max(case when lnka.attribute_number =  6 then lnka.attribute_source_column else null end) as attribute_source_column_6
+,               max(case when lnka.attribute_number =  7 then lnka.attribute_source_column else null end) as attribute_source_column_7
+,               max(case when lnka.attribute_number =  8 then lnka.attribute_source_column else null end) as attribute_source_column_8
+,               max(case when lnka.attribute_number =  9 then lnka.attribute_source_column else null end) as attribute_source_column_9
+,               max(case when lnka.attribute_number =  10 then lnka.attribute_source_column else null end) as attribute_source_column_10
+,               max(case when lnka.attribute_number =  11 then lnka.attribute_source_column else null end) as attribute_source_column_11
+,               max(case when lnka.attribute_number =  12 then lnka.attribute_source_column else null end) as attribute_source_column_12
+,               max(case when lnka.attribute_number =  13 then lnka.attribute_source_column else null end) as attribute_source_column_13
+,               max(case when lnka.attribute_number =  14 then lnka.attribute_source_column else null end) as attribute_source_column_14
+,               max(case when lnka.attribute_number =  15 then lnka.attribute_source_column else null end) as attribute_source_column_15
+,               max(case when lnka.attribute_number =  16 then lnka.attribute_source_column else null end) as attribute_source_column_16
+,               max(case when lnka.attribute_number =  17 then lnka.attribute_source_column else null end) as attribute_source_column_17
+,               max(case when lnka.attribute_number =  18 then lnka.attribute_source_column else null end) as attribute_source_column_18
+,               max(case when lnka.attribute_number =  19 then lnka.attribute_source_column else null end) as attribute_source_column_19
+,               max(case when lnka.attribute_number =  20 then lnka.attribute_source_column else null end) as attribute_source_column_20
+,               max(case when lnka.attribute_number =  21 then lnka.attribute_source_column else null end) as attribute_source_column_21
+,               max(case when lnka.attribute_number =  22 then lnka.attribute_source_column else null end) as attribute_source_column_22
+,               max(case when lnka.attribute_number =  23 then lnka.attribute_source_column else null end) as attribute_source_column_23
+,               max(case when lnka.attribute_number =  24 then lnka.attribute_source_column else null end) as attribute_source_column_24
+,               max(case when lnka.attribute_number =  25 then lnka.attribute_source_column else null end) as attribute_source_column_25
+,               max(case when lnka.attribute_number =  26 then lnka.attribute_source_column else null end) as attribute_source_column_26
+,               max(case when lnka.attribute_number =  27 then lnka.attribute_source_column else null end) as attribute_source_column_27
+,               max(case when lnka.attribute_number =  28 then lnka.attribute_source_column else null end) as attribute_source_column_28
+,               max(case when lnka.attribute_number =  29 then lnka.attribute_source_column else null end) as attribute_source_column_29
+,               max(case when lnka.attribute_number =  30 then lnka.attribute_source_column else null end) as attribute_source_column_30
+,               max(case when lnka.attribute_number =  31 then lnka.attribute_source_column else null end) as attribute_source_column_31
+,               max(case when lnka.attribute_number =  32 then lnka.attribute_source_column else null end) as attribute_source_column_32
+,               max(case when lnka.attribute_number =  33 then lnka.attribute_source_column else null end) as attribute_source_column_33
+,               max(case when lnka.attribute_number =  34 then lnka.attribute_source_column else null end) as attribute_source_column_34
+,               max(case when lnka.attribute_number =  35 then lnka.attribute_source_column else null end) as attribute_source_column_35
+,               max(case when lnka.attribute_number =  36 then lnka.attribute_source_column else null end) as attribute_source_column_36
+,               max(case when lnka.attribute_number =  37 then lnka.attribute_source_column else null end) as attribute_source_column_37
+,               max(case when lnka.attribute_number =  38 then lnka.attribute_source_column else null end) as attribute_source_column_38
+,               max(case when lnka.attribute_number =  39 then lnka.attribute_source_column else null end) as attribute_source_column_39
+,               max(case when lnka.attribute_number =  40 then lnka.attribute_source_column else null end) as attribute_source_column_40
+,               max(case when lnka.attribute_number =  41 then lnka.attribute_source_column else null end) as attribute_source_column_41
+,               max(case when lnka.attribute_number =  42 then lnka.attribute_source_column else null end) as attribute_source_column_42
+,               max(case when lnka.attribute_number =  43 then lnka.attribute_source_column else null end) as attribute_source_column_43
+,               max(case when lnka.attribute_number =  44 then lnka.attribute_source_column else null end) as attribute_source_column_44
+,               max(case when lnka.attribute_number =  45 then lnka.attribute_source_column else null end) as attribute_source_column_45
+,               max(case when lnka.attribute_number =  46 then lnka.attribute_source_column else null end) as attribute_source_column_46
+,               max(case when lnka.attribute_number =  47 then lnka.attribute_source_column else null end) as attribute_source_column_47
+,               max(case when lnka.attribute_number =  48 then lnka.attribute_source_column else null end) as attribute_source_column_48
+,               max(case when lnka.attribute_number =  49 then lnka.attribute_source_column else null end) as attribute_source_column_49
+,               max(case when lnka.attribute_number =  50 then lnka.attribute_source_column else null end) as attribute_source_column_50
+,               max(case when lnka.attribute_number =  51 then lnka.attribute_source_column else null end) as attribute_source_column_51
+,               max(case when lnka.attribute_number =  52 then lnka.attribute_source_column else null end) as attribute_source_column_52
+,               max(case when lnka.attribute_number =  53 then lnka.attribute_source_column else null end) as attribute_source_column_53
+,               max(case when lnka.attribute_number =  54 then lnka.attribute_source_column else null end) as attribute_source_column_54
+,               max(case when lnka.attribute_number =  55 then lnka.attribute_source_column else null end) as attribute_source_column_55
+,               max(case when lnka.attribute_number =  56 then lnka.attribute_source_column else null end) as attribute_source_column_56
+,               max(case when lnka.attribute_number =  57 then lnka.attribute_source_column else null end) as attribute_source_column_57
+,               max(case when lnka.attribute_number =  58 then lnka.attribute_source_column else null end) as attribute_source_column_58
+,               max(case when lnka.attribute_number =  59 then lnka.attribute_source_column else null end) as attribute_source_column_59
+,               max(case when lnka.attribute_number =  60 then lnka.attribute_source_column else null end) as attribute_source_column_60
+,               max(case when lnka.attribute_number =  61 then lnka.attribute_source_column else null end) as attribute_source_column_61
+,               max(case when lnka.attribute_number =  62 then lnka.attribute_source_column else null end) as attribute_source_column_62
+,               max(case when lnka.attribute_number =  63 then lnka.attribute_source_column else null end) as attribute_source_column_63
+,               max(case when lnka.attribute_number =  64 then lnka.attribute_source_column else null end) as attribute_source_column_64
+,               max(case when lnka.attribute_number =  65 then lnka.attribute_source_column else null end) as attribute_source_column_65
+,               max(case when lnka.attribute_number =  66 then lnka.attribute_source_column else null end) as attribute_source_column_66
+,               max(case when lnka.attribute_number =  67 then lnka.attribute_source_column else null end) as attribute_source_column_67
+,               max(case when lnka.attribute_number =  68 then lnka.attribute_source_column else null end) as attribute_source_column_68
+,               max(case when lnka.attribute_number =  69 then lnka.attribute_source_column else null end) as attribute_source_column_69
+,               max(case when lnka.attribute_number =  70 then lnka.attribute_source_column else null end) as attribute_source_column_70
+,               max(case when lnka.attribute_number =  71 then lnka.attribute_source_column else null end) as attribute_source_column_71
+,               max(case when lnka.attribute_number =  72 then lnka.attribute_source_column else null end) as attribute_source_column_72
+,               max(case when lnka.attribute_number =  73 then lnka.attribute_source_column else null end) as attribute_source_column_73
+,               max(case when lnka.attribute_number =  74 then lnka.attribute_source_column else null end) as attribute_source_column_74
+,               max(case when lnka.attribute_number =  75 then lnka.attribute_source_column else null end) as attribute_source_column_75
+,               max(case when lnka.attribute_number =  76 then lnka.attribute_source_column else null end) as attribute_source_column_76
+,               max(case when lnka.attribute_number =  77 then lnka.attribute_source_column else null end) as attribute_source_column_77
+,               max(case when lnka.attribute_number =  78 then lnka.attribute_source_column else null end) as attribute_source_column_78
+,               max(case when lnka.attribute_number =  79 then lnka.attribute_source_column else null end) as attribute_source_column_79
+,               max(case when lnka.attribute_number =  80 then lnka.attribute_source_column else null end) as attribute_source_column_80
+,               max(case when lnka.attribute_number =  81 then lnka.attribute_source_column else null end) as attribute_source_column_81
+,               max(case when lnka.attribute_number =  82 then lnka.attribute_source_column else null end) as attribute_source_column_82
+,               max(case when lnka.attribute_number =  83 then lnka.attribute_source_column else null end) as attribute_source_column_83
+,               max(case when lnka.attribute_number =  84 then lnka.attribute_source_column else null end) as attribute_source_column_84
+,               max(case when lnka.attribute_number =  85 then lnka.attribute_source_column else null end) as attribute_source_column_85
+,               max(case when lnka.attribute_number =  86 then lnka.attribute_source_column else null end) as attribute_source_column_86
+,               max(case when lnka.attribute_number =  87 then lnka.attribute_source_column else null end) as attribute_source_column_87
+,               max(case when lnka.attribute_number =  88 then lnka.attribute_source_column else null end) as attribute_source_column_88
+,               max(case when lnka.attribute_number =  89 then lnka.attribute_source_column else null end) as attribute_source_column_89
+,               max(case when lnka.attribute_number =  90 then lnka.attribute_source_column else null end) as attribute_source_column_90
+,               max(case when lnka.attribute_number =  91 then lnka.attribute_source_column else null end) as attribute_source_column_91
+,               max(case when lnka.attribute_number =  92 then lnka.attribute_source_column else null end) as attribute_source_column_92
+,               max(case when lnka.attribute_number =  93 then lnka.attribute_source_column else null end) as attribute_source_column_93
+,               max(case when lnka.attribute_number =  94 then lnka.attribute_source_column else null end) as attribute_source_column_94
+,               max(case when lnka.attribute_number =  95 then lnka.attribute_source_column else null end) as attribute_source_column_95
+,               max(case when lnka.attribute_number =  96 then lnka.attribute_source_column else null end) as attribute_source_column_96
+,               max(case when lnka.attribute_number =  97 then lnka.attribute_source_column else null end) as attribute_source_column_97
+,               max(case when lnka.attribute_number =  98 then lnka.attribute_source_column else null end) as attribute_source_column_98
+,               max(case when lnka.attribute_number =  99 then lnka.attribute_source_column else null end) as attribute_source_column_99
+,               max(case when lnka.attribute_number =  100 then lnka.attribute_source_column else null end) as attribute_source_column_100
+,               max(case when lnka.attribute_number =  101 then lnka.attribute_source_column else null end) as attribute_source_column_101
+,               max(case when lnka.attribute_number =  102 then lnka.attribute_source_column else null end) as attribute_source_column_102
+,               max(case when lnka.attribute_number =  103 then lnka.attribute_source_column else null end) as attribute_source_column_103
+,               max(case when lnka.attribute_number =  104 then lnka.attribute_source_column else null end) as attribute_source_column_104
+,               max(case when lnka.attribute_number =  105 then lnka.attribute_source_column else null end) as attribute_source_column_105
+,               max(case when lnka.attribute_number =  106 then lnka.attribute_source_column else null end) as attribute_source_column_106
+,               max(case when lnka.attribute_number =  107 then lnka.attribute_source_column else null end) as attribute_source_column_107
+,               max(case when lnka.attribute_number =  108 then lnka.attribute_source_column else null end) as attribute_source_column_108
+,               max(case when lnka.attribute_number =  109 then lnka.attribute_source_column else null end) as attribute_source_column_109
+,               max(case when lnka.attribute_number =  110 then lnka.attribute_source_column else null end) as attribute_source_column_110
+,               max(case when lnka.attribute_number =  111 then lnka.attribute_source_column else null end) as attribute_source_column_111
+,               max(case when lnka.attribute_number =  112 then lnka.attribute_source_column else null end) as attribute_source_column_112
+,               max(case when lnka.attribute_number =  113 then lnka.attribute_source_column else null end) as attribute_source_column_113
+,               max(case when lnka.attribute_number =  114 then lnka.attribute_source_column else null end) as attribute_source_column_114
+,               max(case when lnka.attribute_number =  115 then lnka.attribute_source_column else null end) as attribute_source_column_115
+,               max(case when lnka.attribute_number =  116 then lnka.attribute_source_column else null end) as attribute_source_column_116
+,               max(case when lnka.attribute_number =  117 then lnka.attribute_source_column else null end) as attribute_source_column_117
+,               max(case when lnka.attribute_number =  118 then lnka.attribute_source_column else null end) as attribute_source_column_118
+,               max(case when lnka.attribute_number =  119 then lnka.attribute_source_column else null end) as attribute_source_column_119
+,               max(case when lnka.attribute_number =  120 then lnka.attribute_source_column else null end) as attribute_source_column_120
+,               max(case when lnka.attribute_number =  121 then lnka.attribute_source_column else null end) as attribute_source_column_121
+,               max(case when lnka.attribute_number =  122 then lnka.attribute_source_column else null end) as attribute_source_column_122
+,               max(case when lnka.attribute_number =  123 then lnka.attribute_source_column else null end) as attribute_source_column_123
+,               max(case when lnka.attribute_number =  124 then lnka.attribute_source_column else null end) as attribute_source_column_124
+,               max(case when lnka.attribute_number =  125 then lnka.attribute_source_column else null end) as attribute_source_column_125
+,               max(case when lnka.attribute_number =  126 then lnka.attribute_source_column else null end) as attribute_source_column_126
+,               max(case when lnka.attribute_number =  127 then lnka.attribute_source_column else null end) as attribute_source_column_127
+,               max(case when lnka.attribute_number =  128 then lnka.attribute_source_column else null end) as attribute_source_column_128
+,               max(case when lnka.attribute_number =  129 then lnka.attribute_source_column else null end) as attribute_source_column_129
+,               max(case when lnka.attribute_number =  130 then lnka.attribute_source_column else null end) as attribute_source_column_130
+,               max(case when lnka.attribute_number =  131 then lnka.attribute_source_column else null end) as attribute_source_column_131
+,               max(case when lnka.attribute_number =  132 then lnka.attribute_source_column else null end) as attribute_source_column_132
+,               max(case when lnka.attribute_number =  133 then lnka.attribute_source_column else null end) as attribute_source_column_133
+,               max(case when lnka.attribute_number =  134 then lnka.attribute_source_column else null end) as attribute_source_column_134
+,               max(case when lnka.attribute_number =  135 then lnka.attribute_source_column else null end) as attribute_source_column_135
+,               max(case when lnka.attribute_number =  136 then lnka.attribute_source_column else null end) as attribute_source_column_136
+,               max(case when lnka.attribute_number =  137 then lnka.attribute_source_column else null end) as attribute_source_column_137
+,               max(case when lnka.attribute_number =  138 then lnka.attribute_source_column else null end) as attribute_source_column_138
+,               max(case when lnka.attribute_number =  139 then lnka.attribute_source_column else null end) as attribute_source_column_139
+,               max(case when lnka.attribute_number =  140 then lnka.attribute_source_column else null end) as attribute_source_column_140
+,               max(case when lnka.attribute_number =  141 then lnka.attribute_source_column else null end) as attribute_source_column_141
+,               max(case when lnka.attribute_number =  142 then lnka.attribute_source_column else null end) as attribute_source_column_142
+,               max(case when lnka.attribute_number =  143 then lnka.attribute_source_column else null end) as attribute_source_column_143
+,               max(case when lnka.attribute_number =  144 then lnka.attribute_source_column else null end) as attribute_source_column_144
+,               max(case when lnka.attribute_number =  145 then lnka.attribute_source_column else null end) as attribute_source_column_145
+,               max(case when lnka.attribute_number =  146 then lnka.attribute_source_column else null end) as attribute_source_column_146
+,               max(case when lnka.attribute_number =  147 then lnka.attribute_source_column else null end) as attribute_source_column_147
+,               max(case when lnka.attribute_number =  148 then lnka.attribute_source_column else null end) as attribute_source_column_148
+,               max(case when lnka.attribute_number =  149 then lnka.attribute_source_column else null end) as attribute_source_column_149
+,               max(case when lnka.attribute_number =  150 then lnka.attribute_source_column else null end) as attribute_source_column_150
+,               max(case when lnka.attribute_number =  151 then lnka.attribute_source_column else null end) as attribute_source_column_151
+,               max(case when lnka.attribute_number =  152 then lnka.attribute_source_column else null end) as attribute_source_column_152
+,               max(case when lnka.attribute_number =  153 then lnka.attribute_source_column else null end) as attribute_source_column_153
+,               max(case when lnka.attribute_number =  154 then lnka.attribute_source_column else null end) as attribute_source_column_154
+,               max(case when lnka.attribute_number =  155 then lnka.attribute_source_column else null end) as attribute_source_column_155
+,               max(case when lnka.attribute_number =  156 then lnka.attribute_source_column else null end) as attribute_source_column_156
+,               max(case when lnka.attribute_number =  157 then lnka.attribute_source_column else null end) as attribute_source_column_157
+,               max(case when lnka.attribute_number =  158 then lnka.attribute_source_column else null end) as attribute_source_column_158
+,               max(case when lnka.attribute_number =  159 then lnka.attribute_source_column else null end) as attribute_source_column_159
+,               max(case when lnka.attribute_number =  160 then lnka.attribute_source_column else null end) as attribute_source_column_160
+,               max(case when lnka.attribute_number =  161 then lnka.attribute_source_column else null end) as attribute_source_column_161
+,               max(case when lnka.attribute_number =  162 then lnka.attribute_source_column else null end) as attribute_source_column_162
+,               max(case when lnka.attribute_number =  163 then lnka.attribute_source_column else null end) as attribute_source_column_163
+,               max(case when lnka.attribute_number =  164 then lnka.attribute_source_column else null end) as attribute_source_column_164
+,               max(case when lnka.attribute_number =  165 then lnka.attribute_source_column else null end) as attribute_source_column_165
+,               max(case when lnka.attribute_number =  166 then lnka.attribute_source_column else null end) as attribute_source_column_166
+,               max(case when lnka.attribute_number =  167 then lnka.attribute_source_column else null end) as attribute_source_column_167
+,               max(case when lnka.attribute_number =  168 then lnka.attribute_source_column else null end) as attribute_source_column_168
+,               max(case when lnka.attribute_number =  169 then lnka.attribute_source_column else null end) as attribute_source_column_169
+,               max(case when lnka.attribute_number =  170 then lnka.attribute_source_column else null end) as attribute_source_column_170
+,               max(case when lnka.attribute_number =  171 then lnka.attribute_source_column else null end) as attribute_source_column_171
+,               max(case when lnka.attribute_number =  172 then lnka.attribute_source_column else null end) as attribute_source_column_172
+,               max(case when lnka.attribute_number =  173 then lnka.attribute_source_column else null end) as attribute_source_column_173
+,               max(case when lnka.attribute_number =  174 then lnka.attribute_source_column else null end) as attribute_source_column_174
+,               max(case when lnka.attribute_number =  175 then lnka.attribute_source_column else null end) as attribute_source_column_175
+,               max(case when lnka.attribute_number =  176 then lnka.attribute_source_column else null end) as attribute_source_column_176
+,               max(case when lnka.attribute_number =  177 then lnka.attribute_source_column else null end) as attribute_source_column_177
+,               max(case when lnka.attribute_number =  178 then lnka.attribute_source_column else null end) as attribute_source_column_178
+,               max(case when lnka.attribute_number =  179 then lnka.attribute_source_column else null end) as attribute_source_column_179
+,               max(case when lnka.attribute_number =  180 then lnka.attribute_source_column else null end) as attribute_source_column_180
+,               max(case when lnka.attribute_number =  181 then lnka.attribute_source_column else null end) as attribute_source_column_181
+,               max(case when lnka.attribute_number =  182 then lnka.attribute_source_column else null end) as attribute_source_column_182
+,               max(case when lnka.attribute_number =  183 then lnka.attribute_source_column else null end) as attribute_source_column_183
+,               max(case when lnka.attribute_number =  184 then lnka.attribute_source_column else null end) as attribute_source_column_184
+,               max(case when lnka.attribute_number =  185 then lnka.attribute_source_column else null end) as attribute_source_column_185
+,               max(case when lnka.attribute_number =  186 then lnka.attribute_source_column else null end) as attribute_source_column_186
+,               max(case when lnka.attribute_number =  187 then lnka.attribute_source_column else null end) as attribute_source_column_187
+,               max(case when lnka.attribute_number =  188 then lnka.attribute_source_column else null end) as attribute_source_column_188
+,               max(case when lnka.attribute_number =  189 then lnka.attribute_source_column else null end) as attribute_source_column_189
+,               max(case when lnka.attribute_number =  190 then lnka.attribute_source_column else null end) as attribute_source_column_190
+,               max(case when lnka.attribute_number =  191 then lnka.attribute_source_column else null end) as attribute_source_column_191
+,               max(case when lnka.attribute_number =  192 then lnka.attribute_source_column else null end) as attribute_source_column_192
+,               max(case when lnka.attribute_number =  193 then lnka.attribute_source_column else null end) as attribute_source_column_193
+,               max(case when lnka.attribute_number =  194 then lnka.attribute_source_column else null end) as attribute_source_column_194
+,               max(case when lnka.attribute_number =  195 then lnka.attribute_source_column else null end) as attribute_source_column_195
+,               max(case when lnka.attribute_number =  196 then lnka.attribute_source_column else null end) as attribute_source_column_196
+,               max(case when lnka.attribute_number =  197 then lnka.attribute_source_column else null end) as attribute_source_column_197
+,               max(case when lnka.attribute_number =  198 then lnka.attribute_source_column else null end) as attribute_source_column_198
+,               max(case when lnka.attribute_number =  199 then lnka.attribute_source_column else null end) as attribute_source_column_199
+,               max(case when lnka.attribute_number =  200 then lnka.attribute_source_column else null end) as attribute_source_column_200
+,               max(case when lnka.attribute_number =  1 then lnka.attribute_target_column else null end) as attribute_target_column_1
+,               max(case when lnka.attribute_number =  2 then lnka.attribute_target_column else null end) as attribute_target_column_2
+,               max(case when lnka.attribute_number =  3 then lnka.attribute_target_column else null end) as attribute_target_column_3
+,               max(case when lnka.attribute_number =  4 then lnka.attribute_target_column else null end) as attribute_target_column_4
+,               max(case when lnka.attribute_number =  5 then lnka.attribute_target_column else null end) as attribute_target_column_5
+,               max(case when lnka.attribute_number =  6 then lnka.attribute_target_column else null end) as attribute_target_column_6
+,               max(case when lnka.attribute_number =  7 then lnka.attribute_target_column else null end) as attribute_target_column_7
+,               max(case when lnka.attribute_number =  8 then lnka.attribute_target_column else null end) as attribute_target_column_8
+,               max(case when lnka.attribute_number =  9 then lnka.attribute_target_column else null end) as attribute_target_column_9
+,               max(case when lnka.attribute_number =  10 then lnka.attribute_target_column else null end) as attribute_target_column_10
+,               max(case when lnka.attribute_number =  11 then lnka.attribute_target_column else null end) as attribute_target_column_11
+,               max(case when lnka.attribute_number =  12 then lnka.attribute_target_column else null end) as attribute_target_column_12
+,               max(case when lnka.attribute_number =  13 then lnka.attribute_target_column else null end) as attribute_target_column_13
+,               max(case when lnka.attribute_number =  14 then lnka.attribute_target_column else null end) as attribute_target_column_14
+,               max(case when lnka.attribute_number =  15 then lnka.attribute_target_column else null end) as attribute_target_column_15
+,               max(case when lnka.attribute_number =  16 then lnka.attribute_target_column else null end) as attribute_target_column_16
+,               max(case when lnka.attribute_number =  17 then lnka.attribute_target_column else null end) as attribute_target_column_17
+,               max(case when lnka.attribute_number =  18 then lnka.attribute_target_column else null end) as attribute_target_column_18
+,               max(case when lnka.attribute_number =  19 then lnka.attribute_target_column else null end) as attribute_target_column_19
+,               max(case when lnka.attribute_number =  20 then lnka.attribute_target_column else null end) as attribute_target_column_20
+,               max(case when lnka.attribute_number =  21 then lnka.attribute_target_column else null end) as attribute_target_column_21
+,               max(case when lnka.attribute_number =  22 then lnka.attribute_target_column else null end) as attribute_target_column_22
+,               max(case when lnka.attribute_number =  23 then lnka.attribute_target_column else null end) as attribute_target_column_23
+,               max(case when lnka.attribute_number =  24 then lnka.attribute_target_column else null end) as attribute_target_column_24
+,               max(case when lnka.attribute_number =  25 then lnka.attribute_target_column else null end) as attribute_target_column_25
+,               max(case when lnka.attribute_number =  26 then lnka.attribute_target_column else null end) as attribute_target_column_26
+,               max(case when lnka.attribute_number =  27 then lnka.attribute_target_column else null end) as attribute_target_column_27
+,               max(case when lnka.attribute_number =  28 then lnka.attribute_target_column else null end) as attribute_target_column_28
+,               max(case when lnka.attribute_number =  29 then lnka.attribute_target_column else null end) as attribute_target_column_29
+,               max(case when lnka.attribute_number =  30 then lnka.attribute_target_column else null end) as attribute_target_column_30
+,               max(case when lnka.attribute_number =  31 then lnka.attribute_target_column else null end) as attribute_target_column_31
+,               max(case when lnka.attribute_number =  32 then lnka.attribute_target_column else null end) as attribute_target_column_32
+,               max(case when lnka.attribute_number =  33 then lnka.attribute_target_column else null end) as attribute_target_column_33
+,               max(case when lnka.attribute_number =  34 then lnka.attribute_target_column else null end) as attribute_target_column_34
+,               max(case when lnka.attribute_number =  35 then lnka.attribute_target_column else null end) as attribute_target_column_35
+,               max(case when lnka.attribute_number =  36 then lnka.attribute_target_column else null end) as attribute_target_column_36
+,               max(case when lnka.attribute_number =  37 then lnka.attribute_target_column else null end) as attribute_target_column_37
+,               max(case when lnka.attribute_number =  38 then lnka.attribute_target_column else null end) as attribute_target_column_38
+,               max(case when lnka.attribute_number =  39 then lnka.attribute_target_column else null end) as attribute_target_column_39
+,               max(case when lnka.attribute_number =  40 then lnka.attribute_target_column else null end) as attribute_target_column_40
+,               max(case when lnka.attribute_number =  41 then lnka.attribute_target_column else null end) as attribute_target_column_41
+,               max(case when lnka.attribute_number =  42 then lnka.attribute_target_column else null end) as attribute_target_column_42
+,               max(case when lnka.attribute_number =  43 then lnka.attribute_target_column else null end) as attribute_target_column_43
+,               max(case when lnka.attribute_number =  44 then lnka.attribute_target_column else null end) as attribute_target_column_44
+,               max(case when lnka.attribute_number =  45 then lnka.attribute_target_column else null end) as attribute_target_column_45
+,               max(case when lnka.attribute_number =  46 then lnka.attribute_target_column else null end) as attribute_target_column_46
+,               max(case when lnka.attribute_number =  47 then lnka.attribute_target_column else null end) as attribute_target_column_47
+,               max(case when lnka.attribute_number =  48 then lnka.attribute_target_column else null end) as attribute_target_column_48
+,               max(case when lnka.attribute_number =  49 then lnka.attribute_target_column else null end) as attribute_target_column_49
+,               max(case when lnka.attribute_number =  50 then lnka.attribute_target_column else null end) as attribute_target_column_50
+,               max(case when lnka.attribute_number =  51 then lnka.attribute_target_column else null end) as attribute_target_column_51
+,               max(case when lnka.attribute_number =  52 then lnka.attribute_target_column else null end) as attribute_target_column_52
+,               max(case when lnka.attribute_number =  53 then lnka.attribute_target_column else null end) as attribute_target_column_53
+,               max(case when lnka.attribute_number =  54 then lnka.attribute_target_column else null end) as attribute_target_column_54
+,               max(case when lnka.attribute_number =  55 then lnka.attribute_target_column else null end) as attribute_target_column_55
+,               max(case when lnka.attribute_number =  56 then lnka.attribute_target_column else null end) as attribute_target_column_56
+,               max(case when lnka.attribute_number =  57 then lnka.attribute_target_column else null end) as attribute_target_column_57
+,               max(case when lnka.attribute_number =  58 then lnka.attribute_target_column else null end) as attribute_target_column_58
+,               max(case when lnka.attribute_number =  59 then lnka.attribute_target_column else null end) as attribute_target_column_59
+,               max(case when lnka.attribute_number =  60 then lnka.attribute_target_column else null end) as attribute_target_column_60
+,               max(case when lnka.attribute_number =  61 then lnka.attribute_target_column else null end) as attribute_target_column_61
+,               max(case when lnka.attribute_number =  62 then lnka.attribute_target_column else null end) as attribute_target_column_62
+,               max(case when lnka.attribute_number =  63 then lnka.attribute_target_column else null end) as attribute_target_column_63
+,               max(case when lnka.attribute_number =  64 then lnka.attribute_target_column else null end) as attribute_target_column_64
+,               max(case when lnka.attribute_number =  65 then lnka.attribute_target_column else null end) as attribute_target_column_65
+,               max(case when lnka.attribute_number =  66 then lnka.attribute_target_column else null end) as attribute_target_column_66
+,               max(case when lnka.attribute_number =  67 then lnka.attribute_target_column else null end) as attribute_target_column_67
+,               max(case when lnka.attribute_number =  68 then lnka.attribute_target_column else null end) as attribute_target_column_68
+,               max(case when lnka.attribute_number =  69 then lnka.attribute_target_column else null end) as attribute_target_column_69
+,               max(case when lnka.attribute_number =  70 then lnka.attribute_target_column else null end) as attribute_target_column_70
+,               max(case when lnka.attribute_number =  71 then lnka.attribute_target_column else null end) as attribute_target_column_71
+,               max(case when lnka.attribute_number =  72 then lnka.attribute_target_column else null end) as attribute_target_column_72
+,               max(case when lnka.attribute_number =  73 then lnka.attribute_target_column else null end) as attribute_target_column_73
+,               max(case when lnka.attribute_number =  74 then lnka.attribute_target_column else null end) as attribute_target_column_74
+,               max(case when lnka.attribute_number =  75 then lnka.attribute_target_column else null end) as attribute_target_column_75
+,               max(case when lnka.attribute_number =  76 then lnka.attribute_target_column else null end) as attribute_target_column_76
+,               max(case when lnka.attribute_number =  77 then lnka.attribute_target_column else null end) as attribute_target_column_77
+,               max(case when lnka.attribute_number =  78 then lnka.attribute_target_column else null end) as attribute_target_column_78
+,               max(case when lnka.attribute_number =  79 then lnka.attribute_target_column else null end) as attribute_target_column_79
+,               max(case when lnka.attribute_number =  80 then lnka.attribute_target_column else null end) as attribute_target_column_80
+,               max(case when lnka.attribute_number =  81 then lnka.attribute_target_column else null end) as attribute_target_column_81
+,               max(case when lnka.attribute_number =  82 then lnka.attribute_target_column else null end) as attribute_target_column_82
+,               max(case when lnka.attribute_number =  83 then lnka.attribute_target_column else null end) as attribute_target_column_83
+,               max(case when lnka.attribute_number =  84 then lnka.attribute_target_column else null end) as attribute_target_column_84
+,               max(case when lnka.attribute_number =  85 then lnka.attribute_target_column else null end) as attribute_target_column_85
+,               max(case when lnka.attribute_number =  86 then lnka.attribute_target_column else null end) as attribute_target_column_86
+,               max(case when lnka.attribute_number =  87 then lnka.attribute_target_column else null end) as attribute_target_column_87
+,               max(case when lnka.attribute_number =  88 then lnka.attribute_target_column else null end) as attribute_target_column_88
+,               max(case when lnka.attribute_number =  89 then lnka.attribute_target_column else null end) as attribute_target_column_89
+,               max(case when lnka.attribute_number =  90 then lnka.attribute_target_column else null end) as attribute_target_column_90
+,               max(case when lnka.attribute_number =  91 then lnka.attribute_target_column else null end) as attribute_target_column_91
+,               max(case when lnka.attribute_number =  92 then lnka.attribute_target_column else null end) as attribute_target_column_92
+,               max(case when lnka.attribute_number =  93 then lnka.attribute_target_column else null end) as attribute_target_column_93
+,               max(case when lnka.attribute_number =  94 then lnka.attribute_target_column else null end) as attribute_target_column_94
+,               max(case when lnka.attribute_number =  95 then lnka.attribute_target_column else null end) as attribute_target_column_95
+,               max(case when lnka.attribute_number =  96 then lnka.attribute_target_column else null end) as attribute_target_column_96
+,               max(case when lnka.attribute_number =  97 then lnka.attribute_target_column else null end) as attribute_target_column_97
+,               max(case when lnka.attribute_number =  98 then lnka.attribute_target_column else null end) as attribute_target_column_98
+,               max(case when lnka.attribute_number =  99 then lnka.attribute_target_column else null end) as attribute_target_column_99
+,               max(case when lnka.attribute_number =  100 then lnka.attribute_target_column else null end) as attribute_target_column_100
+,               max(case when lnka.attribute_number =  101 then lnka.attribute_target_column else null end) as attribute_target_column_101
+,               max(case when lnka.attribute_number =  102 then lnka.attribute_target_column else null end) as attribute_target_column_102
+,               max(case when lnka.attribute_number =  103 then lnka.attribute_target_column else null end) as attribute_target_column_103
+,               max(case when lnka.attribute_number =  104 then lnka.attribute_target_column else null end) as attribute_target_column_104
+,               max(case when lnka.attribute_number =  105 then lnka.attribute_target_column else null end) as attribute_target_column_105
+,               max(case when lnka.attribute_number =  106 then lnka.attribute_target_column else null end) as attribute_target_column_106
+,               max(case when lnka.attribute_number =  107 then lnka.attribute_target_column else null end) as attribute_target_column_107
+,               max(case when lnka.attribute_number =  108 then lnka.attribute_target_column else null end) as attribute_target_column_108
+,               max(case when lnka.attribute_number =  109 then lnka.attribute_target_column else null end) as attribute_target_column_109
+,               max(case when lnka.attribute_number =  110 then lnka.attribute_target_column else null end) as attribute_target_column_110
+,               max(case when lnka.attribute_number =  111 then lnka.attribute_target_column else null end) as attribute_target_column_111
+,               max(case when lnka.attribute_number =  112 then lnka.attribute_target_column else null end) as attribute_target_column_112
+,               max(case when lnka.attribute_number =  113 then lnka.attribute_target_column else null end) as attribute_target_column_113
+,               max(case when lnka.attribute_number =  114 then lnka.attribute_target_column else null end) as attribute_target_column_114
+,               max(case when lnka.attribute_number =  115 then lnka.attribute_target_column else null end) as attribute_target_column_115
+,               max(case when lnka.attribute_number =  116 then lnka.attribute_target_column else null end) as attribute_target_column_116
+,               max(case when lnka.attribute_number =  117 then lnka.attribute_target_column else null end) as attribute_target_column_117
+,               max(case when lnka.attribute_number =  118 then lnka.attribute_target_column else null end) as attribute_target_column_118
+,               max(case when lnka.attribute_number =  119 then lnka.attribute_target_column else null end) as attribute_target_column_119
+,               max(case when lnka.attribute_number =  120 then lnka.attribute_target_column else null end) as attribute_target_column_120
+,               max(case when lnka.attribute_number =  121 then lnka.attribute_target_column else null end) as attribute_target_column_121
+,               max(case when lnka.attribute_number =  122 then lnka.attribute_target_column else null end) as attribute_target_column_122
+,               max(case when lnka.attribute_number =  123 then lnka.attribute_target_column else null end) as attribute_target_column_123
+,               max(case when lnka.attribute_number =  124 then lnka.attribute_target_column else null end) as attribute_target_column_124
+,               max(case when lnka.attribute_number =  125 then lnka.attribute_target_column else null end) as attribute_target_column_125
+,               max(case when lnka.attribute_number =  126 then lnka.attribute_target_column else null end) as attribute_target_column_126
+,               max(case when lnka.attribute_number =  127 then lnka.attribute_target_column else null end) as attribute_target_column_127
+,               max(case when lnka.attribute_number =  128 then lnka.attribute_target_column else null end) as attribute_target_column_128
+,               max(case when lnka.attribute_number =  129 then lnka.attribute_target_column else null end) as attribute_target_column_129
+,               max(case when lnka.attribute_number =  130 then lnka.attribute_target_column else null end) as attribute_target_column_130
+,               max(case when lnka.attribute_number =  131 then lnka.attribute_target_column else null end) as attribute_target_column_131
+,               max(case when lnka.attribute_number =  132 then lnka.attribute_target_column else null end) as attribute_target_column_132
+,               max(case when lnka.attribute_number =  133 then lnka.attribute_target_column else null end) as attribute_target_column_133
+,               max(case when lnka.attribute_number =  134 then lnka.attribute_target_column else null end) as attribute_target_column_134
+,               max(case when lnka.attribute_number =  135 then lnka.attribute_target_column else null end) as attribute_target_column_135
+,               max(case when lnka.attribute_number =  136 then lnka.attribute_target_column else null end) as attribute_target_column_136
+,               max(case when lnka.attribute_number =  137 then lnka.attribute_target_column else null end) as attribute_target_column_137
+,               max(case when lnka.attribute_number =  138 then lnka.attribute_target_column else null end) as attribute_target_column_138
+,               max(case when lnka.attribute_number =  139 then lnka.attribute_target_column else null end) as attribute_target_column_139
+,               max(case when lnka.attribute_number =  140 then lnka.attribute_target_column else null end) as attribute_target_column_140
+,               max(case when lnka.attribute_number =  141 then lnka.attribute_target_column else null end) as attribute_target_column_141
+,               max(case when lnka.attribute_number =  142 then lnka.attribute_target_column else null end) as attribute_target_column_142
+,               max(case when lnka.attribute_number =  143 then lnka.attribute_target_column else null end) as attribute_target_column_143
+,               max(case when lnka.attribute_number =  144 then lnka.attribute_target_column else null end) as attribute_target_column_144
+,               max(case when lnka.attribute_number =  145 then lnka.attribute_target_column else null end) as attribute_target_column_145
+,               max(case when lnka.attribute_number =  146 then lnka.attribute_target_column else null end) as attribute_target_column_146
+,               max(case when lnka.attribute_number =  147 then lnka.attribute_target_column else null end) as attribute_target_column_147
+,               max(case when lnka.attribute_number =  148 then lnka.attribute_target_column else null end) as attribute_target_column_148
+,               max(case when lnka.attribute_number =  149 then lnka.attribute_target_column else null end) as attribute_target_column_149
+,               max(case when lnka.attribute_number =  150 then lnka.attribute_target_column else null end) as attribute_target_column_150
+,               max(case when lnka.attribute_number =  151 then lnka.attribute_target_column else null end) as attribute_target_column_151
+,               max(case when lnka.attribute_number =  152 then lnka.attribute_target_column else null end) as attribute_target_column_152
+,               max(case when lnka.attribute_number =  153 then lnka.attribute_target_column else null end) as attribute_target_column_153
+,               max(case when lnka.attribute_number =  154 then lnka.attribute_target_column else null end) as attribute_target_column_154
+,               max(case when lnka.attribute_number =  155 then lnka.attribute_target_column else null end) as attribute_target_column_155
+,               max(case when lnka.attribute_number =  156 then lnka.attribute_target_column else null end) as attribute_target_column_156
+,               max(case when lnka.attribute_number =  157 then lnka.attribute_target_column else null end) as attribute_target_column_157
+,               max(case when lnka.attribute_number =  158 then lnka.attribute_target_column else null end) as attribute_target_column_158
+,               max(case when lnka.attribute_number =  159 then lnka.attribute_target_column else null end) as attribute_target_column_159
+,               max(case when lnka.attribute_number =  160 then lnka.attribute_target_column else null end) as attribute_target_column_160
+,               max(case when lnka.attribute_number =  161 then lnka.attribute_target_column else null end) as attribute_target_column_161
+,               max(case when lnka.attribute_number =  162 then lnka.attribute_target_column else null end) as attribute_target_column_162
+,               max(case when lnka.attribute_number =  163 then lnka.attribute_target_column else null end) as attribute_target_column_163
+,               max(case when lnka.attribute_number =  164 then lnka.attribute_target_column else null end) as attribute_target_column_164
+,               max(case when lnka.attribute_number =  165 then lnka.attribute_target_column else null end) as attribute_target_column_165
+,               max(case when lnka.attribute_number =  166 then lnka.attribute_target_column else null end) as attribute_target_column_166
+,               max(case when lnka.attribute_number =  167 then lnka.attribute_target_column else null end) as attribute_target_column_167
+,               max(case when lnka.attribute_number =  168 then lnka.attribute_target_column else null end) as attribute_target_column_168
+,               max(case when lnka.attribute_number =  169 then lnka.attribute_target_column else null end) as attribute_target_column_169
+,               max(case when lnka.attribute_number =  170 then lnka.attribute_target_column else null end) as attribute_target_column_170
+,               max(case when lnka.attribute_number =  171 then lnka.attribute_target_column else null end) as attribute_target_column_171
+,               max(case when lnka.attribute_number =  172 then lnka.attribute_target_column else null end) as attribute_target_column_172
+,               max(case when lnka.attribute_number =  173 then lnka.attribute_target_column else null end) as attribute_target_column_173
+,               max(case when lnka.attribute_number =  174 then lnka.attribute_target_column else null end) as attribute_target_column_174
+,               max(case when lnka.attribute_number =  175 then lnka.attribute_target_column else null end) as attribute_target_column_175
+,               max(case when lnka.attribute_number =  176 then lnka.attribute_target_column else null end) as attribute_target_column_176
+,               max(case when lnka.attribute_number =  177 then lnka.attribute_target_column else null end) as attribute_target_column_177
+,               max(case when lnka.attribute_number =  178 then lnka.attribute_target_column else null end) as attribute_target_column_178
+,               max(case when lnka.attribute_number =  179 then lnka.attribute_target_column else null end) as attribute_target_column_179
+,               max(case when lnka.attribute_number =  180 then lnka.attribute_target_column else null end) as attribute_target_column_180
+,               max(case when lnka.attribute_number =  181 then lnka.attribute_target_column else null end) as attribute_target_column_181
+,               max(case when lnka.attribute_number =  182 then lnka.attribute_target_column else null end) as attribute_target_column_182
+,               max(case when lnka.attribute_number =  183 then lnka.attribute_target_column else null end) as attribute_target_column_183
+,               max(case when lnka.attribute_number =  184 then lnka.attribute_target_column else null end) as attribute_target_column_184
+,               max(case when lnka.attribute_number =  185 then lnka.attribute_target_column else null end) as attribute_target_column_185
+,               max(case when lnka.attribute_number =  186 then lnka.attribute_target_column else null end) as attribute_target_column_186
+,               max(case when lnka.attribute_number =  187 then lnka.attribute_target_column else null end) as attribute_target_column_187
+,               max(case when lnka.attribute_number =  188 then lnka.attribute_target_column else null end) as attribute_target_column_188
+,               max(case when lnka.attribute_number =  189 then lnka.attribute_target_column else null end) as attribute_target_column_189
+,               max(case when lnka.attribute_number =  190 then lnka.attribute_target_column else null end) as attribute_target_column_190
+,               max(case when lnka.attribute_number =  191 then lnka.attribute_target_column else null end) as attribute_target_column_191
+,               max(case when lnka.attribute_number =  192 then lnka.attribute_target_column else null end) as attribute_target_column_192
+,               max(case when lnka.attribute_number =  193 then lnka.attribute_target_column else null end) as attribute_target_column_193
+,               max(case when lnka.attribute_number =  194 then lnka.attribute_target_column else null end) as attribute_target_column_194
+,               max(case when lnka.attribute_number =  195 then lnka.attribute_target_column else null end) as attribute_target_column_195
+,               max(case when lnka.attribute_number =  196 then lnka.attribute_target_column else null end) as attribute_target_column_196
+,               max(case when lnka.attribute_number =  197 then lnka.attribute_target_column else null end) as attribute_target_column_197
+,               max(case when lnka.attribute_number =  198 then lnka.attribute_target_column else null end) as attribute_target_column_198
+,               max(case when lnka.attribute_number =  199 then lnka.attribute_target_column else null end) as attribute_target_column_199
+,               max(case when lnka.attribute_number =  200 then lnka.attribute_target_column else null end) as attribute_target_column_200
+from            vw_stg_management_link_attributes_all_columns_filled lnka
+group by        lnka.link_name
+,               lnka.ind_current
+,               lnka.source_concat
+) iv
+) stg_lnka
+inner join      ref_data_vault_links            ref_links
+on              stg_lnka.link_name            = ref_links.link_name
+and             ref_links.id_data_vault       = (select id_data_vault from stg_management_data_vaults)
+inner join      stg_management_source_tables    stg_srctab
+on              stg_lnka.source_concat        = stg_srctab.source_concat
+inner join      ref_source_systems              ref_srcsys
+on              stg_srctab.source_system      = ref_srcsys.description
+inner join      ref_source_tables               ref_srctab
+on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
+and             stg_srctab.table_name         = ref_srctab.table_name
+-- inner join		ref_record_source				ref_rs
+-- on				ref_rs.source_name			  = ref_srcsys.cod_srcsys
+where           stg_lnka.ind_current          = 1</sql>
+    <variables_active>N</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>160</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>stg_management_link_attributes 2</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>pdi_meta</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>select          ref_links.id_data_vault_link
+,               ref_srctab.id_srctab              as record_source_id
+,               stg_lnka.ind_current
+,               stg_lnka.link_attributes
+,               stg_lnka.link_attributes_dv
+,               stg_lnka.link_attributes_concat
+,               stg_lnka.link_attributes_concat_dv
+from
+(            
+select          iv.link_name
+,               iv.ind_current
+,               iv.source_concat
+,               concat(attribute_source_column_1,' as ' , attribute_target_column_1
+                     ,case when attribute_source_column_2  is not null then concat(',',concat(attribute_source_column_2 ,' as ',attribute_target_column_2))  else '' end
+                     ,case when attribute_source_column_3  is not null then concat(',',concat(attribute_source_column_3 ,' as ',attribute_target_column_3))  else '' end
+                     ,case when attribute_source_column_4  is not null then concat(',',concat(attribute_source_column_4 ,' as ',attribute_target_column_4))  else '' end
+                     ,case when attribute_source_column_5  is not null then concat(',',concat(attribute_source_column_5 ,' as ',attribute_target_column_5))  else '' end
+                     ,case when attribute_source_column_6  is not null then concat(',',concat(attribute_source_column_6 ,' as ',attribute_target_column_6))  else '' end
+                     ,case when attribute_source_column_7  is not null then concat(',',concat(attribute_source_column_7 ,' as ',attribute_target_column_7))  else '' end
+                     ,case when attribute_source_column_8  is not null then concat(',',concat(attribute_source_column_8 ,' as ',attribute_target_column_8))  else '' end
+                     ,case when attribute_source_column_9  is not null then concat(',',concat(attribute_source_column_9 ,' as ',attribute_target_column_9))  else '' end
+                     ,case when attribute_source_column_10 is not null then concat(',',concat(attribute_source_column_10,' as ',attribute_target_column_10)) else '' end
+                     )        as link_attributes 
+,               concat(attribute_target_column_1
+                     ,case when attribute_target_column_2  is not null then concat(',',attribute_target_column_2)  else '' end
+                     ,case when attribute_target_column_3  is not null then concat(',',attribute_target_column_3)  else '' end
+                     ,case when attribute_target_column_4  is not null then concat(',',attribute_target_column_4)  else '' end
+                     ,case when attribute_target_column_5  is not null then concat(',',attribute_target_column_5)  else '' end
+                     ,case when attribute_target_column_6  is not null then concat(',',attribute_target_column_6)  else '' end
+                     ,case when attribute_target_column_7  is not null then concat(',',attribute_target_column_7)  else '' end
+                     ,case when attribute_target_column_8  is not null then concat(',',attribute_target_column_8)  else '' end
+                     ,case when attribute_target_column_9  is not null then concat(',',attribute_target_column_9)  else '' end
+                     ,case when attribute_target_column_10  is not null then concat(',',attribute_target_column_10)  else '' end
+                     )        as link_attributes_dv 
+,                concat('concat(coalesce(cast(',attribute_source_column_1,' as text),''','${CDC_NULL}',''')'
+                       , case when attribute_source_column_2  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_source_column_2 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_source_column_3  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_source_column_3 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_source_column_4  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_source_column_4 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_source_column_5  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_source_column_5 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_source_column_6  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_source_column_6 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_source_column_7  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_source_column_7 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_source_column_8  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_source_column_8 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_source_column_9  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_source_column_9 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_source_column_10 is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_source_column_10,' as text),''','${CDC_NULL}',''')') else '' end
+                       ,')'
+                     )        as link_attributes_concat  
+,                concat('concat(coalesce(cast(',attribute_target_column_1,' as text),''','${CDC_NULL}',''')'
+                       , case when attribute_target_column_2  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_target_column_2 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_target_column_3  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_target_column_3 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_target_column_4  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_target_column_4 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_target_column_5  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_target_column_5 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_target_column_6  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_target_column_6 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_target_column_7  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_target_column_7 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_target_column_8  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_target_column_8 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_target_column_9  is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_target_column_9 ,' as text),''','${CDC_NULL}',''')') else '' end
+                       , case when attribute_target_column_10 is not null then concat(',''${CDC_DEL}'',coalesce(cast(',attribute_target_column_10,' as text),''','${CDC_NULL}',''')') else '' end
+                       ,')'
+                     )        as link_attributes_concat_dv          
+from
+(select         lnka.link_name
+,               lnka.ind_current    
+,               lnka.source_concat 
+,               max(case when lnka.attribute_number =  1 then lnka.attribute_source_column else null end) as attribute_source_column_1
+,               max(case when lnka.attribute_number =  2 then lnka.attribute_source_column else null end) as attribute_source_column_2
+,               max(case when lnka.attribute_number =  3 then lnka.attribute_source_column else null end) as attribute_source_column_3
+,               max(case when lnka.attribute_number =  4 then lnka.attribute_source_column else null end) as attribute_source_column_4
+,               max(case when lnka.attribute_number =  5 then lnka.attribute_source_column else null end) as attribute_source_column_5
+,               max(case when lnka.attribute_number =  6 then lnka.attribute_source_column else null end) as attribute_source_column_6
+,               max(case when lnka.attribute_number =  7 then lnka.attribute_source_column else null end) as attribute_source_column_7
+,               max(case when lnka.attribute_number =  8 then lnka.attribute_source_column else null end) as attribute_source_column_8
+,               max(case when lnka.attribute_number =  9 then lnka.attribute_source_column else null end) as attribute_source_column_9
+,               max(case when lnka.attribute_number = 10 then lnka.attribute_source_column else null end) as attribute_source_column_10
+,               max(case when lnka.attribute_number =  1 then lnka.attribute_target_column else null end) as attribute_target_column_1
+,               max(case when lnka.attribute_number =  2 then lnka.attribute_target_column else null end) as attribute_target_column_2
+,               max(case when lnka.attribute_number =  3 then lnka.attribute_target_column else null end) as attribute_target_column_3
+,               max(case when lnka.attribute_number =  4 then lnka.attribute_target_column else null end) as attribute_target_column_4
+,               max(case when lnka.attribute_number =  5 then lnka.attribute_target_column else null end) as attribute_target_column_5
+,               max(case when lnka.attribute_number =  6 then lnka.attribute_target_column else null end) as attribute_target_column_6
+,               max(case when lnka.attribute_number =  7 then lnka.attribute_target_column else null end) as attribute_target_column_7
+,               max(case when lnka.attribute_number =  8 then lnka.attribute_target_column else null end) as attribute_target_column_8
+,               max(case when lnka.attribute_number =  9 then lnka.attribute_target_column else null end) as attribute_target_column_9
+,               max(case when lnka.attribute_number = 10 then lnka.attribute_target_column else null end) as attribute_target_column_10
+from            vw_stg_management_link_attributes_all_columns_filled lnka
+group by        lnka.link_name
+,               lnka.ind_current
+,               lnka.source_concat
+) iv
+) stg_lnka
+inner join      ref_data_vault_links            ref_links
+on              stg_lnka.link_name            = ref_links.link_name
+and             ref_links.id_data_vault       = (select id_data_vault from stg_management_data_vaults)
+inner join      stg_management_source_tables    stg_srctab
+on              stg_lnka.source_concat        = stg_srctab.source_concat
+inner join      ref_source_systems              ref_srcsys
+on              stg_srctab.source_system      = ref_srcsys.description
+inner join      ref_source_tables               ref_srctab
+on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
+and             stg_srctab.table_name         = ref_srctab.table_name
+where           stg_lnka.ind_current          = 1</sql>
+    <variables_active>Y</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>176</xloc>
+      <yloc>208</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>

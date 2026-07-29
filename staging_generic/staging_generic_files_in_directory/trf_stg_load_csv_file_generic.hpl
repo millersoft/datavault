@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>trf_stg_load_csv_file_generic</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description>Generic staging transformation template: load csv file</description>
+    <extended_description>This transformation load a csv file into a target table.
+All metadata is injected or specified by a variable.</extended_description>
+    <pipeline_version>1.1</pipeline_version>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>2</pipeline_status>
+    <parameters>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user/>
+    <created_date>2014/12/15 01:10:16.855</created_date>
+    <modified_user>admin</modified_user>
+    <modified_date>2017/03/03 12:17:32.984</modified_date>
+  </info>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Courier New</fontname>
+      <fontsize>10</fontsize>
+      <height>21</height>
+      <xloc>64</xloc>
+      <yloc>32</yloc>
+      <note>Description: see tranformation settings</note>
+      <width>322</width>
+    </notepad>
+  </notepads>
+  <order>
+    <hop>
+      <from>Select all columns (metadata injected)</from>
+      <to>target table, determined by ${STG_TARGET_TABLE_GENERIC}</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>CSV file input (metadata injected)</from>
+      <to>Select all columns (metadata injected)</to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>CSV file input (metadata injected)</name>
+    <type>CSVInput</type>
+    <description/>
+    <distribute>N</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <filename/>
+    <filename_field/>
+    <rownum_field/>
+    <include_filename>N</include_filename>
+    <separator/>
+    <enclosure/>
+    <header>N</header>
+    <buffer_size>50000</buffer_size>
+    <schemaDefinition/>
+    <lazy_conversion>Y</lazy_conversion>
+    <add_filename_result>N</add_filename_result>
+    <parallel>N</parallel>
+    <newline_possible>Y</newline_possible>
+    <encoding/>
+    <fields>
+    </fields>
+    <attributes/>
+    <GUI>
+      <xloc>160</xloc>
+      <yloc>96</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>Select all columns (metadata injected)</name>
+    <type>SelectValues</type>
+    <description/>
+    <distribute>N</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <fields>
+      <select_unspecified>N</select_unspecified>
+    </fields>
+    <attributes/>
+    <GUI>
+      <xloc>448</xloc>
+      <yloc>96</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>target table, determined by ${STG_TARGET_TABLE_GENERIC}</name>
+    <type>TableOutput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <commit>${PROP_COMMIT_SIZE_STAGING}</commit>
+    <connection>staging</connection>
+    <fields>
+</fields>
+    <ignore_errors>N</ignore_errors>
+    <only_when_have_rows>N</only_when_have_rows>
+    <partitioning_daily>N</partitioning_daily>
+    <partitioning_enabled>N</partitioning_enabled>
+    <partitioning_monthly>Y</partitioning_monthly>
+    <return_keys>N</return_keys>
+    <specify_fields>N</specify_fields>
+    <table>${STG_TARGET_TABLE_GENERIC}</table>
+    <tablename_in_field>N</tablename_in_field>
+    <tablename_in_table>N</tablename_in_table>
+    <truncate>Y</truncate>
+    <use_batch>Y</use_batch>
+    <attributes/>
+    <GUI>
+      <xloc>864</xloc>
+      <yloc>96</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>

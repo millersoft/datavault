@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workflow>
+  <name>job_data_vault_create_link_run_table</name>
+  <name_sync_with_filename>Y</name_sync_with_filename>
+  <description>Create a link-run table</description>
+  <extended_description>This job loads creates a link-run table and the corresponding updateable view, based on the parameters that are passed.</extended_description>
+  <workflow_version>1.5</workflow_version>
+  <workflow_status>0</workflow_status>
+  <created_user/>
+  <created_date>2014/12/15 01:09:50.723</created_date>
+  <modified_user>admin</modified_user>
+  <modified_date>2017/05/04 17:23:26.561</modified_date>
+  <parameters>
+    <parameter>
+      <name>create_ix_link_run_stmt</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>lnk_bk_columns</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>lnk_key</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>lnk_name</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>lnk_no_bk_columns</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>lnk_updateable_attributes</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>lnk_updateable_hub_keys</name>
+      <default_value/>
+      <description/>
+    </parameter>
+  </parameters>
+  <actions>
+    <action>
+      <name>START</name>
+      <description/>
+      <type>SPECIAL</type>
+      <attributes/>
+      <DayOfMonth>1</DayOfMonth>
+      <doNotWaitOnFirstExecution>N</doNotWaitOnFirstExecution>
+      <hour>12</hour>
+      <intervalMinutes>60</intervalMinutes>
+      <intervalSeconds>0</intervalSeconds>
+      <minutes>0</minutes>
+      <repeat>N</repeat>
+      <schedulerType>0</schedulerType>
+      <weekDay>1</weekDay>
+      <parallel>N</parallel>
+      <xloc>32</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Success</name>
+      <description/>
+      <type>SUCCESS</type>
+      <attributes/>
+      <parallel>N</parallel>
+      <xloc>608</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>create_link_run_table_and_updateable_view</name>
+      <description>Create (or replace) an updateable view containing all columns to be inserted.
+With this view the transformation 'trf_data_vault_link_sat_generic' can perform an insert with fixed column names for the keys.
+The attributes of the satellite are all included with the column names in the Data Vault and are inserted in the transformation
+without specifying them individually.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>data_vault</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>drop     table if exists     ${lnk_name}_run CASCADE;
+create   table               ${lnk_name}_run as select * from ${lnk_name} where 1=0;
+
+alter table ${lnk_name}_run ${PROP_DATABASE_ALTER_COLUMN_SYNTAX} ${lnk_key} ${PROP_DATABASE_REMOVE_INT_NOT_NULL_SYNTAX};
+
+${create_ix_link_run_stmt}
+
+create index ix_${lnk_key} on ${lnk_name}_run (${lnk_key});
+
+CREATE OR REPLACE VIEW    vw_${lnk_name}_run_upd AS
+SELECT ${lnk_updateable_hub_keys}
+       ${lnk_updateable_attributes}
+,      load_dts
+,      record_source_id
+,		tenant_id
+,      ${lnk_key}       as lnk_key
+FROM   ${lnk_name}_run;
+
+
+</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>320</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Abort job</name>
+      <description/>
+      <type>ABORT</type>
+      <attributes/>
+      <always_log_rows>N</always_log_rows>
+      <parallel>N</parallel>
+      <xloc>608</xloc>
+      <yloc>256</yloc>
+      <attributes_hac/>
+    </action>
+  </actions>
+  <hops>
+    <hop>
+      <from>START</from>
+      <to>create_link_run_table_and_updateable_view</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>Y</unconditional>
+    </hop>
+    <hop>
+      <from>create_link_run_table_and_updateable_view</from>
+      <to>Success</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>create_link_run_table_and_updateable_view</from>
+      <to>Abort job</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+  </hops>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Arial</fontname>
+      <fontsize>9</fontsize>
+      <height>21</height>
+      <xloc>32</xloc>
+      <yloc>32</yloc>
+      <note>Description: see job settings</note>
+      <width>163</width>
+    </notepad>
+  </notepads>
+  <attributes/>
+</workflow>

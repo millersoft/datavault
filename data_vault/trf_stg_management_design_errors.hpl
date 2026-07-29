@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>trf_stg_management_design_errors</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description>Determine and store possible design errors</description>
+    <extended_description>This transformation loads the table pdi_meta.stg_management_dv_design_err with errors in the design.
+For example it reports specified target columns that are not present in the Data Vault table.</extended_description>
+    <pipeline_version>1.3</pipeline_version>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>2</pipeline_status>
+    <parameters>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user>admin</created_user>
+    <created_date>2011/02/02 21:09:35.000</created_date>
+    <modified_user>admin</modified_user>
+    <modified_date>2017/12/05 15:52:28.545</modified_date>
+  </info>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Courier New</fontname>
+      <fontsize>9</fontsize>
+      <height>20</height>
+      <xloc>32</xloc>
+      <yloc>32</yloc>
+      <note>Description: see transformation settings</note>
+      <width>290</width>
+    </notepad>
+  </notepads>
+  <order>
+    <hop>
+      <from>data_vault_design_errors</from>
+      <to>stg_management_dv_design_errors</to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>data_vault_design_errors</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>data_vault</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>select iv.* from
+(
+select 'Source systems' as sheet
+,      concat('This source connection does not exist in the repository: ',source_connection) as message
+from   ${pdi_meta_schema_name}.stg_management_source_systems stg
+where  not exists(select 1 from ${pdi_meta_schema_name}.ref_connections ref where upper(ref.name) = upper(stg.source_connection))
+UNION ALL
+select 'Source systems' as sheet
+,      concat('This staging connection does not exist in the repository: ',staging_connection) as message
+from   ${pdi_meta_schema_name}.stg_management_source_systems stg
+where  not exists(select 1 from ${pdi_meta_schema_name}.ref_connections ref where upper(ref.name) = upper(stg.staging_connection))
+UNION ALL
+select 'Hubs' as sheet
+,      concat('This hub table does not exist in the Data Vault database: ',hub_name) as message
+from   ${pdi_meta_schema_name}.stg_management_hubs stg
+where  hub_name is not null
+and    not exists(select 1 from information_schema.tables ref where upper(ref.table_name) = upper(stg.hub_name) and table_schema = '${data_vault_schema_name}')
+UNION ALL
+select 'Hubs' as sheet
+,      concat('The specified key for hub ', hub_name, ' does not exist in the Data Vault database: ',hub_key) as message
+from   ${pdi_meta_schema_name}.stg_management_hubs stg
+where  not exists(select 1 from vw_information_schema_columns_data_vault ref where upper(ref.table_name) = upper(stg.hub_name) and upper(column_name) = upper(stg.hub_key) )
+UNION ALL
+select 'Hubs' as sheet
+,      concat('The specified business key for hub ', hub_name, ' does not exist in the Data Vault database: ',hub_business_key) as message
+from   ${pdi_meta_schema_name}.stg_management_hubs stg
+where  not exists(select 1 from vw_information_schema_columns_data_vault ref where upper(ref.table_name) = upper(stg.hub_name) and upper(column_name) = upper(stg.hub_business_key) )
+UNION ALL
+select 'Links' as sheet
+,      concat('This link table does not exist in the Data Vault database: ',link_name) as message
+from   ${pdi_meta_schema_name}.stg_management_links stg
+where  not exists(select 1 from information_schema.tables ref where upper(ref.table_name) = upper(stg.link_name) and table_schema = '${data_vault_schema_name}')
+UNION ALL
+select 'Links' as sheet
+,      concat('The specified key for link ', link_name, ' does not exist in the Data Vault database: ',link_key) as message
+from   ${pdi_meta_schema_name}.stg_management_links stg
+where  not exists(select 1 from vw_information_schema_columns_data_vault ref where upper(ref.table_name) = upper(stg.link_name) and upper(column_name) = upper(stg.link_key) )
+UNION ALL
+select 'Satellites' as sheet
+,      concat('The satellite table ', sat_name, ' does not exist in the Data Vault database: ',sat_name) as message
+from   ${pdi_meta_schema_name}.stg_management_satellites stg
+where  stg.sat_name is not null
+and    not exists(select 1 from information_schema.tables ref where upper(ref.table_name) = upper(stg.sat_name) and table_schema = '${data_vault_schema_name}')
+UNION ALL
+select 'Satellites' as sheet
+,      concat('The specified target columns for satellite ', sat_name, ' does not exist in the Data Vault database: ',attribute_target_column) as message
+from   ${pdi_meta_schema_name}.stg_management_satellites stg
+where  stg.sat_name is not null
+and    not exists(select 1 from vw_information_schema_columns_data_vault ref where upper(ref.table_name) = upper(stg.sat_name) and upper(column_name) = upper(replace(stg.attribute_target_column,'sat.','')) )
+UNION ALL
+select 'Link satellites' as sheet
+,      concat('The satellite table ', sat_name, ' does not exist in the Data Vault database: ',sat_name) as message
+from   ${pdi_meta_schema_name}.stg_management_link_satellites stg
+where  stg.sat_name is not null
+and    not exists(select 1 from information_schema.tables ref where upper(ref.table_name) = upper(stg.sat_name) and table_schema = '${data_vault_schema_name}')
+UNION ALL
+select 'Link satellites' as sheet
+,      concat('The specified target columns for satellite ', sat_name, ' does not exist in the Data Vault database: ',attribute_target_column) as message
+from   ${pdi_meta_schema_name}.stg_management_link_satellites stg
+where  stg.sat_name is not null
+and    not exists(select 1 from vw_information_schema_columns_data_vault ref where upper(ref.table_name) = upper(stg.sat_name) and upper(column_name) = upper(replace(stg.attribute_target_column,'sat.','')) )
+) iv
+where message is not null;</sql>
+    <variables_active>Y</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>96</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>stg_management_dv_design_errors</name>
+    <type>TableOutput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <commit>${PROP_COMMIT_SIZE_PDI_META}</commit>
+    <connection>pdi_meta</connection>
+    <fields>
+</fields>
+    <ignore_errors>N</ignore_errors>
+    <only_when_have_rows>N</only_when_have_rows>
+    <partitioning_daily>N</partitioning_daily>
+    <partitioning_enabled>N</partitioning_enabled>
+    <partitioning_monthly>Y</partitioning_monthly>
+    <return_keys>N</return_keys>
+    <specify_fields>N</specify_fields>
+    <table>stg_management_dv_design_errors</table>
+    <tablename_in_field>N</tablename_in_field>
+    <tablename_in_table>Y</tablename_in_table>
+    <truncate>Y</truncate>
+    <use_batch>Y</use_batch>
+    <attributes/>
+    <GUI>
+      <xloc>384</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>

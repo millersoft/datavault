@@ -1,0 +1,16 @@
+{
+  "name": "vault-bench-introspect-server",
+  "version": "1.0.0",
+  "description": "Local companion server for Vault Bench — introspects a PostgreSQL information_schema so the Vault Bench GUI can show real tables/columns instead of pasted DDL. Runs on localhost only; never sent anywhere else.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test tests/gui.test.js tests/server.test.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "mysql2": "^3.22.5",
+    "pg": "^8.12.0"
+  }
+}

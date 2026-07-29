@@ -1,0 +1,471 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workflow>
+  <name>job_complete_batch_staging</name>
+  <name_sync_with_filename>Y</name_sync_with_filename>
+  <description>Complete run to stage the data</description>
+  <extended_description>This job executes the complete Staging job.</extended_description>
+  <workflow_version>1.5</workflow_version>
+  <workflow_status>0</workflow_status>
+  <created_user/>
+  <created_date>2014/12/15 01:10:16.865</created_date>
+  <modified_user>admin</modified_user>
+  <modified_date>2017/11/14 14:53:09.011</modified_date>
+  <parameters>
+    <parameter>
+      <name>id_data_vault</name>
+      <default_value>1</default_value>
+      <description>The Data Vault to run the staging job for.</description>
+    </parameter>
+    <parameter>
+      <name>par_id_rtyp</name>
+      <default_value>4</default_value>
+      <description>The runtype of the complete staging run.</description>
+    </parameter>
+    <parameter>
+      <name>par_send_error_mail_ind</name>
+      <default_value>0</default_value>
+      <description>Indicator whether a mail should be send on error (0=No, 1=Yes).</description>
+    </parameter>
+    <parameter>
+      <name>par_send_success_mail_ind</name>
+      <default_value>0</default_value>
+      <description>Indicator whether a mail should be send on success (0=No, 1=Yes).</description>
+    </parameter>
+    <parameter>
+      <name>par_subruntype</name>
+      <default_value>0</default_value>
+      <description>The subruntype. Makes it possible to only load a subset of the tables and/or files.</description>
+    </parameter>
+    <parameter>
+      <name>reindex</name>
+      <default_value>0</default_value>
+      <description/>
+    </parameter>
+  </parameters>
+  <actions>
+    <action>
+      <name>START</name>
+      <description/>
+      <type>SPECIAL</type>
+      <attributes/>
+      <DayOfMonth>1</DayOfMonth>
+      <doNotWaitOnFirstExecution>N</doNotWaitOnFirstExecution>
+      <hour>12</hour>
+      <intervalMinutes>60</intervalMinutes>
+      <intervalSeconds>0</intervalSeconds>
+      <minutes>0</minutes>
+      <repeat>N</repeat>
+      <schedulerType>0</schedulerType>
+      <weekDay>1</weekDay>
+      <parallel>N</parallel>
+      <xloc>64</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Success</name>
+      <description/>
+      <type>SUCCESS</type>
+      <attributes/>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>496</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_md_load_ref_tables</name>
+      <description>Load and check the metadata defining the Data Vault.</description>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_md_load_ref_tables.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>496</xloc>
+      <yloc>240</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>create_new_run of type 'par_id_rtyp'</name>
+      <description>Create a new ETL run of type 1.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_create_new_run(${par_id_rtyp},0,${par_subruntype})</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>496</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>end_run of type 'par_id_rtyp'</name>
+      <description>End the current ETL run with status 2 (succesfully completed).</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_end_run(2,NULL,${par_id_rtyp})</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>496</xloc>
+      <yloc>624</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_staging_generic_source_system_run (Sakila, id_srcsys = 1)</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/staging_generic/staging_generic_tables_source_system/job_staging_generic_source_system_run.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <parameter>
+          <name>par_id_rtyp</name>
+          <value>2</value>
+        </parameter>
+        <parameter>
+          <name>par_id_srcsys</name>
+          <value>1</value>
+        </parameter>
+        <parameter>
+          <name>par_subruntype</name>
+          <value>${par_subruntype}</value>
+        </parameter>
+        <pass_all_parameters>N</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>496</xloc>
+      <yloc>368</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_stg_load_file_directory_generic (id_srcfile_directory= 1)</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/staging_generic/staging_generic_files_in_directory/job_stg_load_file_directory_generic.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <parameter>
+          <name>id_srcfile_directory</name>
+          <value>1</value>
+        </parameter>
+        <parameter>
+          <name>par_id_rtyp</name>
+          <value>3</value>
+        </parameter>
+        <parameter>
+          <name>par_subruntype</name>
+          <value>${par_subruntype}</value>
+        </parameter>
+        <pass_all_parameters>N</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>496</xloc>
+      <yloc>496</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>end_run (error)</name>
+      <description>End the current ETL run with status 2 (succesfully completed).</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_end_run(3,'Error, check the logs!',${par_id_rtyp})</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>912</xloc>
+      <yloc>368</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_send_mail (error)</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/management/job_send_mail.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <parameter>
+          <name>par_file_to_attach</name>
+        </parameter>
+        <parameter>
+          <name>par_mail_body</name>
+          <value>Something went wrong in job ${Internal.Workflow.Name}. Check the log for details.</value>
+        </parameter>
+        <parameter>
+          <name>par_mail_subject</name>
+          <value>Error in ETL job ${Internal.Workflow.Name}</value>
+        </parameter>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1296</xloc>
+      <yloc>368</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Abort job</name>
+      <description/>
+      <type>ABORT</type>
+      <attributes/>
+      <always_log_rows>N</always_log_rows>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>240</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Send error mail?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${par_send_error_mail_ind}</variablename>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>368</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_send_mail (success)</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/management/job_send_mail.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <parameter>
+          <name>par_file_to_attach</name>
+        </parameter>
+        <parameter>
+          <name>par_mail_body</name>
+          <value>ETL job ${Internal.Workflow.Name} completed successfully.</value>
+        </parameter>
+        <parameter>
+          <name>par_mail_subject</name>
+          <value>ETL job ${Internal.Workflow.Name} completed</value>
+        </parameter>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1296</xloc>
+      <yloc>624</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Send success mail?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${par_send_success_mail_ind}</variablename>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>624</yloc>
+      <attributes_hac/>
+    </action>
+  </actions>
+  <hops>
+    <hop>
+      <from>START</from>
+      <to>create_new_run of type 'par_id_rtyp'</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>Y</unconditional>
+    </hop>
+    <hop>
+      <from>job_md_load_ref_tables</from>
+      <to>job_staging_generic_source_system_run (Sakila, id_srcsys = 1)</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_staging_generic_source_system_run (Sakila, id_srcsys = 1)</from>
+      <to>job_stg_load_file_directory_generic (id_srcfile_directory= 1)</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_stg_load_file_directory_generic (id_srcfile_directory= 1)</from>
+      <to>end_run of type 'par_id_rtyp'</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_md_load_ref_tables</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_staging_generic_source_system_run (Sakila, id_srcsys = 1)</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_stg_load_file_directory_generic (id_srcfile_directory= 1)</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>end_run (error)</from>
+      <to>Send error mail?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Send error mail?</from>
+      <to>job_send_mail (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_send_mail (error)</from>
+      <to>Abort job</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>Y</unconditional>
+    </hop>
+    <hop>
+      <from>Send error mail?</from>
+      <to>Abort job</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>end_run of type 'par_id_rtyp'</from>
+      <to>Send success mail?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Send success mail?</from>
+      <to>job_send_mail (success)</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_send_mail (success)</from>
+      <to>Success</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Send success mail?</from>
+      <to>Success</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>create_new_run of type 'par_id_rtyp'</from>
+      <to>job_md_load_ref_tables</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+  </hops>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Arial</fontname>
+      <fontsize>9</fontsize>
+      <height>21</height>
+      <xloc>32</xloc>
+      <yloc>32</yloc>
+      <note>Description: see job settings</note>
+      <width>163</width>
+    </notepad>
+  </notepads>
+  <attributes/>
+</workflow>

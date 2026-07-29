@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workflow>
+  <name>job_stg_zip_source_file</name>
+  <name_sync_with_filename>Y</name_sync_with_filename>
+  <description>Generic staging job: zip a source file</description>
+  <extended_description>This job zips a file into an archive with the follwing name structure:
+${file_directory_archive}/srcfile_directory_${id_srcfile_directory}_${var_id_run}_yyyymmdd.zip
+
+Example filename for the directory with
+id_srcfile_directory	1
+id_run			965
+run on			2014-10-23
+
+${file_directory_archive}/srcfile_directory_1_965_20141023.zip
+
+This job is executed in a loop for all files to process in a 'subruntype'.
+At the first file the archive is created, subsequent files should be appended (this does not work, see NB below).
+The original file is deleted after the zipping. 
+
+NB:	The appending does not seem to work, only the last file is included in the zip file!
+	Preferred option when file exists:	Append file to the existing 
+	Implemented now:			Create new with unique name (date and time gets added for files 2,3 etc.)
+
+	This is bug http://jira.pentaho.com/browse/PDI-11432</extended_description>
+  <workflow_version>1.0</workflow_version>
+  <workflow_status>0</workflow_status>
+  <created_user/>
+  <created_date>2014/12/15 01:10:16.896</created_date>
+  <modified_user>admin</modified_user>
+  <modified_date>2014/10/23 21:55:31.896</modified_date>
+  <parameters>
+    <parameter>
+      <name>filename</name>
+      <default_value/>
+      <description/>
+    </parameter>
+  </parameters>
+  <actions>
+    <action>
+      <name>Success</name>
+      <description/>
+      <type>SUCCESS</type>
+      <attributes/>
+      <parallel>N</parallel>
+      <xloc>544</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>START</name>
+      <description/>
+      <type>SPECIAL</type>
+      <attributes/>
+      <DayOfMonth>1</DayOfMonth>
+      <doNotWaitOnFirstExecution>N</doNotWaitOnFirstExecution>
+      <hour>12</hour>
+      <intervalMinutes>60</intervalMinutes>
+      <intervalSeconds>0</intervalSeconds>
+      <minutes>0</minutes>
+      <repeat>N</repeat>
+      <schedulerType>0</schedulerType>
+      <weekDay>1</weekDay>
+      <parallel>N</parallel>
+      <xloc>64</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Zip file</name>
+      <description/>
+      <type>ZIP_FILE</type>
+      <attributes/>
+      <SpecifyFormat>N</SpecifyFormat>
+      <adddate>Y</adddate>
+      <addfiletoresult>N</addfiletoresult>
+      <addtime>N</addtime>
+      <afterzip>1</afterzip>
+      <compressionrate>2</compressionrate>
+      <createMoveToDirectory>N</createMoveToDirectory>
+      <createparentfolder>N</createparentfolder>
+      <date_time_format>yyyyMMdd_HHmmss</date_time_format>
+      <ifzipfileexists>0</ifzipfileexists>
+      <include_subfolders>N</include_subfolders>
+      <isfromprevious>N</isfromprevious>
+      <sourcedirectory>${filename}</sourcedirectory>
+      <stored_source_path_depth>1</stored_source_path_depth>
+      <zipfilename>${file_directory_archive}/srcfile_directory_${id_srcfile_directory}_${var_id_run}.zip</zipfilename>
+      <parallel>N</parallel>
+      <xloc>288</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+  </actions>
+  <hops>
+    <hop>
+      <from>START</from>
+      <to>Zip file</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>Y</unconditional>
+    </hop>
+    <hop>
+      <from>Zip file</from>
+      <to>Success</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+  </hops>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Ariel</fontname>
+      <fontsize>10</fontsize>
+      <height>22</height>
+      <xloc>32</xloc>
+      <yloc>32</yloc>
+      <note>Description: see job settings</note>
+      <width>195</width>
+    </notepad>
+  </notepads>
+  <attributes/>
+</workflow>

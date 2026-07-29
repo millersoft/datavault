@@ -1,0 +1,137 @@
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile
+    container_name: dv-postgres
+    profiles:
+      - internal-postgres
+    env_file:
+      - .env
+    cpus: 4.0
+    mem_limit: 8g
+    mem_reservation: 4g
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=6GB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - max_wal_size=4GB
+      - -c
+      - checkpoint_timeout=15min
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: dvuser
+      POSTGRES_PASSWORD: ${VAULT_PASSWORD}
+      VAULT_PASSWORD: ${VAULT_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dvuser -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql:
+    image: mysql:8.4
+    container_name: dv-mysql
+    profiles:
+      - demo
+    env_file:
+      - .env
+    cpus: 2.0
+    mem_limit: 4g
+    mem_reservation: 2g
+    environment:
+      MYSQL_ROOT_PASSWORD: ${SOURCE_PASSWORD}
+      MYSQL_DATABASE: sakila
+      MYSQL_USER: sakila
+      MYSQL_PASSWORD: ${SOURCE_PASSWORD}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${SOURCE_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  metadata-bootstrap:
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile
+    container_name: dv-metadata-bootstrap
+    profiles:
+      - external-postgres-bootstrap
+    env_file:
+      - .env
+    environment:
+      ENV_TEMPLATE_FILE: /app/postgres-environment.json
+      INIT_DIR: /docker-entrypoint-initdb.d
+      DB_MAINTENANCE_NAME: ${DB_MAINTENANCE_NAME:-postgres}
+      CREATE_EXTERNAL_DATABASE: ${CREATE_EXTERNAL_DATABASE:-false}
+      BOOTSTRAP_NAME: ${BOOTSTRAP_NAME:-datavault-core}
+      BOOTSTRAP_VERSION: ${BOOTSTRAP_VERSION:-1}
+      FORCE_EXTERNAL_BOOTSTRAP: ${FORCE_EXTERNAL_BOOTSTRAP:-false}
+      EXTERNAL_POSTGRES_BOOTSTRAP: "true"
+    volumes:
+      - ./hop/postgres-environment.json:/app/postgres-environment.json:ro
+      - ./docker/bootstrap_postgres_target.sh:/usr/local/bin/bootstrap_postgres_target.sh:ro
+    entrypoint:
+      - /bin/bash
+      - /usr/local/bin/bootstrap_postgres_target.sh
+
+  hop:
+    build: ./hop
+    container_name: dv-hop
+    user: root
+    env_file:
+      - .env
+    cpus: 6.0
+    mem_limit: 8g
+    mem_reservation: 4g
+    environment:
+      PROJECT_HOME: /app
+      HOP_HOME: /opt/hop
+      LOG_DIR: /app/logs
+
+      # Hop-specific
+      HOP_PROJECT_NAME: dv-latest
+      HOP_PROJECT_DIRECTORY: /app
+      HOP_ENVIRONMENT_NAME: postgres
+      HOP_RUN_CONFIG: local
+      HOP_LOG_LEVEL: Basic
+
+      ACCEPT_LICENSE: ${ACCEPT_LICENSE:-false}
+      LICENSE_FILE: /app/LICENSE
+      LICENSE_STATE_DIR: /var/lib/datavault-hop
+
+      # Demo mode controls whether Hop waits for the bundled MySQL source.
+      DEMO_MODE: ${DEMO_MODE:-false}
+      WAIT_FOR_MYSQL: ${WAIT_FOR_MYSQL:-false}
+
+    volumes:
+      - ./data_vault:/app/data_vault
+      - ./staging_generic:/app/staging_generic
+      - ./logs:/app/logs
+      - ./mappings:/app/mappings
+      - ./metadata:/app/metadata
+      - ./hop/postgres-environment.json:/app/postgres-environment.json
+      - ./docker:/app/docker
+      - ./jdbc-drivers:/opt/hop/lib/jdbc-extra:ro
+      - ./LICENSE:/app/LICENSE:ro
+      - ./.license-state:/var/lib/datavault-hop
+
+volumes:
+  postgres_data:
+  mysql_data:

@@ -1,0 +1,582 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workflow>
+  <name>job_data_vault_load_links_all</name>
+  <name_sync_with_filename>Y</name_sync_with_filename>
+  <description>Load all links</description>
+  <extended_description>This job loads all links for a Data Vault.
+The links are divided in 4 groups and those groups run in parallel.</extended_description>
+  <workflow_version>1.4</workflow_version>
+  <workflow_status>0</workflow_status>
+  <created_user/>
+  <created_date>2014/12/15 01:09:50.485</created_date>
+  <modified_user>admin</modified_user>
+  <modified_date>2017/04/28 16:42:18.748</modified_date>
+  <parameters>
+    <parameter>
+      <name>id_data_vault</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+  </parameters>
+  <actions>
+    <action>
+      <name>START</name>
+      <description/>
+      <type>SPECIAL</type>
+      <attributes/>
+      <DayOfMonth>1</DayOfMonth>
+      <doNotWaitOnFirstExecution>N</doNotWaitOnFirstExecution>
+      <hour>12</hour>
+      <intervalMinutes>60</intervalMinutes>
+      <intervalSeconds>0</intervalSeconds>
+      <minutes>0</minutes>
+      <repeat>N</repeat>
+      <schedulerType>0</schedulerType>
+      <weekDay>1</weekDay>
+      <parallel>N</parallel>
+      <xloc>32</xloc>
+      <yloc>192</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_links_mod_value_0</name>
+      <description>Run the job 'job_data_vault_load_links', with value 0 for parameter 'mod_4_value'.</description>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_links.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <parameter>
+          <name>mod_4_value</name>
+          <value>0</value>
+        </parameter>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>416</xloc>
+      <yloc>64</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_links_mod_value_1</name>
+      <description>Run the job 'job_data_vault_load_links', with value 1 for parameter 'mod_4_value'.</description>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_links.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <parameter>
+          <name>mod_4_value</name>
+          <value>1</value>
+        </parameter>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>416</xloc>
+      <yloc>192</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_links_mod_value_2</name>
+      <description>Run the job 'job_data_vault_load_links', with value 2 for parameter 'mod_4_value'.</description>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_links.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <parameter>
+          <name>mod_4_value</name>
+          <value>2</value>
+        </parameter>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>416</xloc>
+      <yloc>320</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_links_mod_value_3</name>
+      <description>Run the job 'job_data_vault_load_links', with value 3 for parameter 'mod_4_value'.</description>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_links.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <parameter>
+          <name>mod_4_value</name>
+          <value>3</value>
+        </parameter>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>416</xloc>
+      <yloc>416</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Abort job</name>
+      <description/>
+      <type>ABORT</type>
+      <attributes/>
+      <always_log_rows>N</always_log_rows>
+      <message>Error in ${Internal.Workflow.Name}</message>
+      <parallel>N</parallel>
+      <xloc>656</xloc>
+      <yloc>656</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Initialize Synchronization</name>
+      <description>Delete files</description>
+      <type>DELETE_FILES</type>
+      <attributes/>
+      <arg_from_previous>N</arg_from_previous>
+      <fields>
+        <field>
+          <filemask>thread.*\.fin</filemask>
+          <name>${PROP_PARALLEL_SYNCHRO_FILES_DIRECTORY}</name>
+        </field>
+      </fields>
+      <include_subfolders>N</include_subfolders>
+      <parallel>Y</parallel>
+      <xloc>160</xloc>
+      <yloc>192</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Thread mod_value_0 set done</name>
+      <description>Create file</description>
+      <type>CREATE_FILE</type>
+      <attributes/>
+      <add_filename_result>N</add_filename_result>
+      <fail_if_file_exists>Y</fail_if_file_exists>
+      <filename>${PROP_PARALLEL_SYNCHRO_FILES_DIRECTORY}/thread_00.fin</filename>
+      <parallel>N</parallel>
+      <xloc>736</xloc>
+      <yloc>64</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Thread mod_value_1 set done</name>
+      <description>Create file</description>
+      <type>CREATE_FILE</type>
+      <attributes/>
+      <add_filename_result>N</add_filename_result>
+      <fail_if_file_exists>Y</fail_if_file_exists>
+      <filename>${PROP_PARALLEL_SYNCHRO_FILES_DIRECTORY}/thread_01.fin</filename>
+      <parallel>N</parallel>
+      <xloc>736</xloc>
+      <yloc>192</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Thread mod_value_2 set done</name>
+      <description>Create file</description>
+      <type>CREATE_FILE</type>
+      <attributes/>
+      <add_filename_result>N</add_filename_result>
+      <fail_if_file_exists>Y</fail_if_file_exists>
+      <filename>${PROP_PARALLEL_SYNCHRO_FILES_DIRECTORY}/thread_02.fin</filename>
+      <parallel>N</parallel>
+      <xloc>736</xloc>
+      <yloc>320</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Thread mod_value_3 set done</name>
+      <description>Create file</description>
+      <type>CREATE_FILE</type>
+      <attributes/>
+      <add_filename_result>N</add_filename_result>
+      <fail_if_file_exists>Y</fail_if_file_exists>
+      <filename>${PROP_PARALLEL_SYNCHRO_FILES_DIRECTORY}/thread_03.fin</filename>
+      <parallel>N</parallel>
+      <xloc>736</xloc>
+      <yloc>416</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Wait for thread mod_value_0</name>
+      <description>Wait for file</description>
+      <type>WAIT_FOR_FILE</type>
+      <attributes/>
+      <add_filename_result>N</add_filename_result>
+      <check_cycle_time>${PROP_PARALLEL_SYNCHRO_FILES_CYCLE_TIME}</check_cycle_time>
+      <file_size_check>N</file_size_check>
+      <filename>${PROP_PARALLEL_SYNCHRO_FILES_DIRECTORY}/thread_00.fin</filename>
+      <maximum_timeout>0</maximum_timeout>
+      <success_on_timeout>N</success_on_timeout>
+      <parallel>N</parallel>
+      <xloc>1056</xloc>
+      <yloc>64</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Wait for thread mod_value_1</name>
+      <description>Wait for file</description>
+      <type>WAIT_FOR_FILE</type>
+      <attributes/>
+      <add_filename_result>N</add_filename_result>
+      <check_cycle_time>${PROP_PARALLEL_SYNCHRO_FILES_CYCLE_TIME}</check_cycle_time>
+      <file_size_check>N</file_size_check>
+      <filename>${PROP_PARALLEL_SYNCHRO_FILES_DIRECTORY}/thread_01.fin</filename>
+      <maximum_timeout>0</maximum_timeout>
+      <success_on_timeout>N</success_on_timeout>
+      <parallel>N</parallel>
+      <xloc>1056</xloc>
+      <yloc>192</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Wait for thread mod_value_2</name>
+      <description>Wait for file</description>
+      <type>WAIT_FOR_FILE</type>
+      <attributes/>
+      <add_filename_result>N</add_filename_result>
+      <check_cycle_time>${PROP_PARALLEL_SYNCHRO_FILES_CYCLE_TIME}</check_cycle_time>
+      <file_size_check>N</file_size_check>
+      <filename>${PROP_PARALLEL_SYNCHRO_FILES_DIRECTORY}/thread_02.fin</filename>
+      <maximum_timeout>0</maximum_timeout>
+      <success_on_timeout>N</success_on_timeout>
+      <parallel>N</parallel>
+      <xloc>1056</xloc>
+      <yloc>320</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Wait for thread mod_value_3</name>
+      <description>Wait for file</description>
+      <type>WAIT_FOR_FILE</type>
+      <attributes/>
+      <add_filename_result>N</add_filename_result>
+      <check_cycle_time>${PROP_PARALLEL_SYNCHRO_FILES_CYCLE_TIME}</check_cycle_time>
+      <file_size_check>N</file_size_check>
+      <filename>${PROP_PARALLEL_SYNCHRO_FILES_DIRECTORY}/thread_03.fin</filename>
+      <maximum_timeout>0</maximum_timeout>
+      <success_on_timeout>N</success_on_timeout>
+      <parallel>N</parallel>
+      <xloc>1056</xloc>
+      <yloc>416</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Close Synchronization</name>
+      <description>Delete files</description>
+      <type>DELETE_FILES</type>
+      <attributes/>
+      <arg_from_previous>N</arg_from_previous>
+      <fields>
+        <field>
+          <filemask>thread.*\.fin</filemask>
+          <name>${PROP_PARALLEL_SYNCHRO_FILES_DIRECTORY}</name>
+        </field>
+      </fields>
+      <include_subfolders>N</include_subfolders>
+      <parallel>N</parallel>
+      <xloc>1056</xloc>
+      <yloc>544</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Success</name>
+      <description/>
+      <type>SUCCESS</type>
+      <attributes/>
+      <parallel>N</parallel>
+      <xloc>720</xloc>
+      <yloc>544</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_links_mod_value_3 2</name>
+      <description>Run the job 'job_data_vault_load_links', with value 3 for parameter 'mod_4_value'.</description>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_links.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <parameter>
+          <name>mod_4_value</name>
+          <value>3</value>
+        </parameter>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>304</xloc>
+      <yloc>528</yloc>
+      <attributes_hac/>
+    </action>
+  </actions>
+  <hops>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_0</from>
+      <to>Abort job</to>
+      <enabled>N</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_1</from>
+      <to>Abort job</to>
+      <enabled>N</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_2</from>
+      <to>Abort job</to>
+      <enabled>N</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_3</from>
+      <to>Abort job</to>
+      <enabled>N</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>START</from>
+      <to>Initialize Synchronization</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>Y</unconditional>
+    </hop>
+    <hop>
+      <from>Initialize Synchronization</from>
+      <to>job_data_vault_load_links_mod_value_0</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Initialize Synchronization</from>
+      <to>job_data_vault_load_links_mod_value_1</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Initialize Synchronization</from>
+      <to>job_data_vault_load_links_mod_value_2</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Initialize Synchronization</from>
+      <to>job_data_vault_load_links_mod_value_3</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_0</from>
+      <to>Thread mod_value_0 set done</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_1</from>
+      <to>Thread mod_value_1 set done</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_2</from>
+      <to>Thread mod_value_2 set done</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_3</from>
+      <to>Thread mod_value_3 set done</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Thread mod_value_0 set done</from>
+      <to>Wait for thread mod_value_0</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Wait for thread mod_value_0</from>
+      <to>Wait for thread mod_value_1</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Wait for thread mod_value_1</from>
+      <to>Wait for thread mod_value_2</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Wait for thread mod_value_2</from>
+      <to>Wait for thread mod_value_3</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Wait for thread mod_value_3</from>
+      <to>Close Synchronization</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Close Synchronization</from>
+      <to>Success</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_0</from>
+      <to>job_data_vault_load_links_mod_value_1</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_1</from>
+      <to>job_data_vault_load_links_mod_value_2</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_2</from>
+      <to>job_data_vault_load_links_mod_value_3</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_3</from>
+      <to>Success</to>
+      <enabled>N</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>START</from>
+      <to>job_data_vault_load_links_mod_value_3 2</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>Y</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_3 2</from>
+      <to>Abort job</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_mod_value_3 2</from>
+      <to>Success</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+  </hops>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Arial</fontname>
+      <fontsize>9</fontsize>
+      <height>21</height>
+      <xloc>16</xloc>
+      <yloc>0</yloc>
+      <note>Description: see job settings</note>
+      <width>163</width>
+    </notepad>
+    <notepad>
+      <backgroundcolorblue>112</backgroundcolorblue>
+      <backgroundcolorgreen>205</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontsize>-1</fontsize>
+      <height>26</height>
+      <xloc>64</xloc>
+      <yloc>80</yloc>
+      <note>Calum: Made serial, otherwise too many connections error</note>
+      <width>406</width>
+    </notepad>
+  </notepads>
+  <attributes/>
+</workflow>

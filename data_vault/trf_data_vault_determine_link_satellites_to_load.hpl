@@ -1,0 +1,470 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>trf_data_vault_determine_link_satellites_to_load</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description>Determine (regular) link satellites to load</description>
+    <extended_description>This transformation collects all necessary parameters to load the regular link satellites, not the validity- and status-satellites.
+Each satellite results in 1 row.</extended_description>
+    <pipeline_version>1.5</pipeline_version>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>2</pipeline_status>
+    <parameters>
+      <parameter>
+        <name>id_data_vault</name>
+        <default_value/>
+        <description/>
+      </parameter>
+      <parameter>
+        <name>mod_4_value</name>
+        <default_value/>
+        <description/>
+      </parameter>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user>admin</created_user>
+    <created_date>2011/02/02 21:09:37.000</created_date>
+    <modified_user>admin</modified_user>
+    <modified_date>2017/06/13 11:46:59.207</modified_date>
+  </info>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Arial</fontname>
+      <fontsize>9</fontsize>
+      <height>21</height>
+      <xloc>16</xloc>
+      <yloc>16</yloc>
+      <note>Description: see transformation settings</note>
+      <width>224</width>
+    </notepad>
+  </notepads>
+  <order>
+    <hop>
+      <from>ref_data_vault_link_satellites</from>
+      <to>Copy rows to result</to>
+      <enabled>N</enabled>
+    </hop>
+    <hop>
+      <from>Job successful?</from>
+      <to>Ignore successful jobs</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>Job successful?</from>
+      <to>Abort when a job has an exit status &lt;&gt; Y</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>ref_data_vault_link_satellites</from>
+      <to>job_data_vault_load_link_satellite</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_link_satellite</from>
+      <to>Job successful?</to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>Abort when a job has an exit status &lt;&gt; Y</name>
+    <type>Abort</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <abort_option>ABORT</abort_option>
+    <always_log_rows>Y</always_log_rows>
+    <row_threshold>0</row_threshold>
+    <attributes/>
+    <GUI>
+      <xloc>640</xloc>
+      <yloc>288</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>Copy rows to result</name>
+    <type>RowsToResult</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <attributes/>
+    <GUI>
+      <xloc>128</xloc>
+      <yloc>288</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>Ignore successful jobs</name>
+    <type>Dummy</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <attributes/>
+    <GUI>
+      <xloc>832</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>Job successful?</name>
+    <type>FilterRows</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <compare>
+      <condition>
+        <conditions>
+</conditions>
+        <function>=</function>
+        <leftvalue>ExecutionResult</leftvalue>
+        <negated>N</negated>
+        <operator>-</operator>
+        <value>
+          <isnull>N</isnull>
+          <length>-1</length>
+          <name>constant</name>
+          <precision>-1</precision>
+          <text>Y</text>
+          <type>Boolean</type>
+        </value>
+      </condition>
+    </compare>
+    <send_false_to>Abort when a job has an exit status &lt;&gt; Y</send_false_to>
+    <send_true_to>Ignore successful jobs</send_true_to>
+    <attributes/>
+    <GUI>
+      <xloc>640</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>job_data_vault_load_link_satellite</name>
+    <type>WorkflowExecutor</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>${LINKSAT_INSERT_COPIES}</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <execution_errors_field>ExecutionNrErrors</execution_errors_field>
+    <execution_exit_status_field>ExecutionExitStatus</execution_exit_status_field>
+    <execution_files_retrieved_field>ExecutionFilesRetrieved</execution_files_retrieved_field>
+    <execution_lines_deleted_field>ExecutionLinesDeleted</execution_lines_deleted_field>
+    <execution_lines_input_field>ExecutionLinesInput</execution_lines_input_field>
+    <execution_lines_output_field>ExecutionLinesOutput</execution_lines_output_field>
+    <execution_lines_read_field>ExecutionLinesRead</execution_lines_read_field>
+    <execution_lines_rejected_field>ExecutionLinesRejected</execution_lines_rejected_field>
+    <execution_lines_updated_field>ExecutionLinesUpdated</execution_lines_updated_field>
+    <execution_lines_written_field>ExecutionLinesWritten</execution_lines_written_field>
+    <execution_log_channelid_field>ExecutionLogChannelId</execution_log_channelid_field>
+    <execution_log_text_field>ExecutionLogText</execution_log_text_field>
+    <execution_result_field>ExecutionResult</execution_result_field>
+    <execution_time_field>ExecutionTime</execution_time_field>
+    <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_link_satellite.hwf</filename>
+    <group_size>1</group_size>
+    <inherit_all_vars>Y</inherit_all_vars>
+    <parameters>
+      <variablemapping>
+        <field>id_connection</field>
+        <variable>id_connection</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>id_srcsys</field>
+        <variable>id_srcsys</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_hub_10_name</field>
+        <variable>lnk_hub_10_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_hub_1_name</field>
+        <variable>lnk_hub_1_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_hub_2_name</field>
+        <variable>lnk_hub_2_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_hub_3_name</field>
+        <variable>lnk_hub_3_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_hub_4_name</field>
+        <variable>lnk_hub_4_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_hub_5_name</field>
+        <variable>lnk_hub_5_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_hub_6_name</field>
+        <variable>lnk_hub_6_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_hub_7_name</field>
+        <variable>lnk_hub_7_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_hub_8_name</field>
+        <variable>lnk_hub_8_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_hub_9_name</field>
+        <variable>lnk_hub_9_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_key</field>
+        <variable>lnk_key</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_name</field>
+        <variable>lnk_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>lnk_number_of_hubs</field>
+        <variable>lnk_number_of_hubs</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_attributes</field>
+        <variable>sat_attributes</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_attributes_concat</field>
+        <variable>sat_attributes_concat</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_attributes_concat_dv</field>
+        <variable>sat_attributes_concat_dv</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_attributes_dv</field>
+        <variable>sat_attributes_dv</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_key</field>
+        <variable>sat_key</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_lnk_key_attributes_concat</field>
+        <variable>sat_lnk_key_attributes_concat</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_name</field>
+        <variable>sat_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_source</field>
+        <variable>sat_source</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_source_hub_10_business_key</field>
+        <variable>sat_source_hub_10_business_key</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_source_hub_1_business_key</field>
+        <variable>sat_source_hub_1_business_key</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_source_hub_2_business_key</field>
+        <variable>sat_source_hub_2_business_key</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_source_hub_3_business_key</field>
+        <variable>sat_source_hub_3_business_key</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_source_hub_4_business_key</field>
+        <variable>sat_source_hub_4_business_key</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_source_hub_5_business_key</field>
+        <variable>sat_source_hub_5_business_key</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_source_hub_6_business_key</field>
+        <variable>sat_source_hub_6_business_key</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_source_hub_7_business_key</field>
+        <variable>sat_source_hub_7_business_key</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_source_hub_8_business_key</field>
+        <variable>sat_source_hub_8_business_key</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_source_hub_9_business_key</field>
+        <variable>sat_source_hub_9_business_key</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_source_record_source_id</field>
+        <variable>sat_source_record_source_id</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>sat_transformation_to_execute</field>
+        <variable>sat_transformation_to_execute</variable>
+      </variablemapping>
+    </parameters>
+    <result_files_file_name_field>FileName</result_files_file_name_field>
+    <run_configuration>local</run_configuration>
+    <attributes/>
+    <GUI>
+      <xloc>400</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>ref_data_vault_link_satellites</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>pdi_meta</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>select     sats.sat_name                                                    as sat_name
+,          sats.sat_key                                                     as sat_key
+,          links.link_key                                                   as lnk_key
+,          links.link_name                                                  as lnk_name
+,          coalesce(srctab.staging_table_name,srctab.table_name)              as sat_source
+,          coalesce(hub_1.hub_name,'hub_dummy')                               as lnk_hub_1_name
+,          coalesce(sats.sat_source_hub_1_business_key,'''''-1''''')                  as sat_source_hub_1_business_key
+,          coalesce(hub_2.hub_name,'hub_dummy')                               as lnk_hub_2_name
+,          coalesce(sats.sat_source_hub_2_business_key,'''''-1''''')                  as sat_source_hub_2_business_key
+,          coalesce(hub_3.hub_name,'hub_dummy')                               as lnk_hub_3_name
+,          coalesce(sats.sat_source_hub_3_business_key,'''''-1''''')                  as sat_source_hub_3_business_key
+,          coalesce(hub_4.hub_name,'hub_dummy')                               as lnk_hub_4_name
+,          coalesce(sats.sat_source_hub_4_business_key,'''''-1''''')                  as sat_source_hub_4_business_key
+,          coalesce(hub_5.hub_name,'hub_dummy')                               as lnk_hub_5_name
+,          coalesce(sats.sat_source_hub_5_business_key,'''''-1''''')                  as sat_source_hub_5_business_key
+,          coalesce(hub_6.hub_name,'hub_dummy')                               as lnk_hub_6_name
+,          coalesce(sats.sat_source_hub_6_business_key,'''''-1''''')                  as sat_source_hub_6_business_key
+,          coalesce(hub_7.hub_name,'hub_dummy')                               as lnk_hub_7_name
+,          coalesce(sats.sat_source_hub_7_business_key,'''''-1''''')                  as sat_source_hub_7_business_key
+,          coalesce(hub_8.hub_name,'hub_dummy')                               as lnk_hub_8_name
+,          coalesce(sats.sat_source_hub_8_business_key,'''''-1''''')                  as sat_source_hub_8_business_key
+,          coalesce(hub_9.hub_name,'hub_dummy')                               as lnk_hub_9_name
+,          coalesce(sats.sat_source_hub_9_business_key,'''''-1''''')                  as sat_source_hub_9_business_key
+,          coalesce(hub_10.hub_name,'hub_dummy')                              as lnk_hub_10_name
+,          coalesce(sats.sat_source_hub_10_business_key,'''''-1''''')                 as sat_source_hub_10_business_key
+,          sats.sat_attributes                                              as sat_attributes
+,          sats.sat_attributes_dv                                           as sat_attributes_dv
+,          case when conn.type in ('MySQL','PostgreSQL') then sats.sat_attributes_concat
+                else ''
+           end                                                              as sat_attributes_concat
+,          sats.sat_attributes_concat_dv                                    as sat_attributes_concat_dv
+,          sats.record_source_id                                            as sat_source_record_source_id
+,          coalesce(srcsys.id_staging_connection,srcsys.id_source_connection) as id_connection
+,          case when conn.name in ('staging','STG') and hub_10.hub_name is not null then 'trf_data_vault_link_sat_generic_10_hubs_source_is_STG'
+                when conn.name in ('staging','STG') and hub_9.hub_name  is not null then 'trf_data_vault_link_sat_generic_09_hubs_source_is_STG'
+                when conn.name in ('staging','STG') and hub_8.hub_name  is not null then 'trf_data_vault_link_sat_generic_08_hubs_source_is_STG'
+                when conn.name in ('staging','STG') and hub_7.hub_name  is not null then 'trf_data_vault_link_sat_generic_07_hubs_source_is_STG'
+                when conn.name in ('staging','STG') and hub_6.hub_name  is not null then 'trf_data_vault_link_sat_generic_06_hubs_source_is_STG'
+                when conn.name in ('staging','STG') and hub_5.hub_name  is not null then 'trf_data_vault_link_sat_generic_05_hubs_source_is_STG'
+                when conn.name in ('staging','STG') and hub_4.hub_name  is not null then 'trf_data_vault_link_sat_generic_04_hubs_source_is_STG'
+                when conn.name in ('staging','STG') and hub_3.hub_name  is not null then 'trf_data_vault_link_sat_generic_03_hubs_source_is_STG'
+                when conn.name in ('staging','STG') and hub_2.hub_name  is not null then 'trf_data_vault_link_sat_generic_02_hubs_source_is_STG'
+                when hub_2.hub_name  is not null then 'trf_data_vault_link_sat_generic_02_hubs_source_is_STG'
+                when conn.name in ('staging','STG') and hub_1.hub_name  is not null then 'trf_data_vault_link_sat_generic_01_hubs_source_is_STG'                
+           end                                                              as sat_transformation_to_execute
+,          case when conn.type in ('MySQL','PostgreSQL') then sats.sat_lnk_key_attributes_concat
+                else ''
+           end                                                              as sat_lnk_key_attributes_concat
+,          case
+               when hub_10.hub_name is not null then 10
+               when hub_9.hub_name  is not null then 9
+               when hub_8.hub_name  is not null then 8
+               when hub_7.hub_name  is not null then 7
+               when hub_6.hub_name  is not null then 6
+               when hub_5.hub_name  is not null then 5
+               when hub_4.hub_name  is not null then 4
+               when hub_3.hub_name  is not null then 3
+               when hub_2.hub_name  is not null then 2
+               else 1 
+           end                                                              as lnk_number_of_hubs
+,          srctab.id_srcsys                                                 as id_srcsys
+from            ref_data_vault_link_satellites sats
+inner join      ref_data_vault_links           links
+on              sats.id_data_vault_link      = links.id_data_vault_link
+inner join      ref_source_tables              srctab
+on              sats.record_source_id        = srctab.id_srctab
+inner join      ref_source_systems             srcsys
+on              srctab.id_srcsys             = srcsys.id_srcsys
+inner join      ref_connections               conn
+on              coalesce(srcsys.id_staging_connection,srcsys.id_source_connection) = conn.id_connection
+left outer join ref_data_vault_hubs            hub_1
+on              links.id_data_vault_hub_1    = hub_1.id_data_vault_hub
+left outer join ref_data_vault_hubs            hub_2
+on              links.id_data_vault_hub_2    = hub_2.id_data_vault_hub
+left outer join ref_data_vault_hubs            hub_3
+on              links.id_data_vault_hub_3    = hub_3.id_data_vault_hub
+left outer join ref_data_vault_hubs            hub_4
+on              links.id_data_vault_hub_4    = hub_4.id_data_vault_hub
+left outer join ref_data_vault_hubs            hub_5
+on              links.id_data_vault_hub_5    = hub_5.id_data_vault_hub
+left outer join ref_data_vault_hubs            hub_6
+on              links.id_data_vault_hub_6    = hub_6.id_data_vault_hub
+left outer join ref_data_vault_hubs            hub_7
+on              links.id_data_vault_hub_7    = hub_7.id_data_vault_hub
+left outer join ref_data_vault_hubs            hub_8
+on              links.id_data_vault_hub_8    = hub_8.id_data_vault_hub
+left outer join ref_data_vault_hubs            hub_9
+on              links.id_data_vault_hub_9    = hub_9.id_data_vault_hub
+left outer join ref_data_vault_hubs            hub_10
+on              links.id_data_vault_hub_10   = hub_10.id_data_vault_hub
+where           sats.ind_current             = 1
+-- and             mod(sats.id_data_vault_link_sat,4) = ${mod_4_value}
+and             links.id_data_vault                = ${id_data_vault}
+and             (   ${subruntype} = 0 
+                 or ${PROP_DATABASE_STRING_SEARCH_FUNCTION}(concat('|',cast(${subruntype} as char),'|'),sats.process_in_subruntypes) > 0
+                )</sql>
+    <variables_active>Y</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>128</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>

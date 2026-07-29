@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>trf_md_load_ref_data_vault_link_satellite_columns</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description>Load design metadata: link satellite columns</description>
+    <extended_description>This transformation loads the Data Vault link satellite columns into the ref table.</extended_description>
+    <pipeline_version>1.1</pipeline_version>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>2</pipeline_status>
+    <parameters>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user>admin</created_user>
+    <created_date>2011/02/02 21:09:33.000</created_date>
+    <modified_user>admin</modified_user>
+    <modified_date>2017/05/04 11:56:18.792</modified_date>
+  </info>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Ariel</fontname>
+      <fontsize>10</fontsize>
+      <height>22</height>
+      <xloc>64</xloc>
+      <yloc>32</yloc>
+      <note>Description: see transformation settings</note>
+      <width>272</width>
+    </notepad>
+  </notepads>
+  <order>
+    <hop>
+      <from>stg_management_link_satellites</from>
+      <to>ref_data_vault_link_satellite_columns</to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>ref_data_vault_link_satellite_columns</name>
+    <type>InsertUpdate</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <commit>${PROP_COMMIT_SIZE_PDI_META}</commit>
+    <connection>pdi_meta</connection>
+    <lookup>
+      <key>
+        <condition>=</condition>
+        <field>id_data_vault_link_sat</field>
+        <name>id_data_vault_link_sat</name>
+      </key>
+      <key>
+        <condition>=</condition>
+        <field>attribute_number</field>
+        <name>attribute_number</name>
+      </key>
+      <schema/>
+      <table>ref_data_vault_link_satellite_columns</table>
+      <value>
+        <name>id_data_vault_link_sat</name>
+        <rename>id_data_vault_link_sat</rename>
+        <update>N</update>
+      </value>
+      <value>
+        <name>attribute_number</name>
+        <rename>attribute_number</rename>
+        <update>N</update>
+      </value>
+      <value>
+        <name>attribute_source_column</name>
+        <rename>attribute_source_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>attribute_target_column</name>
+        <rename>attribute_target_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>record_source_id</name>
+        <rename>record_source_id</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>ind_current</name>
+        <rename>ind_current</rename>
+        <update>Y</update>
+      </value>
+    </lookup>
+    <update_bypassed>N</update_bypassed>
+    <attributes/>
+    <GUI>
+      <xloc>448</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>stg_management_link_satellites</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>pdi_meta</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>select          lsats.id_data_vault_link_sat
+,               stg_sat.attribute_number
+,               stg_sat.attribute_source_column
+,               stg_sat.attribute_target_column
+,               ref_srctab.id_srctab              as record_source_id
+-- ,               ref_rs.record_source_id                as system_source_id
+,               stg_sat.ind_current           
+from            vw_stg_management_link_satellites_all_columns_filled       stg_sat
+cross join      stg_management_data_vaults      dv
+inner join      ref_data_vault_links            ref_links
+on              stg_sat.sat_link              = ref_links.link_name
+and             dv.id_data_vault              = ref_links.id_data_vault
+inner join      stg_management_source_tables    stg_srctab
+on              stg_sat.source_concat         = stg_srctab.source_concat
+inner join      ref_source_systems              ref_srcsys
+on              stg_srctab.source_system      = ref_srcsys.description
+inner join      ref_source_tables               ref_srctab
+on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
+and             stg_srctab.table_name         = ref_srctab.table_name
+-- inner join		ref_record_source				ref_rs
+-- on				ref_rs.source_name			  = ref_srcsys.cod_srcsys
+inner join      ref_data_vault_link_satellites  lsats
+on              stg_sat.sat_name              = lsats.sat_name
+and             ref_links.id_data_vault_link  = lsats.id_data_vault_link
+where           stg_sat.ind_current           = 1</sql>
+    <variables_active>Y</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>160</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>

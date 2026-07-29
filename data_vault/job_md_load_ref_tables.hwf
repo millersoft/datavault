@@ -1,0 +1,856 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workflow>
+  <name>job_md_load_ref_tables</name>
+  <name_sync_with_filename>Y</name_sync_with_filename>
+  <description>Load reference metadata for the Data Vault</description>
+  <extended_description>This job processes the metadata of a Data Vault definition.
+Source is an Excel sheet that contains the data for 1 Data Vault.
+The id of the Data Vault is hardcoded in the Excel sheet.
+
+First all data is staged, then the reference tables in the repository are refreshed using that data.</extended_description>
+  <workflow_version>1.6</workflow_version>
+  <workflow_status>0</workflow_status>
+  <created_user/>
+  <created_date>2014/12/15 01:09:50.775</created_date>
+  <modified_user>admin</modified_user>
+  <modified_date>2017/05/11 12:19:56.719</modified_date>
+  <parameters>
+    <parameter>
+      <name>id_data_vault</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+  </parameters>
+  <actions>
+    <action>
+      <name>trf_stg_management_dwh_metadata</name>
+      <description>Load the metadata from the Excel Data Vault definition file into staging tables (truncate/insert).</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_stg_management_dwh_metadata.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>368</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Success</name>
+      <description/>
+      <type>SUCCESS</type>
+      <attributes/>
+      <parallel>N</parallel>
+      <xloc>1296</xloc>
+      <yloc>496</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_data_vault_hub_satellites</name>
+      <description>Load the table ref_data_vault_hub_satellites incrementally.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_data_vault_hub_satellites_${PROP_DATABASE_TYPE}.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>224</xloc>
+      <yloc>608</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_data_vault_links</name>
+      <description>Load the table ref_data_vault_links incrementally.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_data_vault_links.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>224</xloc>
+      <yloc>480</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_data_vault_hub_sources</name>
+      <description>Load the table ref_data_vault_hub_sources incrementally.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_data_vault_hub_sources.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>896</xloc>
+      <yloc>368</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_data_vault_hubs</name>
+      <description>Load the table ref_data_vault_hubs incrementally.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_data_vault_hubs.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>544</xloc>
+      <yloc>352</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_source_tables</name>
+      <description>Load the table ref_source_tables incrementally.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_source_tables.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>480</xloc>
+      <yloc>224</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_source_systems</name>
+      <description>Load the table ref_source_systems incrementally.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_source_systems.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>768</xloc>
+      <yloc>224</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>START</name>
+      <description/>
+      <type>SPECIAL</type>
+      <attributes/>
+      <DayOfMonth>1</DayOfMonth>
+      <doNotWaitOnFirstExecution>N</doNotWaitOnFirstExecution>
+      <hour>12</hour>
+      <intervalMinutes>60</intervalMinutes>
+      <intervalSeconds>0</intervalSeconds>
+      <minutes>0</minutes>
+      <repeat>N</repeat>
+      <schedulerType>0</schedulerType>
+      <weekDay>1</weekDay>
+      <parallel>N</parallel>
+      <xloc>64</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_data_vault_link_satellites</name>
+      <description>Load the table ref_data_vault_link_satellites incrementally.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_data_vault_link_satellites_${PROP_DATABASE_TYPE}.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>896</xloc>
+      <yloc>624</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Check error count</name>
+      <description>If there are design errors the job is aborted.</description>
+      <type>EVAL_TABLE_CONTENT</type>
+      <attributes/>
+      <add_rows_result>N</add_rows_result>
+      <clear_result_rows>Y</clear_result_rows>
+      <connection>pdi_meta</connection>
+      <is_custom_sql>N</is_custom_sql>
+      <is_usevars>N</is_usevars>
+      <limit>0</limit>
+      <success_condition>rows_count_smaller_equal</success_condition>
+      <tablename>stg_management_dv_design_errors</tablename>
+      <parallel>N</parallel>
+      <xloc>960</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Abort job</name>
+      <description/>
+      <type>ABORT</type>
+      <attributes/>
+      <always_log_rows>N</always_log_rows>
+      <parallel>N</parallel>
+      <xloc>1152</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_data_vault_link_attributes</name>
+      <description>Load the table ref_data_vault_link_attributes incrementally.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_data_vault_link_attributes_${PROP_DATABASE_TYPE}.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>896</xloc>
+      <yloc>496</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_data_vaults</name>
+      <description>Load the table ref_data_vaults incrementally.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_data_vaults.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>224</xloc>
+      <yloc>352</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>delete obsolete Data Vault objects </name>
+      <description>Set ind_current to 0 (do not process) for objects that are not present in the staging tables.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>delete from ref_data_vault_hub_satellite_columns
+where  not exists
+(
+select          hsats.id_data_vault_hub_sat
+,               stg_sat.attribute_number
+,               stg_sat.attribute_source_column
+,               stg_sat.attribute_target_column
+,               ref_srctab.id_srctab              as record_source_id
+,               stg_sat.ind_current           
+from            vw_stg_management_satellites_all_columns_filled       stg_sat
+cross join      stg_management_data_vaults      dv
+inner join      ref_data_vault_hubs             ref_hubs
+on              stg_sat.sat_hub               = ref_hubs.hub_name
+and             dv.id_data_vault              = ref_hubs.id_data_vault
+inner join      stg_management_source_tables    stg_srctab
+on              stg_sat.source_concat         = stg_srctab.source_concat
+inner join      ref_source_systems              ref_srcsys
+on              stg_srctab.source_system      = ref_srcsys.description
+inner join      ref_source_tables               ref_srctab
+on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
+and             stg_srctab.table_name         = ref_srctab.table_name
+inner join      ref_data_vault_hub_satellites   hsats
+on              stg_sat.sat_name              = hsats.sat_name
+and             ref_hubs.id_data_vault_hub    = hsats.id_data_vault_hub
+where           stg_sat.ind_current           = 1
+and             hsats.id_data_vault_hub_sat   = ref_data_vault_hub_satellite_columns.id_data_vault_hub_sat
+and             stg_sat.attribute_number      = ref_data_vault_hub_satellite_columns.attribute_number
+);
+
+delete from ref_data_vault_link_satellite_columns
+where  not exists
+(
+select          lsats.id_data_vault_link_sat
+,               stg_sat.attribute_number
+,               stg_sat.attribute_source_column
+,               stg_sat.attribute_target_column
+,               ref_srctab.id_srctab              as record_source_id
+,               stg_sat.ind_current           
+from            vw_stg_management_link_satellites_all_columns_filled       stg_sat
+cross join      stg_management_data_vaults      dv
+inner join      ref_data_vault_links            ref_links
+on              stg_sat.sat_link              = ref_links.link_name
+and             dv.id_data_vault              = ref_links.id_data_vault
+inner join      stg_management_source_tables    stg_srctab
+on              stg_sat.source_concat         = stg_srctab.source_concat
+inner join      ref_source_systems              ref_srcsys
+on              stg_srctab.source_system      = ref_srcsys.description
+inner join      ref_source_tables               ref_srctab
+on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
+and             stg_srctab.table_name         = ref_srctab.table_name
+inner join      ref_data_vault_link_satellites  lsats
+on              stg_sat.sat_name              = lsats.sat_name
+and             ref_links.id_data_vault_link  = lsats.id_data_vault_link
+where           stg_sat.ind_current           = 1
+and             lsats.id_data_vault_link_sat  = ref_data_vault_link_satellite_columns.id_data_vault_link_sat
+and             stg_sat.attribute_number      = ref_data_vault_link_satellite_columns.attribute_number
+);
+
+delete from ref_data_vault_hub_satellites
+where exists (select 1
+               from   ref_data_vault_hubs             dv_hubs
+               where  dv_hubs.id_data_vault_hub    =  ref_data_vault_hub_satellites.id_data_vault_hub
+               and    dv_hubs.id_data_vault        =  (select id_data_vault from stg_management_data_vaults)
+              )
+and    not exists
+(
+select          ref_hubs.id_data_vault_hub
+,               stg_sat.sat_name
+from            stg_management_satellites       stg_sat
+cross join      stg_management_data_vaults      dv
+inner join      ref_data_vault_hubs             ref_hubs
+on              stg_sat.sat_hub               = ref_hubs.hub_name
+and             dv.id_data_vault              = ref_hubs.id_data_vault
+where           stg_sat.ind_current           = 1
+and             ref_hubs.id_data_vault_hub    = ref_data_vault_hub_satellites.id_data_vault_hub
+and             stg_sat.sat_name              = ref_data_vault_hub_satellites.sat_name
+);
+
+
+delete from ref_data_vault_link_satellites
+where  exists (select 1
+               from   ref_data_vault_links           dv_links
+               where  dv_links.id_data_vault_link =  ref_data_vault_link_satellites.id_data_vault_link
+               and    dv_links.id_data_vault      =  (select id_data_vault from stg_management_data_vaults)
+              )
+and    not exists
+(
+select          1
+from            stg_management_link_satellites   stg_sat
+inner join      ref_data_vault_links             ref_links
+on              stg_sat.sat_link               = ref_links.link_name
+and             (select id_data_vault from stg_management_data_vaults)   = ref_links.id_data_vault
+where           stg_sat.ind_current            = 1
+and             stg_sat.sat_name               = ref_data_vault_link_satellites.sat_name
+and             ref_links.id_data_vault_link   = ref_data_vault_link_satellites.id_data_vault_link
+);
+
+delete from ref_data_vault_link_sources
+where  exists (select 1 from ref_data_vault_links l where l.id_data_vault_link = ref_data_vault_link_sources.id_data_vault_link and l.id_data_vault = (select id_data_vault from stg_management_data_vaults))
+and    not exists
+(
+select          ref_links.id_data_vault_link
+,               stg_links.ind_current
+,               ref_srctab.id_srctab                as record_source_id
+,               stg_links.link_source_order         as source_order
+from            stg_management_links            stg_links
+cross join      stg_management_data_vaults      dv
+inner join      stg_management_source_tables    stg_srctab
+on              stg_links.source_concat       = stg_srctab.source_concat
+inner join      ref_source_systems              ref_srcsys
+on              stg_srctab.source_system      = ref_srcsys.description
+inner join      ref_source_tables               ref_srctab
+on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
+and             stg_srctab.table_name         = ref_srctab.table_name
+inner join      ref_data_vault_links            ref_links
+on              stg_links.link_name           = ref_links.link_name
+and             ref_links.id_data_vault       = dv.id_data_vault
+where           stg_links.ind_current         = 1
+and             ref_links.id_data_vault_link  = ref_data_vault_link_sources.id_data_vault_link
+and             ref_srctab.id_srctab          = ref_data_vault_link_sources.record_source_id
+and             stg_links.link_source_order   = ref_data_vault_link_sources.source_order
+);
+
+delete from ref_data_vault_link_attributes
+where  exists (select 1
+               from   ref_data_vault_links            dv_links
+               where  dv_links.id_data_vault_link  =  dv_links.id_data_vault_link
+               and    dv_links.id_data_vault       =  (select id_data_vault from stg_management_data_vaults)
+              )
+and    not exists
+(
+select          ref_links.id_data_vault_link
+,               ref_srctab.id_srctab              as record_source_id
+,               stg_lnka.ind_current
+from
+(            
+select          iv.link_name
+,               iv.ind_current
+,               iv.source_concat
+from
+(select         distinct 
+                lnka.link_name
+,               lnka.ind_current    
+,               lnka.source_concat 
+from            vw_stg_management_link_attributes_all_columns_filled lnka
+) iv
+) stg_lnka
+inner join      ref_data_vault_links            ref_links
+on              stg_lnka.link_name            = ref_links.link_name
+and             ref_links.id_data_vault       = (select id_data_vault from stg_management_data_vaults)
+inner join      stg_management_source_tables    stg_srctab
+on              stg_lnka.source_concat        = stg_srctab.source_concat
+inner join      ref_source_systems              ref_srcsys
+on              stg_srctab.source_system      = ref_srcsys.description
+inner join      ref_source_tables               ref_srctab
+on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
+and             stg_srctab.table_name         = ref_srctab.table_name
+where           stg_lnka.ind_current          = 1
+and             ref_links.id_data_vault_link  = ref_data_vault_link_attributes.id_data_vault_link
+and             ref_srctab.id_srctab          = ref_data_vault_link_attributes.record_source_id
+);
+
+delete from ref_data_vault_links
+where       ref_data_vault_links.id_data_vault = (select id_data_vault from stg_management_data_vaults)
+and    not exists
+(
+select          1
+from            stg_management_links            stg_links
+where           stg_links.link_name           = ref_data_vault_links.link_name
+and             (select id_data_vault from stg_management_data_vaults) = ref_data_vault_links.id_data_vault
+and             stg_links.ind_current         = 1
+);
+
+delete from ref_data_vault_hub_sources
+where exists (select 1 from ref_data_vault_hubs h where h.id_data_vault_hub = ref_data_vault_hub_sources.id_data_vault_hub and h.id_data_vault = (select id_data_vault from stg_management_data_vaults))
+and not exists
+(
+select          1
+from            stg_management_hubs             stg_hubs
+cross join      stg_management_data_vaults      dv
+inner join      ref_data_vault_hubs             ref_hubs
+on              stg_hubs.hub_name             = ref_hubs.hub_name
+and             dv.id_data_vault              = ref_hubs.id_data_vault
+inner join      stg_management_source_tables    stg_srctab
+on              stg_hubs.hub_source           = stg_srctab.source_concat
+inner join      ref_source_systems              ref_srcsys
+on              stg_srctab.source_system      = ref_srcsys.description
+inner join      ref_source_tables               ref_srctab
+on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
+and             stg_srctab.table_name         = ref_srctab.table_name
+where           stg_hubs.hub_source_business_key is not null
+and             ref_hubs.id_data_vault_hub       = ref_data_vault_hub_sources.id_data_vault_hub
+and             ref_srctab.id_srctab             = ref_data_vault_hub_sources.record_source_id       
+and             stg_hubs.hub_source_business_key = ref_data_vault_hub_sources.source_business_key
+and             stg_hubs.ind_current             = 1 
+);
+
+delete from ref_data_vault_hubs
+where  id_data_vault = (select id_data_vault from stg_management_data_vaults)
+and    not exists
+(
+select          1
+from            stg_management_hubs        hubs
+cross join      stg_management_data_vaults dv
+where           hubs.hub_name            = ref_data_vault_hubs.hub_name
+and             dv.id_data_vault         = ref_data_vault_hubs.id_data_vault
+and             hubs.ind_current         = 1
+);
+</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>1296</xloc>
+      <yloc>752</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_data_vault_link_sources</name>
+      <description/>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_data_vault_link_sources.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>544</xloc>
+      <yloc>480</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_data_vault_hub_satellite_columns</name>
+      <description/>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_data_vault_hub_satellite_columns.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>224</xloc>
+      <yloc>736</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_data_vault_link_satellite_columns</name>
+      <description/>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_data_vault_link_satellite_columns.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>896</xloc>
+      <yloc>752</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_md_load_ref_data_vault_objects_in_subruntypes</name>
+      <description/>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_md_load_ref_data_vault_objects_in_subruntypes.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1296</xloc>
+      <yloc>624</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_stg_management_design_errors</name>
+      <description>Check the metadata for errors, like non-existing hubs, non-existing target columns etc.
+Error are stored in table stg_management_dv_design_errors.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_stg_management_design_errors.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>688</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+  </actions>
+  <hops>
+    <hop>
+      <from>START</from>
+      <to>trf_stg_management_dwh_metadata</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>Y</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_data_vault_hub_sources</from>
+      <to>trf_md_load_ref_data_vault_links</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_data_vault_hubs</from>
+      <to>trf_md_load_ref_data_vault_hub_sources</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_source_systems</from>
+      <to>trf_md_load_ref_source_tables</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_data_vault_hub_satellites</from>
+      <to>trf_md_load_ref_data_vault_link_satellites</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Check error count</from>
+      <to>trf_md_load_ref_source_systems</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Check error count</from>
+      <to>Abort job</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_data_vault_link_attributes</from>
+      <to>trf_md_load_ref_data_vault_hub_satellites</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_source_tables</from>
+      <to>trf_md_load_ref_data_vaults</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_data_vaults</from>
+      <to>trf_md_load_ref_data_vault_hubs</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_data_vault_links</from>
+      <to>trf_md_load_ref_data_vault_link_sources</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_data_vault_link_sources</from>
+      <to>trf_md_load_ref_data_vault_link_attributes</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_data_vault_link_satellites</from>
+      <to>trf_md_load_ref_data_vault_hub_satellite_columns</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_data_vault_hub_satellite_columns</from>
+      <to>trf_md_load_ref_data_vault_link_satellite_columns</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_data_vault_link_satellite_columns</from>
+      <to>delete obsolete Data Vault objects </to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>delete obsolete Data Vault objects </from>
+      <to>trf_md_load_ref_data_vault_objects_in_subruntypes</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_md_load_ref_data_vault_objects_in_subruntypes</from>
+      <to>Success</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_stg_management_design_errors</from>
+      <to>Check error count</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_stg_management_dwh_metadata</from>
+      <to>trf_stg_management_design_errors</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+  </hops>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Arial</fontname>
+      <fontsize>9</fontsize>
+      <height>21</height>
+      <xloc>32</xloc>
+      <yloc>0</yloc>
+      <note>Description: see job settings</note>
+      <width>163</width>
+    </notepad>
+  </notepads>
+  <attributes/>
+</workflow>

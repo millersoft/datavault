@@ -1,0 +1,1482 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workflow>
+  <name>job_data_vault_all_incl_md</name>
+  <name_sync_with_filename>Y</name_sync_with_filename>
+  <description>Complete run to load the Data Vault</description>
+  <extended_description>This job first refreshes the metadata for a Data vault and then loads it completely
+(or only partially depending on the 'process_' parameters), based on the value of parameter id_data_vault.
+The steps are:
+
+ 1:	Refresh Data Vault metadata
+ 2:	Create necessary hub-run tables
+ 3:	Load all hubs
+ 4:	Create necessary link-run tables
+ 5:	Load all links
+ 6:	Load all 'regular' link validity satellites (lnk_bk_columns filled).
+ 7:	Load all 'group' link validity satellites (lnk_group_key_column filled).
+ 8:	Load all hub satellites
+ 9:	Load all hub status satellites  (to identify deletes, needs FULL load!)
+10:	Load all link satellites
+11:	Load all link status satellites (to identify deletes, needs FULL load!)
+
+The 'process_'-parameters define which steps will be processed.
+The default for all of them is 1 (process), but if a run crashed while processing the link satellites you might want to
+restart at that point instead of processing all objects again.
+
+If the run is a restart (parameter ind_restart = 1) the load_dts of the previous job is used as the load_dts for the run.
+That will ensure consistent start/end dates in the satellites.
+That previous run should not be succesfully finished, except when parameter ind_force_restart = 1.
+</extended_description>
+  <workflow_version>1.12</workflow_version>
+  <workflow_status>0</workflow_status>
+  <created_user/>
+  <created_date>2014/12/15 01:09:50.635</created_date>
+  <modified_user>admin</modified_user>
+  <modified_date>2017/05/09 17:11:20.060</modified_date>
+  <parameters>
+    <parameter>
+      <name>id_data_vault</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>ind_force_restart</name>
+      <default_value>0</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>ind_restart</name>
+      <default_value>0</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>par_send_error_mail_ind</name>
+      <default_value>0</default_value>
+      <description>Indicator whether a mail should be send on error (0=No, 1=Yes).</description>
+    </parameter>
+    <parameter>
+      <name>par_send_success_mail_ind</name>
+      <default_value>0</default_value>
+      <description>Indicator whether a mail should be send on success (0=No, 1=Yes).</description>
+    </parameter>
+    <parameter>
+      <name>postgres_bulk</name>
+      <default_value>0</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>process_dv_ref</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>process_hub_satellites</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>process_hub_status_satellites</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>process_hubs</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>process_link_group_validity_satellites</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>process_link_satellites</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>process_link_status_satellites</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>process_link_validity_satellites</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>process_links</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>process_ref_tables</name>
+      <default_value>1</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>subruntype</name>
+      <default_value>0</default_value>
+      <description/>
+    </parameter>
+  </parameters>
+  <actions>
+    <action>
+      <name>START</name>
+      <description/>
+      <type>SPECIAL</type>
+      <attributes/>
+      <DayOfMonth>1</DayOfMonth>
+      <doNotWaitOnFirstExecution>N</doNotWaitOnFirstExecution>
+      <hour>12</hour>
+      <intervalMinutes>60</intervalMinutes>
+      <intervalSeconds>0</intervalSeconds>
+      <minutes>0</minutes>
+      <repeat>N</repeat>
+      <schedulerType>0</schedulerType>
+      <weekDay>1</weekDay>
+      <parallel>N</parallel>
+      <xloc>224</xloc>
+      <yloc>80</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Success</name>
+      <description/>
+      <type>SUCCESS</type>
+      <attributes/>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>1520</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_hubs_all</name>
+      <description>Load all hubs.</description>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_hubs_all.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>Y</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>560</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_links_all</name>
+      <description>Load all links.</description>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_links_all.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>Y</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>752</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_hub_satellites_all</name>
+      <description>Load all hub satellites.</description>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_hub_satellites_all.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>Y</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>1040</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_link_satellites_all</name>
+      <description>Load all link satellites.</description>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_link_satellites_all.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>1232</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_md_load_ref_tables</name>
+      <description>Load and check the metadata defining the Data Vault.</description>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_md_load_ref_tables.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1120</xloc>
+      <yloc>192</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>create_new_run (regular)</name>
+      <description>Create a new ETL run of type 1.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_create_new_run(1,0,${subruntype})</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>416</xloc>
+      <yloc>192</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_set_system_variables</name>
+      <description>Set the variable actual_run to the newly created ETL run.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_set_system_variables.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>608</xloc>
+      <yloc>192</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>end_run</name>
+      <description>End the current ETL run with status 2 (succesfully completed).</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_end_run(2,NULL,1)</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>752</xloc>
+      <yloc>1424</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_link_satellites_validity_all</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_link_satellites_validity_all.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>Y</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>848</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_create_link_run_tables_all</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_create_link_run_tables_all.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>656</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Restart?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${ind_restart}</variablename>
+      <parallel>N</parallel>
+      <xloc>224</xloc>
+      <yloc>192</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>create_new_run (restart)</name>
+      <description>Create a new ETL run of type 1.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_create_new_run(1,1,${subruntype})</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>416</xloc>
+      <yloc>416</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_set_id_status_actual_run</name>
+      <description/>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_set_id_status_actual_run.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>224</xloc>
+      <yloc>288</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Latest run not succesful?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>2</comparevalue>
+      <fieldname>${id_status_actual_run}</fieldname>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>different</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${id_status_actual_run}</variablename>
+      <parallel>N</parallel>
+      <xloc>224</xloc>
+      <yloc>416</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Abort job (Restart specified, but latest run was successful!)</name>
+      <description/>
+      <type>ABORT</type>
+      <attributes/>
+      <always_log_rows>N</always_log_rows>
+      <message>Restart specified, but latest run was successful!</message>
+      <parallel>N</parallel>
+      <xloc>224</xloc>
+      <yloc>992</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_link_satellites_status_all</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_link_satellites_status_all.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>1328</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_hub_satellites_status_all</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_hub_satellites_status_all.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>1136</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_create_hub_run_tables_all</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_create_hub_run_tables_all.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>464</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_data_vault_load_link_satellite_group_validity_all</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/job_data_vault_load_link_satellite_group_validity_all.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>944</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Process ref tables?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${process_ref_tables}</variablename>
+      <parallel>N</parallel>
+      <xloc>768</xloc>
+      <yloc>192</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Process hubs?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${process_hubs}</variablename>
+      <parallel>N</parallel>
+      <xloc>752</xloc>
+      <yloc>464</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Process links?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${process_links}</variablename>
+      <parallel>N</parallel>
+      <xloc>752</xloc>
+      <yloc>656</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Process link validity satellites?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${process_link_validity_satellites}</variablename>
+      <parallel>N</parallel>
+      <xloc>752</xloc>
+      <yloc>848</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Process link group validity satellites?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${process_link_group_validity_satellites}</variablename>
+      <parallel>N</parallel>
+      <xloc>752</xloc>
+      <yloc>944</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Process hub satellites?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${process_hub_satellites}</variablename>
+      <parallel>N</parallel>
+      <xloc>752</xloc>
+      <yloc>1040</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Process hub status satellites?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${process_hub_status_satellites}</variablename>
+      <parallel>N</parallel>
+      <xloc>752</xloc>
+      <yloc>1136</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Process link satellites?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${process_link_satellites}</variablename>
+      <parallel>N</parallel>
+      <xloc>752</xloc>
+      <yloc>1232</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Process link status satellites?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${process_link_status_satellites}</variablename>
+      <parallel>N</parallel>
+      <xloc>752</xloc>
+      <yloc>1328</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_send_mail (success)</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/management/job_send_mail.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <parameter>
+          <name>par_file_to_attach</name>
+        </parameter>
+        <parameter>
+          <name>par_mail_body</name>
+          <value>ETL job ${Internal.Workflow.Name} completed successfully.</value>
+        </parameter>
+        <parameter>
+          <name>par_mail_subject</name>
+          <value>ETL job ${Internal.Workflow.Name} completed</value>
+        </parameter>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>1424</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Send success mail?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${par_send_success_mail_ind}</variablename>
+      <parallel>N</parallel>
+      <xloc>944</xloc>
+      <yloc>1424</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_send_mail (error)</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/management/job_send_mail.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <parameter>
+          <name>par_file_to_attach</name>
+        </parameter>
+        <parameter>
+          <name>par_mail_body</name>
+          <value>Something went wrong in job ${Internal.Workflow.Name}. Check the log for details.</value>
+        </parameter>
+        <parameter>
+          <name>par_mail_subject</name>
+          <value>Error in ETL job ${Internal.Workflow.Name}</value>
+        </parameter>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1520</xloc>
+      <yloc>944</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Abort job</name>
+      <description/>
+      <type>ABORT</type>
+      <attributes/>
+      <always_log_rows>N</always_log_rows>
+      <parallel>N</parallel>
+      <xloc>1648</xloc>
+      <yloc>848</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Send error mail?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${par_send_error_mail_ind}</variablename>
+      <parallel>N</parallel>
+      <xloc>1520</xloc>
+      <yloc>848</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Send error mail? 2</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${par_send_error_mail_ind}</variablename>
+      <parallel>N</parallel>
+      <xloc>224</xloc>
+      <yloc>768</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>job_send_mail (error) 2</name>
+      <description/>
+      <type>WORKFLOW</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/management/job_send_mail.hwf</filename>
+      <loglevel>Nothing</loglevel>
+      <parameters>
+        <parameter>
+          <name>par_file_to_attach</name>
+        </parameter>
+        <parameter>
+          <name>par_mail_body</name>
+          <value>Restart specified, but latest run was successful!</value>
+        </parameter>
+        <parameter>
+          <name>par_mail_subject</name>
+          <value>Error in ETL job ${Internal.Workflow.Name}</value>
+        </parameter>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>96</xloc>
+      <yloc>864</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>end_run (restart invalidly specified)</name>
+      <description>End the current ETL run with status 2 (succesfully completed).</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_end_run(3,'Restart specified, but latest run was successful!',1)</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>224</xloc>
+      <yloc>640</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>end_run (error)</name>
+      <description>End the current ETL run with status 2 (succesfully completed).</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_end_run(3,'Error, check the logs!',1)</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>1392</xloc>
+      <yloc>848</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Force restart?</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${ind_force_restart}</variablename>
+      <parallel>N</parallel>
+      <xloc>224</xloc>
+      <yloc>512</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Process data vault ref tables</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>number</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${process_dv_ref}</variablename>
+      <parallel>N</parallel>
+      <xloc>768</xloc>
+      <yloc>320</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_create_dv_ref_views</name>
+      <description/>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_create_dv_ref_views.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>320</yloc>
+      <attributes_hac/>
+    </action>
+  </actions>
+  <hops>
+    <hop>
+      <from>job_data_vault_create_link_run_tables_all</from>
+      <to>job_data_vault_load_links_all</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Restart?</from>
+      <to>create_new_run (regular)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Restart?</from>
+      <to>trf_set_id_status_actual_run</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_set_id_status_actual_run</from>
+      <to>Latest run not succesful?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Latest run not succesful?</from>
+      <to>create_new_run (restart)</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_link_satellites_status_all</from>
+      <to>end_run</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_create_hub_run_tables_all</from>
+      <to>job_data_vault_load_hubs_all</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>create_new_run (regular)</from>
+      <to>trf_set_system_variables</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>create_new_run (restart)</from>
+      <to>trf_set_system_variables</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process ref tables?</from>
+      <to>job_md_load_ref_tables</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process hubs?</from>
+      <to>job_data_vault_create_hub_run_tables_all</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process hubs?</from>
+      <to>Process links?</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_hubs_all</from>
+      <to>Process links?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process links?</from>
+      <to>job_data_vault_create_link_run_tables_all</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process links?</from>
+      <to>Process link validity satellites?</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process link validity satellites?</from>
+      <to>job_data_vault_load_link_satellites_validity_all</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process link validity satellites?</from>
+      <to>Process link group validity satellites?</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_link_satellites_validity_all</from>
+      <to>Process link group validity satellites?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process link group validity satellites?</from>
+      <to>job_data_vault_load_link_satellite_group_validity_all</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process link group validity satellites?</from>
+      <to>Process hub satellites?</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process hub satellites?</from>
+      <to>job_data_vault_load_hub_satellites_all</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process hub satellites?</from>
+      <to>Process hub status satellites?</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process hub status satellites?</from>
+      <to>job_data_vault_load_hub_satellites_status_all</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_hub_satellites_all</from>
+      <to>Process hub status satellites?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process hub status satellites?</from>
+      <to>Process link satellites?</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_hub_satellites_status_all</from>
+      <to>Process link satellites?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process link satellites?</from>
+      <to>job_data_vault_load_link_satellites_all</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process link satellites?</from>
+      <to>Process link status satellites?</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_link_satellites_all</from>
+      <to>Process link status satellites?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process link status satellites?</from>
+      <to>job_data_vault_load_link_satellites_status_all</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process link status satellites?</from>
+      <to>end_run</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_all</from>
+      <to>Process link validity satellites?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_link_satellite_group_validity_all</from>
+      <to>Process hub satellites?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_set_system_variables</from>
+      <to>Process ref tables?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>end_run</from>
+      <to>Send success mail?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Send success mail?</from>
+      <to>job_send_mail (success)</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_send_mail (success)</from>
+      <to>Success</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Send success mail?</from>
+      <to>Success</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Send error mail?</from>
+      <to>job_send_mail (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_send_mail (error)</from>
+      <to>Abort job</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>Y</unconditional>
+    </hop>
+    <hop>
+      <from>Send error mail?</from>
+      <to>Abort job</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Send error mail? 2</from>
+      <to>job_send_mail (error) 2</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_send_mail (error) 2</from>
+      <to>Abort job (Restart specified, but latest run was successful!)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>Y</unconditional>
+    </hop>
+    <hop>
+      <from>Send error mail? 2</from>
+      <to>Abort job (Restart specified, but latest run was successful!)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>end_run (restart invalidly specified)</from>
+      <to>Send error mail? 2</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>end_run (error)</from>
+      <to>Send error mail?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_link_satellites_validity_all</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_links_all</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_create_link_run_tables_all</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_hubs_all</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_create_hub_run_tables_all</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_md_load_ref_tables</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_link_satellite_group_validity_all</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_hub_satellites_all</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_hub_satellites_status_all</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_link_satellites_all</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_data_vault_load_link_satellites_status_all</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Latest run not succesful?</from>
+      <to>Force restart?</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Force restart?</from>
+      <to>end_run (restart invalidly specified)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Force restart?</from>
+      <to>create_new_run (restart)</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>job_md_load_ref_tables</from>
+      <to>Process data vault ref tables</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process data vault ref tables</from>
+      <to>Process hubs?</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process ref tables?</from>
+      <to>Process data vault ref tables</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process data vault ref tables</from>
+      <to>trf_create_dv_ref_views</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_create_dv_ref_views</from>
+      <to>Process hubs?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_create_dv_ref_views</from>
+      <to>end_run (error)</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>START</from>
+      <to>Restart?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>Y</unconditional>
+    </hop>
+  </hops>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Arial</fontname>
+      <fontsize>9</fontsize>
+      <height>21</height>
+      <xloc>32</xloc>
+      <yloc>16</yloc>
+      <note>Description: see job settings</note>
+      <width>163</width>
+    </notepad>
+  </notepads>
+  <attributes/>
+</workflow>

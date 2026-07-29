@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>trf_md_load_ref_source_tables</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description>Load design metadata: source tables</description>
+    <extended_description>This transformation loads the source tables from the staging table into the ref table.</extended_description>
+    <pipeline_version>1.4</pipeline_version>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>2</pipeline_status>
+    <parameters>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user>admin</created_user>
+    <created_date>2011/02/02 21:09:35.000</created_date>
+    <modified_user>admin</modified_user>
+    <modified_date>2014/12/08 22:01:16.051</modified_date>
+  </info>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Ariel</fontname>
+      <fontsize>10</fontsize>
+      <height>22</height>
+      <xloc>32</xloc>
+      <yloc>32</yloc>
+      <note>Description: see transformation settings</note>
+      <width>272</width>
+    </notepad>
+  </notepads>
+  <order>
+    <hop>
+      <from>stg_management_source_tables</from>
+      <to>ref_source_tables</to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>ref_source_tables</name>
+    <type>InsertUpdate</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <commit>100</commit>
+    <connection>pdi_meta</connection>
+    <lookup>
+      <key>
+        <condition>=</condition>
+        <field>id_srcsys</field>
+        <name>id_srcsys</name>
+      </key>
+      <key>
+        <condition>=</condition>
+        <field>table_name</field>
+        <name>table_name</name>
+      </key>
+      <schema/>
+      <table>ref_source_tables</table>
+      <value>
+        <name>id_srcsys</name>
+        <rename>id_srcsys</rename>
+        <update>N</update>
+      </value>
+      <value>
+        <name>table_name</name>
+        <rename>table_name</rename>
+        <update>N</update>
+      </value>
+      <value>
+        <name>description</name>
+        <rename>description</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>staging_table_name</name>
+        <rename>staging_table_name</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>ind_stage_this_table</name>
+        <rename>ind_stage_this_table</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>ind_staging_is_incremental</name>
+        <rename>ind_staging_is_incremental</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>increment_date_column</name>
+        <rename>increment_date_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>staging_load_group_order</name>
+        <rename>staging_load_group_order</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>staging_sql_override</name>
+        <rename>staging_sql_override</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>process_in_subruntypes</name>
+        <rename>process_in_subruntypes</rename>
+        <update>Y</update>
+      </value>
+    </lookup>
+    <update_bypassed>N</update_bypassed>
+    <attributes/>
+    <GUI>
+      <xloc>416</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>stg_management_source_tables</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>N</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>pdi_meta</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>select          ref_srcsys.id_srcsys
+,               stg_srctab.table_name
+,               stg_srctab.table_description  as description
+,               stg_srctab.staging_table_name  
+,               stg_srctab.ind_stage_this_table
+,               stg_srctab.ind_staging_is_incremental
+,               stg_srctab.increment_date_column
+,               stg_srctab.staging_load_group_order
+,               stg_srctab.staging_sql_override
+,               stg_srctab.process_in_subruntypes
+from            stg_management_source_tables  stg_srctab
+inner join      ref_source_systems            ref_srcsys
+on              stg_srctab.source_system     = ref_srcsys.description
+where not exists
+(
+select 1
+from   ref_source_tables                                 srctab_bestaand
+where  stg_srctab.table_name                           = srctab_bestaand.table_name
+and    ref_srcsys.id_srcsys                            = srctab_bestaand.id_srcsys
+and    coalesce(stg_srctab.table_description,'')         = coalesce(srctab_bestaand.description,'')
+and    coalesce(stg_srctab.staging_table_name,'')        = coalesce(srctab_bestaand.staging_table_name,'')
+and    coalesce(stg_srctab.ind_stage_this_table,0)       = coalesce(srctab_bestaand.ind_stage_this_table,0)
+and    coalesce(stg_srctab.ind_staging_is_incremental,0) = coalesce(srctab_bestaand.ind_staging_is_incremental,0)
+and    coalesce(stg_srctab.increment_date_column,'')     = coalesce(srctab_bestaand.increment_date_column,'')
+and    coalesce(stg_srctab.staging_load_group_order,0)   = coalesce(srctab_bestaand.staging_load_group_order,0)
+and    coalesce(stg_srctab.staging_sql_override,'')      = coalesce(srctab_bestaand.staging_sql_override,'')
+and    coalesce(stg_srctab.process_in_subruntypes,'')    = coalesce(srctab_bestaand.process_in_subruntypes,'')
+)</sql>
+    <variables_active>N</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>128</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>

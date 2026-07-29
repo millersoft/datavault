@@ -1,0 +1,673 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workflow>
+  <name>job_data_vault_load_hub_satellite</name>
+  <name_sync_with_filename>Y</name_sync_with_filename>
+  <description>Load a hub satellite</description>
+  <extended_description>This job loads a hub satellite in a Data Vault.
+Based on the parameter values the steps are:
+
+1: Create (or replace) a lookup view for the hub satellite. This gives the generic hub satellite transformation a lookup functionality with fixed column names.
+2: Create (or replace) an updateable view for the hub satellite. This gives the generic hub satellite transformation an update/insert functionality with fixed column names.
+3: Create the error table (if not already present).
+4: Create (or replace) the updateable view for the error table.
+5: Set the connection parameters. This makes it possible to source data from different databases in 1 Data Vault run.
+6: Execute the generic transformation.</extended_description>
+  <workflow_version>1.11</workflow_version>
+  <workflow_status>0</workflow_status>
+  <created_user/>
+  <created_date>2014/12/15 01:09:50.705</created_date>
+  <modified_user>admin</modified_user>
+  <modified_date>2017/06/13 12:23:40.562</modified_date>
+  <parameters>
+    <parameter>
+      <name>id_connection</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>id_srcsys</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>ind_multiactive_extra_key_column</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>postgres_bulk</name>
+      <default_value>0</default_value>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_attributes</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_attributes_concat</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_attributes_concat_dv</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_attributes_dv</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_hub</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_hub_business_key</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_hub_key</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_key</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_multiactive_extra_key_column</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_multiactive_extra_key_column_src</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_name</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_source</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_source_hub_business_key</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_source_record_source_id</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>sat_transformation_to_execute</name>
+      <default_value/>
+      <description/>
+    </parameter>
+  </parameters>
+  <actions>
+    <action>
+      <name>Log start transformation</name>
+      <description/>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_log_dv_job_in_run('job_data_vault_load_hub_satellite','${sat_transformation_to_execute}' ,'start'
+                          ,${sat_source_record_source_id},1
+                          ,'${sat_name}','${sat_hub}','${sat_name}',NULL,NULL
+                          ,'${data_vault_schema_name}','${sat_key}'
+                          , NULL, NULL
+                          )</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>160</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Log end transformation</name>
+      <description/>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_log_dv_job_in_run('job_data_vault_load_hub_satellite','${sat_transformation_to_execute}' ,'end'
+                          ,${sat_source_record_source_id},1
+                          ,'${sat_name}','${sat_hub}','${sat_name}',NULL,NULL
+                          ,'${data_vault_schema_name}','${sat_key}'
+                          ,${var_etl_job_id_job},${var_etl_trf_id_batch}
+                          )</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>1248</xloc>
+      <yloc>496</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>START</name>
+      <description/>
+      <type>SPECIAL</type>
+      <attributes/>
+      <DayOfMonth>1</DayOfMonth>
+      <doNotWaitOnFirstExecution>N</doNotWaitOnFirstExecution>
+      <hour>12</hour>
+      <intervalMinutes>60</intervalMinutes>
+      <intervalSeconds>0</intervalSeconds>
+      <minutes>0</minutes>
+      <repeat>N</repeat>
+      <schedulerType>0</schedulerType>
+      <weekDay>1</weekDay>
+      <parallel>N</parallel>
+      <xloc>32</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_data_vault_set_connection_parameters</name>
+      <description>Set the connection parameters for the the source data for the hub satellite.
+The connection is determined by the the job parameter 'id_connection'.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_data_vault_set_connection_parameters.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>768</xloc>
+      <yloc>384</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_data_vault_sat_generic_dv2.0</name>
+      <description>Load the hub satellite with the generic transformation.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_data_vault_sat_generic_dv2.0.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>960</xloc>
+      <yloc>496</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Success</name>
+      <description/>
+      <type>SUCCESS</type>
+      <attributes/>
+      <parallel>N</parallel>
+      <xloc>1488</xloc>
+      <yloc>384</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>create_sat_lookup_view</name>
+      <description>Create (or replace) a view containing the business key of the hub, the Primary Key of the satellite and all attributes concatenated into 1
+pipe delimited string. That last columns is used to compare the source and Data Vault data.
+With this view the transformation 'trf_data_vault_hub_sat_generic' can perform a lookup with fixed column names,
+alway the same for every hub satellite.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>data_vault</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>CREATE OR REPLACE VIEW vw_${sat_name}_lkp_${id_srcsys} AS
+SELECT          hub.hub_business_key_dv
+,               hub.hub_key_dv                as hub_key
+,               sat_attributes_concat         as sat_attributes_concat_dv
+,               CASE
+                   WHEN  sat.${sat_hub_key} IS NOT NULL then 1
+                   ELSE  0
+                END                           as exists_in_dv
+,               ${sat_key}                    as sat_key
+,				sat.load_dts				  as load_dts
+, hub.tenant_id	as tenant_id
+FROM            vw_${sat_hub}_lkp   hub
+LEFT OUTER JOIN ${sat_name}                      sat  
+ON              hub.hub_key_dv                 = sat.${sat_hub_key}
+-- AND             sat.load_end_dts                 ${PROP_LOAD_END_DTS_LATEST_COND}</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>352</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>create_sat_updateable_view</name>
+      <description>Create (or replace) an updateable view containing all columns to be inserted.
+With this view the transformation 'trf_data_vault_hub_sat_generic' can perform an insert with fixed column names for the keys.
+The attributes of the satellite are all included with the column names in the Data Vault and are inserted in the transformation
+without specifying them individually.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>data_vault</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>CREATE OR REPLACE VIEW vw_${sat_name}_upd AS
+SELECT      ${sat_hub_key}       as hub_key
+,           ${sat_key}           as sat_key
+,           ${sat_attributes_dv}
+,           sat_attributes_concat
+,           load_dts
+-- ,           load_end_dts
+,           record_source_id
+,		    tenant_id
+FROM        ${sat_name}      sat;
+
+
+
+CREATE OR REPLACE VIEW vw_${sat_name}_upd_2 AS
+SELECT      ${sat_hub_key}       as hub_key
+,           ${sat_key}           as sat_key
+,           sat_attributes_concat
+,           load_dts
+,           record_source_id
+,			tenant_id
+FROM        ${sat_name}      sat;</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>576</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>create_error_table</name>
+      <description>Create an error table for the hub satellite.
+Alle columns of the hub satellite table are present, but with data type varchar(512).
+Additional columns provide information on what error occurred and when. </description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>data_vault</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_create_error_table ('${sat_name}','${data_vault_schema_name}');</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>768</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>create_sat_updateable_view_err</name>
+      <description>Create an updateable view for the error table.
+With this view the transformation 'trf_data_vault_hub_sat_generic' can perform an insert into the error table with fixed column names for the keys.
+The attributes of the satellite are all included with the column names in the Data Vault and are inserted in the transformation
+without specifying them individually.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>data_vault</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>CREATE OR REPLACE VIEW vw_${sat_name}_err AS
+SELECT      ${sat_hub_key}       as hub_key
+,           ${sat_key}           as sat_key
+,           ${sat_attributes_dv}
+,           sat_attributes_concat
+,           load_dts
+-- ,           load_end_dts
+,           record_source_id
+,			tenant_id
+,           etl_id_run
+,           etl_err_noe
+,           etl_err_desc
+,           etl_err_col
+,           etl_err_cod
+FROM        ${sat_name}_err      sat</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>768</xloc>
+      <yloc>256</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Update etl_id_run in errors</name>
+      <description>Set the etl_id_run in the 'new' error rows, inserted in this instance of the job.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>data_vault</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>update ${sat_name}_err
+set    etl_id_run = ${actual_run}
+where  etl_id_run is null </sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>1488</xloc>
+      <yloc>496</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Regular satellite?</name>
+      <description>Check whether the link has 'attributes'. The parameter lnk_ind_attributes contains that information, 1 = yes, 0 = no.
+The definition of the views to be generated depends on that.</description>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldtype>string</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>different</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>ind_multiactive_extra_key_column</variablename>
+      <parallel>N</parallel>
+      <xloc>160</xloc>
+      <yloc>272</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>create_sat_lookup_view_multiactive</name>
+      <description>Create (or replace) a view containing the business key of the hub, the Primary Key of the satellite and all attributes concatenated into 1
+pipe delimited string. That last columns is used to compare the source and Data Vault data.
+With this view the transformation 'trf_data_vault_hub_sat_generic' can perform a lookup with fixed column names,
+alway the same for every hub satellite.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>data_vault</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>CREATE OR REPLACE VIEW vw_${sat_name}_lkp_${id_srcsys} AS
+SELECT          hub.hub_business_key_dv
+,               hub.hub_key_dv                as hub_key
+,               sat_attributes_concat         as sat_attributes_concat_dv
+,               CASE
+                   WHEN  sat.${sat_hub_key} IS NOT NULL then 1
+                   ELSE  0
+                END                           as exists_in_dv
+,               ${sat_key}                    as sat_key
+,               sat.${sat_multiactive_extra_key_column} as sat_multiactive_extra_key_column
+FROM            vw_${sat_hub}_lkp_${id_srcsys}   hub
+LEFT OUTER JOIN ${sat_name}                      sat  
+ON              hub.hub_key_dv                 = sat.${sat_hub_key}
+AND             sat.load_end_dts                 ${PROP_LOAD_END_DTS_LATEST_COND}</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>352</xloc>
+      <yloc>272</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Abort job</name>
+      <description/>
+      <type>ABORT</type>
+      <attributes/>
+      <always_log_rows>N</always_log_rows>
+      <parallel>N</parallel>
+      <xloc>768</xloc>
+      <yloc>496</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>postgres bulk load</name>
+      <description/>
+      <type>SIMPLE_EVAL</type>
+      <attributes/>
+      <comparevalue>1</comparevalue>
+      <fieldname>${postgres_bulk}</fieldname>
+      <fieldtype>string</fieldtype>
+      <successbooleancondition>false</successbooleancondition>
+      <successcondition>equal</successcondition>
+      <successnumbercondition>equal</successnumbercondition>
+      <successwhenvarset>N</successwhenvarset>
+      <valuetype>variable</valuetype>
+      <variablename>${postgres_bulk}</variablename>
+      <parallel>N</parallel>
+      <xloc>960</xloc>
+      <yloc>384</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_data_vault_sat_postgres_bulk</name>
+      <description>Load the hub satellite with the generic transformation.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_data_vault_sat_generic_dv2.0.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1248</xloc>
+      <yloc>384</yloc>
+      <attributes_hac/>
+    </action>
+  </actions>
+  <hops>
+    <hop>
+      <from>create_sat_lookup_view</from>
+      <to>create_sat_updateable_view</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>create_sat_updateable_view</from>
+      <to>create_error_table</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>create_error_table</from>
+      <to>create_sat_updateable_view_err</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>create_sat_updateable_view_err</from>
+      <to>trf_data_vault_set_connection_parameters</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Log end transformation</from>
+      <to>Update etl_id_run in errors</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Update etl_id_run in errors</from>
+      <to>Success</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Log start transformation</from>
+      <to>Regular satellite?</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Regular satellite?</from>
+      <to>create_sat_lookup_view</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Regular satellite?</from>
+      <to>create_sat_lookup_view_multiactive</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>create_sat_lookup_view_multiactive</from>
+      <to>create_sat_updateable_view</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_data_vault_set_connection_parameters</from>
+      <to>Abort job</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_data_vault_sat_generic_dv2.0</from>
+      <to>Abort job</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_data_vault_set_connection_parameters</from>
+      <to>postgres bulk load</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>postgres bulk load</from>
+      <to>trf_data_vault_sat_generic_dv2.0</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>postgres bulk load</from>
+      <to>trf_data_vault_sat_postgres_bulk</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>START</from>
+      <to>Log start transformation</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>Y</unconditional>
+    </hop>
+    <hop>
+      <from>trf_data_vault_sat_postgres_bulk</from>
+      <to>Log end transformation</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_data_vault_sat_generic_dv2.0</from>
+      <to>Log end transformation</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+  </hops>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Arial</fontname>
+      <fontsize>9</fontsize>
+      <height>21</height>
+      <xloc>32</xloc>
+      <yloc>32</yloc>
+      <note>Description: see job settings</note>
+      <width>163</width>
+    </notepad>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>165</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontsize>-1</fontsize>
+      <height>26</height>
+      <xloc>272</xloc>
+      <yloc>336</yloc>
+      <note>multiactive satellite</note>
+      <width>178</width>
+    </notepad>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>165</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontsize>-1</fontsize>
+      <height>26</height>
+      <xloc>288</xloc>
+      <yloc>64</yloc>
+      <note>regular satellite</note>
+      <width>146</width>
+    </notepad>
+  </notepads>
+  <attributes/>
+</workflow>

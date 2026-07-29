@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>trf_data_vault_set_connection_parameters</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description>Set connection parameters for source connection</description>
+    <extended_description>This transformation sets the connection parameters for the source of a Data Vault object.
+The scope of the parameters is 'valid in he parent job', so  more jobs can simultaneously with different connections.
+
+NB: the connections used here are stored in the pdi_meta.ref_connections.</extended_description>
+    <pipeline_version>1.1</pipeline_version>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>2</pipeline_status>
+    <parameters>
+      <parameter>
+        <name>id_connection</name>
+        <default_value/>
+        <description/>
+      </parameter>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user>admin</created_user>
+    <created_date>2011/02/02 21:09:40.000</created_date>
+    <modified_user>admin</modified_user>
+    <modified_date>2014/05/27 07:18:42.205</modified_date>
+  </info>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Courier New</fontname>
+      <fontsize>9</fontsize>
+      <height>20</height>
+      <xloc>32</xloc>
+      <yloc>32</yloc>
+      <note>Desciption: see transformation settings</note>
+      <width>283</width>
+    </notepad>
+  </notepads>
+  <order>
+    <hop>
+      <from>ref_connections</from>
+      <to>Set Connection Variables</to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>Set Connection Variables</name>
+    <type>SetVariable</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <fields>
+      <field>
+        <field_name>mysql_host_name</field_name>
+        <variable_name>src_mysql_host_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>mysql_database_name</field_name>
+        <variable_name>src_mysql_database_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>mysql_port_number</field_name>
+        <variable_name>src_mysql_port_number</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>mysql_user_name</field_name>
+        <variable_name>src_mysql_user_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>mysql_password</field_name>
+        <variable_name>src_mysql_password</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>sqlserver_host_name</field_name>
+        <variable_name>src_sqlserver_host_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>sqlserver_database_name</field_name>
+        <variable_name>src_sqlserver_database_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>sqlserver_instance_name</field_name>
+        <variable_name>src_sqlserver_instance_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>sqlserver_port_number</field_name>
+        <variable_name>src_sqlserver_port_number</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>sqlserver_user_name</field_name>
+        <variable_name>src_sqlserver_user_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>sqlserver_password</field_name>
+        <variable_name>src_sqlserver_password</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>oracle_host_name</field_name>
+        <variable_name>src_oracle_host_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>oracle_database_name</field_name>
+        <variable_name>src_oracle_database_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>oracle_port_number</field_name>
+        <variable_name>src_oracle_port_number</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>oracle_user_name</field_name>
+        <variable_name>src_oracle_user_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>oracle_password</field_name>
+        <variable_name>src_oracle_password</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>postgresql_host_name</field_name>
+        <variable_name>src_postgresql_host_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>postgresql_database_name</field_name>
+        <variable_name>src_postgresql_database_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>postgresql_port_number</field_name>
+        <variable_name>src_postgresql_port_number</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>postgresql_user_name</field_name>
+        <variable_name>src_postgresql_user_name</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>postgresql_password</field_name>
+        <variable_name>src_postgresql_password</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+    </fields>
+    <use_formatting>Y</use_formatting>
+    <attributes/>
+    <GUI>
+      <xloc>384</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>ref_connections</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>pdi_meta</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>SELECT
+  host_name     as mysql_host_name
+, database_name as mysql_database_name
+, port_number   as mysql_port_number
+, user_name     as mysql_user_name
+, password      as mysql_password
+, host_name     as sqlserver_host_name
+, database_name as sqlserver_database_name
+, instance_name as sqlserver_instance_name
+, port_number   as sqlserver_port_number
+, user_name     as sqlserver_user_name
+, password      as sqlserver_password
+, host_name     as oracle_host_name
+, database_name as oracle_database_name
+, port_number   as oracle_port_number
+, user_name     as oracle_user_name
+, password      as oracle_password
+, host_name     as postgresql_host_name
+, database_name as postgresql_database_name
+, port_number   as postgresql_port_number
+, user_name     as postgresql_user_name
+, password      as postgresql_password
+FROM  ref_connections
+WHERE id_connection = ${id_connection}
+</sql>
+    <variables_active>Y</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>96</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>

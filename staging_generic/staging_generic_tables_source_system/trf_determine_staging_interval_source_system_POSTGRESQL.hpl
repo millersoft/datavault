@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>trf_determine_staging_interval_source_system_POSTGRESQL</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description>Determine staging interval for a source system</description>
+    <extended_description>This transformation determines the staging interval for a source system.
+The variable is:
+
+var_stg_load_from: the from date, data will be staged 'where &lt;increment date column> >= var_stg_load_from'
+var_stg_load_from is calculated as: date_start of the latest 'run' - staging_days_to_load_default days
+
+This interval only effects the tables that are staged incrementally.</extended_description>
+    <pipeline_version>1.0</pipeline_version>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>2</pipeline_status>
+    <parameters>
+      <parameter>
+        <name>par_id_srcsys</name>
+        <default_value/>
+        <description>Id of the source system to stage</description>
+      </parameter>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user/>
+    <created_date>2014/12/15 01:10:16.766</created_date>
+    <modified_user>admin</modified_user>
+    <modified_date>2014/12/12 14:27:17.149</modified_date>
+  </info>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Courier New</fontname>
+      <fontsize>10</fontsize>
+      <height>21</height>
+      <xloc>32</xloc>
+      <yloc>32</yloc>
+      <note>Description: see transformation settings</note>
+      <width>330</width>
+    </notepad>
+  </notepads>
+  <order>
+    <hop>
+      <from>inst_actual_runs</from>
+      <to>Set Variables</to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>Set Variables</name>
+    <type>SetVariable</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <fields>
+      <field>
+        <field_name>var_stg_load_from</field_name>
+        <variable_name>var_stg_load_from</variable_name>
+        <variable_type>ROOT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>var_archive_table_suffix</field_name>
+        <variable_name>var_archive_table_suffix</variable_name>
+        <variable_type>ROOT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>var_ind_archive_staging_tables</field_name>
+        <variable_name>var_ind_archive_staging_tables</variable_name>
+        <variable_type>ROOT_WORKFLOW</variable_type>
+      </field>
+    </fields>
+    <use_formatting>Y</use_formatting>
+    <attributes/>
+    <GUI>
+      <xloc>352</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>inst_actual_runs</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>pdi_meta</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>SELECT case when iv.staging_days_to_load_default is not null then to_char(date_trunc('day',date_start - iv.staging_days_to_load_default * INTERVAL '1 day'),'YYYY-MM-DD')
+            else '1900-01-01'
+       end                                         as var_stg_load_from
+,      concat(lpad(cast(id_run as varchar(10)),10,'0'),'_',to_char(now(), 'yyyymmddhh24miss')) as var_archive_table_suffix
+,    iv.ind_archive_staging_tables                                                    as var_ind_archive_staging_tables
+FROM   inst_actual_runs
+,      (select staging_days_to_load_default,ind_archive_staging_tables
+        from   ref_source_systems
+        where id_srcsys = ${par_id_srcsys}
+       ) iv
+WHERE  inst_actual_runs.id_rtyp = ${var_id_rtyp}</sql>
+    <variables_active>Y</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>128</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>

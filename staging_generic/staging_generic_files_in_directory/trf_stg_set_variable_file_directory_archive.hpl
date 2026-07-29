@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>trf_stg_set_variable_file_directory_archive</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description>Generic staging transformation: set variables for directory and archive</description>
+    <extended_description>This transformations set the following variables:
+
+file_directory
+file_directory_archive
+var_id_run</extended_description>
+    <pipeline_version>1.1</pipeline_version>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>2</pipeline_status>
+    <parameters>
+      <parameter>
+        <name>id_srcfile_directory</name>
+        <default_value/>
+        <description/>
+      </parameter>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user/>
+    <created_date>2014/12/15 01:10:16.774</created_date>
+    <modified_user>admin</modified_user>
+    <modified_date>2014/10/23 20:31:10.675</modified_date>
+  </info>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Courier New</fontname>
+      <fontsize>10</fontsize>
+      <height>21</height>
+      <xloc>64</xloc>
+      <yloc>32</yloc>
+      <note>Description: see transformation settings</note>
+      <width>330</width>
+    </notepad>
+  </notepads>
+  <order>
+    <hop>
+      <from>source_file_directory(_archive) and id_run</from>
+      <to>Set file_directory(_archive) and var_id_run</to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>Set file_directory(_archive) and var_id_run</name>
+    <type>SetVariable</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <fields>
+      <field>
+        <field_name>file_directory_archive</field_name>
+        <variable_name>file_directory_archive</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>file_directory</field_name>
+        <variable_name>file_directory</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+      <field>
+        <field_name>id_run</field_name>
+        <variable_name>var_id_run</variable_name>
+        <variable_type>PARENT_WORKFLOW</variable_type>
+      </field>
+    </fields>
+    <use_formatting>Y</use_formatting>
+    <attributes/>
+    <GUI>
+      <xloc>544</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>source_file_directory(_archive) and id_run</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>pdi_meta</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>select file_directory
+,      file_directory_archive
+,      (select id_run
+        from   inst_actual_runs
+        where  id_rtyp      = ${var_id_rtyp}
+       ) as id_run
+from   ref_source_file_directories
+where  id_srcfile_directory = ${id_srcfile_directory}</sql>
+    <variables_active>Y</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>192</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>

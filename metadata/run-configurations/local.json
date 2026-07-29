@@ -1,0 +1,5 @@
+{
+  "name": "local",
+  "pluginId": "Local",
+  "description": "Local execution"
+}

@@ -1,0 +1,28 @@
+{
+  "rdbms": {
+    "POSTGRESQL": {
+      "databaseName": "${sakila_database_name}",
+      "pluginId": "POSTGRESQL",
+      "accessType": 0,
+      "hostname": "${sakila_host_name}",
+      "password": "${sakila_password}",
+      "pluginName": "PostgreSQL",
+      "port": "${sakila_port_number}",
+      "username": "${sakila_user_name}",
+      "attributes": {
+        "USE_POOLING": "N",
+        "IS_CLUSTERED": "N",
+        "SUPPORTS_TIMESTAMP_DATA_TYPE": "Y",
+        "QUOTE_ALL_FIELDS": "N",
+        "FORCE_IDENTIFIERS_TO_LOWERCASE": "N",
+        "SUPPORTS_BOOLEAN_DATA_TYPE": "N",
+        "PRESERVE_RESERVED_WORD_CASE": "N",
+        "FORCE_IDENTIFIERS_TO_UPPERCASE": "N",
+        "PORT_NUMBER": "${sakila_port_number}",
+        "search_path": "sakila",
+        "initial_sql": "SET search_path TO sakila, public;"
+      }
+    }
+  },
+  "name": "Sakila"
+}

@@ -1,0 +1,423 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workflow>
+  <name>job_data_vault_load_link_satellite_validity</name>
+  <name_sync_with_filename>Y</name_sync_with_filename>
+  <description>Load a link-validity satellite</description>
+  <extended_description>This job loads a link validity satellite in a Data Vault.
+Based on the parameter values the steps are:
+
+1:	Log the start ot the job.
+1:	Create (or replace) an updateable view for the link validity satellite. This gives the generic link satellite transformation an update/insert functionality with fixed column names.
+2:	Create (or replace) a lookup view for the link validity satellite. This gives the generic link satellite transformation a lookup functionality with fixed column names.
+3:	Create the error table (if not already present).
+4:	Create the updateable view for the error table.
+5:	Execute the generic transformations, a and b.
+7:	Log the end of the job.
+</extended_description>
+  <workflow_version>1.8</workflow_version>
+  <workflow_status>0</workflow_status>
+  <created_user/>
+  <created_date>2014/12/15 01:09:50.533</created_date>
+  <modified_user>admin</modified_user>
+  <modified_date>2017/05/04 17:25:22.798</modified_date>
+  <parameters>
+    <parameter>
+      <name>join_condition</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>join_condition_old</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>lnk_bk_columns</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>lnk_key</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>lnk_name</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>lnk_no_bk_columns</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>lnk_source_order</name>
+      <default_value/>
+      <description/>
+    </parameter>
+    <parameter>
+      <name>lnk_source_record_source_id</name>
+      <default_value/>
+      <description/>
+    </parameter>
+  </parameters>
+  <actions>
+    <action>
+      <name>create_sat_updateable_view_err</name>
+      <description>Create an updateable view for the error table.
+With this view the transformation 'trf_data_vault_link_sat_generic' can perform an insert into the error table with fixed column names for the keys.
+The attributes of the satellite are all included with the column names in the Data Vault and are inserted in the transformation
+without specifying them individually.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>data_vault</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>CREATE OR REPLACE VIEW vw_sat_${lnk_name}_valid_err AS
+SELECT      ${lnk_key}     as lnk_key
+,           ind_valid
+,           load_dts
+,           load_end_dts
+,           record_source_id
+,			tenant_id
+,           etl_id_run
+,           etl_err_noe
+,           etl_err_desc
+,           etl_err_col
+,           etl_err_cod
+FROM        sat_${lnk_name}_valid_err      sat</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>416</xloc>
+      <yloc>288</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Log start transformation</name>
+      <description/>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_log_dv_job_in_run('job_data_vault_load_link_sat_validity','trf_data_vault_link_sat_validity_generic' ,'start'
+                          ,${lnk_source_record_source_id},${lnk_source_order}
+                          ,'sat_${lnk_name}_valid',NULL,NULL,'${lnk_name}','sat_${lnk_name}_valid'
+                          ,'${data_vault_schema_name}'
+                          ,'${lnk_key}'
+                          , NULL, NULL
+                          )</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>208</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Log end transformation</name>
+      <description/>
+      <type>SQL</type>
+      <attributes/>
+      <connection>pdi_meta</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_log_dv_job_in_run('job_data_vault_load_link_sat_validity','trf_data_vault_link_sat_validity_generic' ,'end'
+                          ,${lnk_source_record_source_id},${lnk_source_order}
+                          ,'sat_${lnk_name}_valid',NULL,NULL,'${lnk_name}','sat_${lnk_name}_valid'
+                          ,'${data_vault_schema_name}'
+                          ,'${lnk_key}'
+                          ,${var_etl_job_id_job},${var_etl_trf_id_batch}
+                          )</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>1424</xloc>
+      <yloc>288</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>START</name>
+      <description/>
+      <type>SPECIAL</type>
+      <attributes/>
+      <DayOfMonth>1</DayOfMonth>
+      <doNotWaitOnFirstExecution>N</doNotWaitOnFirstExecution>
+      <hour>12</hour>
+      <intervalMinutes>60</intervalMinutes>
+      <intervalSeconds>0</intervalSeconds>
+      <minutes>0</minutes>
+      <repeat>N</repeat>
+      <schedulerType>0</schedulerType>
+      <weekDay>1</weekDay>
+      <parallel>N</parallel>
+      <xloc>32</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_data_vault_link_sat_validity_generic_a</name>
+      <description>Load the link satellite with the generic transformation.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_data_vault_link_sat_validity_generic_a.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>736</xloc>
+      <yloc>288</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Success</name>
+      <description/>
+      <type>SUCCESS</type>
+      <attributes/>
+      <parallel>N</parallel>
+      <xloc>1424</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>create_lookup_views</name>
+      <description>Create (or replace) a view containing the keys of the hub and satellite and all attributes concatenated into 1
+pipe delimited string. That last columns is used to compare the source and Data Vault data.
+With this view the transformation 'trf_data_vault_link_sat_generic' can perform a lookup with fixed column names,
+alway the same for every link satellite.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>data_vault</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>CREATE OR REPLACE VIEW vw_${lnk_name}_valid_lkp AS
+SELECT  ${lnk_key}            as lnk_key
+,       ${lnk_bk_columns}
+,       ${lnk_no_bk_columns}
+,		tenant_id
+FROM    ${lnk_name};       
+        
+CREATE OR REPLACE VIEW vw_${lnk_name}_run_lkp   AS
+SELECT  record_source_id
+,       load_dts
+,       ${lnk_bk_columns}
+,       ${lnk_no_bk_columns}
+,		tenant_id
+FROM    ${lnk_name}_run; 
+
+CREATE OR REPLACE VIEW vw_sat_${lnk_name}_valid_lkp  AS
+SELECT      sat.ind_valid
+,           lnk.lnk_key
+,           1                                       as exists_in_dv
+,           sat.load_dts
+,           sat.load_end_dts
+FROM        sat_${lnk_name}_valid                   sat 
+INNER JOIN  vw_${lnk_name}_valid_lkp                lnk
+ON          sat.${lnk_key}                        = lnk.lnk_key;
+
+
+
+</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>768</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>create_sat_updateable_view</name>
+      <description>Create (or replace) an updateable view containing all columns to be inserted.
+With this view the transformation 'trf_data_vault_link_sat_generic' can perform an insert with fixed column names for the keys.
+The attributes of the satellite are all included with the column names in the Data Vault and are inserted in the transformation
+without specifying them individually.</description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>data_vault</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>CREATE OR REPLACE VIEW vw_sat_${lnk_name}_valid_upd AS
+SELECT      ${lnk_key}     as lnk_key
+,           ind_valid
+,           load_dts
+,           load_end_dts
+,			tenant_id
+,           record_source_id
+FROM        sat_${lnk_name}_valid      sat
+
+
+</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>416</xloc>
+      <yloc>128</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>create_sat_error_table</name>
+      <description>Create an error table for the link satellite.
+Alle columns of the link satellite table are present, but with data type varchar(512).
+Additional columns provide information on what error occurred and when. </description>
+      <type>SQL</type>
+      <attributes/>
+      <connection>data_vault</connection>
+      <sendOneStatement>N</sendOneStatement>
+      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_create_error_table ('sat_${lnk_name}_valid','${data_vault_schema_name}');</sql>
+      <sqlfromfile>N</sqlfromfile>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <parallel>N</parallel>
+      <xloc>192</xloc>
+      <yloc>288</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>trf_data_vault_link_sat_validity_generic_b</name>
+      <description>Load the link satellite with the generic transformation.</description>
+      <type>PIPELINE</type>
+      <attributes/>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <clear_files>N</clear_files>
+      <clear_rows>N</clear_rows>
+      <create_parent_folder>N</create_parent_folder>
+      <exec_per_row>N</exec_per_row>
+      <filename>${PROJECT_HOME}/data_vault/trf_data_vault_link_sat_validity_generic_b.hpl</filename>
+      <loglevel>Basic</loglevel>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <params_from_previous>N</params_from_previous>
+      <run_configuration>local</run_configuration>
+      <set_append_logfile>N</set_append_logfile>
+      <set_logfile>N</set_logfile>
+      <wait_until_finished>Y</wait_until_finished>
+      <parallel>N</parallel>
+      <xloc>1104</xloc>
+      <yloc>288</yloc>
+      <attributes_hac/>
+    </action>
+    <action>
+      <name>Abort job</name>
+      <description/>
+      <type>ABORT</type>
+      <attributes/>
+      <always_log_rows>N</always_log_rows>
+      <parallel>N</parallel>
+      <xloc>736</xloc>
+      <yloc>448</yloc>
+      <attributes_hac/>
+    </action>
+  </actions>
+  <hops>
+    <hop>
+      <from>Log end transformation</from>
+      <to>Success</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Log start transformation</from>
+      <to>create_sat_updateable_view</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>create_sat_updateable_view</from>
+      <to>create_lookup_views</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>create_lookup_views</from>
+      <to>create_sat_error_table</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>create_sat_error_table</from>
+      <to>create_sat_updateable_view_err</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>create_sat_updateable_view_err</from>
+      <to>trf_data_vault_link_sat_validity_generic_a</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_data_vault_link_sat_validity_generic_a</from>
+      <to>trf_data_vault_link_sat_validity_generic_b</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_data_vault_link_sat_validity_generic_a</from>
+      <to>Abort job</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>trf_data_vault_link_sat_validity_generic_b</from>
+      <to>Abort job</to>
+      <enabled>Y</enabled>
+      <evaluation>N</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>START</from>
+      <to>Log start transformation</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>Y</unconditional>
+    </hop>
+    <hop>
+      <from>trf_data_vault_link_sat_validity_generic_b</from>
+      <to>Log end transformation</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+  </hops>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Arial</fontname>
+      <fontsize>9</fontsize>
+      <height>21</height>
+      <xloc>448</xloc>
+      <yloc>0</yloc>
+      <note>Description: see job settings</note>
+      <width>198</width>
+    </notepad>
+  </notepads>
+  <attributes/>
+</workflow>

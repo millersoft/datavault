@@ -1,0 +1,225 @@
+{
+  "variables" : [ {
+    "name" : "pdi_meta_host_name",
+    "value" : "postgres",
+    "description" : ""
+  }, {
+    "name" : "pdi_meta_port_number",
+    "value" : "5432",
+    "description" : ""
+  }, {
+    "name" : "pdi_meta_database_name",
+    "value" : "datavault",
+    "description" : ""
+  }, {
+    "name" : "pdi_meta_user_name",
+    "value" : "pdi_meta",
+    "description" : ""
+  }, {
+    "name" : "pdi_meta_password",
+    "value" : "${VAULT_PASSWORD}",
+    "description" : ""
+  }, {
+    "name" : "pdi_meta_schema_name",
+    "value" : "pdi_meta",
+    "description" : ""
+  }, {
+    "name" : "data_vault_host_name",
+    "value" : "postgres",
+    "description" : ""
+  }, {
+    "name" : "data_vault_port_number",
+    "value" : "5432",
+    "description" : ""
+  }, {
+    "name" : "data_vault_database_name",
+    "value" : "datavault",
+    "description" : ""
+  }, {
+    "name" : "data_vault_user_name",
+    "value" : "data_vault",
+    "description" : ""
+  }, {
+    "name" : "data_vault_password",
+    "value" : "${VAULT_PASSWORD}",
+    "description" : ""
+  }, {
+    "name" : "data_vault_schema_name",
+    "value" : "data_vault",
+    "description" : ""
+  }, {
+    "name" : "stg_host_name",
+    "value" : "postgres",
+    "description" : ""
+  }, {
+    "name" : "stg_port_number",
+    "value" : "5432",
+    "description" : ""
+  }, {
+    "name" : "stg_database_name",
+    "value" : "datavault",
+    "description" : ""
+  }, {
+    "name" : "stg_user_name",
+    "value" : "staging",
+    "description" : ""
+  }, {
+    "name" : "stg_password",
+    "value" : "${VAULT_PASSWORD}",
+    "description" : ""
+  }, {
+    "name" : "stg_schema_name",
+    "value" : "staging",
+    "description" : ""
+  }, {
+    "name" : "staging_host_name",
+    "value" : "postgres",
+    "description" : ""
+  }, {
+    "name" : "staging_port_number",
+    "value" : "5432",
+    "description" : ""
+  }, {
+    "name" : "staging_database_name",
+    "value" : "datavault",
+    "description" : ""
+  }, {
+    "name" : "staging_schema_name",
+    "value" : "staging",
+    "description" : ""
+  }, {
+    "name" : "source_host_name",
+    "value" : "mysql",
+    "description" : ""
+  }, {
+    "name" : "source_port_number",
+    "value" : "3306",
+    "description" : ""
+  }, {
+    "name" : "source_database_name",
+    "value" : "sakila",
+    "description" : ""
+  }, {
+    "name" : "source_user_name",
+    "value" : "sakila",
+    "description" : ""
+  }, {
+    "name" : "source_password",
+    "value" : "${SOURCE_PASSWORD}",
+    "description" : ""
+  }, {
+    "name" : "source_schema_name",
+    "value" : "sakila",
+    "description" : ""
+  }, {
+    "name" : "SRC_CONNECTION",
+    "value" : "source",
+    "description" : ""
+  }, {
+    "name" : "PROP_DATABASE_TYPE",
+    "value" : "POSTGRESQL",
+    "description" : ""
+  }, {
+    "name" : "PROP_DATABASE_ALTER_COLUMN_SYNTAX",
+    "value" : "alter column",
+    "description" : ""
+  }, {
+    "name" : "PROP_DATABASE_REMOVE_INT_NOT_NULL_SYNTAX",
+    "value" : "DROP NOT NULL",
+    "description" : ""
+  }, {
+    "name" : "PROP_DATABASE_CALL_PROCEDURE_SYNTAX",
+    "value" : "SELECT",
+    "description" : ""
+  }, {
+    "name" : "PROP_DATABASE_STRING_SEARCH_FUNCTION",
+    "value" : "strpos",
+    "description" : ""
+  }, {
+    "name" : "PROP_DUMMY_LINK_ATTRIBUTES",
+    "value" : "']#['",
+    "description" : ""
+  }, {
+    "name" : "PROP_DATABASE_LOAD_DTS_CAST_PRE",
+    "value" : "cast(",
+    "description" : ""
+  }, {
+    "name" : "PROP_DATABASE_LOAD_DTS_CAST_POST",
+    "value" : " as timestamp)",
+    "description" : ""
+  }, {
+    "name" : "PROP_LOAD_END_DTS_LATEST",
+    "value" : "cast('9999-12-31' as timestamp)",
+    "description" : ""
+  }, {
+    "name" : "PROP_COMMIT_SIZE_STAGING",
+    "value" : "10000",
+    "description" : ""
+  }, {
+    "name" : "PROP_COMMIT_SIZE_DATA_VAULT",
+    "value" : "10000",
+    "description" : ""
+  }, {
+    "name" : "PROP_COMMIT_SIZE_PDI_META",
+    "value" : "10000",
+    "description" : ""
+  }, {
+    "name" : "KETTLE_EMPTY_STRING_DIFFERS_FROM_NULL",
+    "value" : "N",
+    "description" : ""
+  }, {
+    "name" : "datavault_definition_file",
+    "value" : "/app/mappings/dwh_datavault_mappings",
+    "description" : ""
+  }, {
+    "name" : "CDC_HASH_FUNCTION",
+    "value" : "public.digest",
+    "description" : ""
+  }, {
+    "name" : "CDC_DEL",
+    "value" : "]#CDC_DEL#[",
+    "description" : ""
+  }, {
+    "name" : "CDC_NULL",
+    "value" : "]#CDC_NULL#[",
+    "description" : ""
+  }, {
+    "name" : "staging_prefix",
+    "value" : "",
+    "description" : ""
+  }, {
+    "name" : "PROP_LOAD_END_DTS_LATEST_COND",
+    "value" : "= cast('9999-12-31' as timestamp)",
+    "description" : ""
+  }, {
+    "name" : "tenant_id",
+    "value" : "1",
+    "description" : ""
+  }, {
+    "name" : "STG_INSERT_COPIES",
+    "value" : "10",
+    "description" : ""
+  }, {
+    "name" : "HUB_INSERT_COPIES",
+    "value" : "10",
+    "description" : ""
+  }, {
+    "name" : "LINK_INSERT_COPIES",
+    "value" : "10",
+    "description" : ""
+  }, {
+    "name" : "SAT_INSERT_COPIES",
+    "value" : "10",
+    "description" : ""
+  }, {
+    "name" : "LINKSAT_INSERT_COPIES",
+    "value" : "10",
+    "description" : ""
+  }, {
+    "name" : "HUB_STATUS_SAT_INSERT_COPIES",
+    "value" : "10",
+    "description" : ""
+  } ],
+  "purpose" : "Development",
+  "name" : "postgres"
+}

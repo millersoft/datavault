@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>trf_determine_staging_tables_source_system</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description>Determine the tables to stage for a source system</description>
+    <extended_description>This transformation determines which tables to stage for a given source system, specified by the parameter par_id_srcsys.
+Table ref_source_tables contains the information about those tables.
+
+If a tables is staged incrementally the interval is determined by the variables var_stg_load_from.
+The 'from-date' can be ovverruled for a table by specifying
+a value in column ref_source_tables_staging_load_from_load_overrule.staging_load_from_overrule (format YYYY-MM-DD).</extended_description>
+    <pipeline_version>1.3</pipeline_version>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>2</pipeline_status>
+    <parameters>
+      <parameter>
+        <name>par_id_srcsys</name>
+        <default_value/>
+        <description>Id of the source system to stage</description>
+      </parameter>
+      <parameter>
+        <name>reindex</name>
+        <default_value>0</default_value>
+        <description/>
+      </parameter>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user/>
+    <created_date>2014/12/15 01:10:16.757</created_date>
+    <modified_user>admin</modified_user>
+    <modified_date>2017/11/14 14:53:28.205</modified_date>
+  </info>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Courier New</fontname>
+      <fontsize>10</fontsize>
+      <height>21</height>
+      <xloc>32</xloc>
+      <yloc>32</yloc>
+      <note>Description: see transformation settings</note>
+      <width>330</width>
+    </notepad>
+  </notepads>
+  <order>
+    <hop>
+      <from>Write to log</from>
+      <to>run staging tables</to>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>ref_source_tables(_load_from_overrule)</from>
+      <to>Write to log</to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>Write to log</name>
+    <type>WriteToLog</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <displayHeader>Y</displayHeader>
+    <fields>
+      <field>
+        <name>par_record_source_id</name>
+      </field>
+      <field>
+        <name>par_source_table_name</name>
+      </field>
+      <field>
+        <name>par_staging_table_name</name>
+      </field>
+    </fields>
+    <limitRows>N</limitRows>
+    <limitRowsNumber>0</limitRowsNumber>
+    <loglevel>Basic</loglevel>
+    <logmessage>*****************
+staging_table_name</logmessage>
+    <attributes/>
+    <GUI>
+      <xloc>496</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>ref_source_tables(_load_from_overrule)</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>pdi_meta</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>SELECT          srctab.id_srctab                                 as par_record_source_id
+,               srctab.table_name                                as par_source_table_name
+,               srctab.staging_table_name                        as par_staging_table_name
+,               coalesce(srctab.staging_sql_override,concat('SELECT * FROM ', srctab.table_name,' WHERE 1=1 ')) as par_source_sql
+,               case         when srctab.ind_staging_is_incremental = 1 then concat('AND ',srctab.increment_date_column, ' >= ','''',coalesce(incr_overrule.staging_load_from_overrule,'${var_stg_load_from}'),'''')
+                             else ''
+                end                                              as par_source_table_where_clause
+,               replace(case when srctab.ind_staging_is_incremental = 1 then concat(srctab.increment_date_column, ' >= ','''',coalesce(incr_overrule.staging_load_from_overrule,'${var_stg_load_from}'),'''')
+                             else 'NULL'
+                end,'''','''''')                                 as par_source_table_where_clause_to_log
+,               case         when srctab.ind_staging_is_incremental = 1 then coalesce(incr_overrule.staging_load_from_overrule,'${var_stg_load_from}')
+                             else 'NULL'
+                end                                              as par_source_table_stg_load_from
+FROM            ref_source_tables                                   srctab
+INNER JOIN      ref_source_systems                                  srcsys
+ON              srctab.id_srcsys                                  = srcsys.id_srcsys     
+LEFT OUTER JOIN ref_source_tables_staging_load_from_overrule        incr_overrule
+ON              srctab.table_name                                 = incr_overrule.table_name
+WHERE           srctab.id_srcsys                                  = ${par_id_srcsys}
+AND             srctab.ind_stage_this_table                       = 1
+AND             (   ${var_subruntype} = 0 
+                 or ${PROP_DATABASE_STRING_SEARCH_FUNCTION}(concat('|',cast(${var_subruntype} as char),'|'),srctab.process_in_subruntypes) > 0
+                )
+ORDER BY        srctab.staging_load_group_order</sql>
+    <variables_active>Y</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>160</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>run staging tables</name>
+    <type>WorkflowExecutor</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>${STG_INSERT_COPIES}</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <execution_errors_field>ExecutionNrErrors</execution_errors_field>
+    <execution_exit_status_field>ExecutionExitStatus</execution_exit_status_field>
+    <execution_files_retrieved_field>ExecutionFilesRetrieved</execution_files_retrieved_field>
+    <execution_lines_deleted_field>ExecutionLinesDeleted</execution_lines_deleted_field>
+    <execution_lines_input_field>ExecutionLinesInput</execution_lines_input_field>
+    <execution_lines_output_field>ExecutionLinesOutput</execution_lines_output_field>
+    <execution_lines_read_field>ExecutionLinesRead</execution_lines_read_field>
+    <execution_lines_rejected_field>ExecutionLinesRejected</execution_lines_rejected_field>
+    <execution_lines_updated_field>ExecutionLinesUpdated</execution_lines_updated_field>
+    <execution_lines_written_field>ExecutionLinesWritten</execution_lines_written_field>
+    <execution_log_channelid_field>ExecutionLogChannelId</execution_log_channelid_field>
+    <execution_log_text_field>ExecutionLogText</execution_log_text_field>
+    <execution_result_field>ExecutionResult</execution_result_field>
+    <execution_time_field>ExecutionTime</execution_time_field>
+    <filename>${PROJECT_HOME}/staging_generic/staging_generic_tables_source_system/job_staging_generic_source_system_table.hwf</filename>
+    <group_size>1</group_size>
+    <inherit_all_vars>Y</inherit_all_vars>
+    <parameters>
+      <variablemapping>
+        <field>par_record_source_id</field>
+        <input>The record_source_id of the source table as defined in ref_source_tables.
+</input>
+        <variable>par_record_source_id</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>par_source_sql</field>
+        <input>The SQL for the source table without the possible incremental WHERE clause. Default: select * from &lt;source_table> where 1=1, possibly overruled by  staging_sql_override.
+</input>
+        <variable>par_source_sql</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>par_source_table_name</field>
+        <input>The source table.
+</input>
+        <variable>par_source_table_name</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>par_source_table_stg_load_from</field>
+        <input>The (possible) start date of the interval
+</input>
+        <variable>par_source_table_stg_load_from</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>par_source_table_where_clause</field>
+        <input>The (possible) WHERE-clause defining the increment.
+</input>
+        <variable>par_source_table_where_clause</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>par_source_table_where_clause_to_log</field>
+        <input>
+</input>
+        <variable>par_source_table_where_clause_to_log</variable>
+      </variablemapping>
+      <variablemapping>
+        <field>par_staging_table_name</field>
+        <input>The staging table.
+</input>
+        <variable>par_staging_table_name</variable>
+      </variablemapping>
+    </parameters>
+    <result_files_file_name_field>FileName</result_files_file_name_field>
+    <run_configuration>local</run_configuration>
+    <attributes/>
+    <GUI>
+      <xloc>688</xloc>
+      <yloc>320</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>

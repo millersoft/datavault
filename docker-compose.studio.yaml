@@ -1,0 +1,4 @@
+services:
+  postgres:
+    volumes:
+      - ./docker/studio-skip-ddls.sql:/docker-entrypoint-initdb.d/03-ddls.sql:ro

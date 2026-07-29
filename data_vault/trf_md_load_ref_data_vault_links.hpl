@@ -1,0 +1,358 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<pipeline>
+  <info>
+    <name>trf_md_load_ref_data_vault_links</name>
+    <name_sync_with_filename>Y</name_sync_with_filename>
+    <description>Load design metadata: links</description>
+    <extended_description>This transformation loads the Data Vault links from the staging table into the ref table.</extended_description>
+    <pipeline_version>1.8</pipeline_version>
+    <pipeline_type>Normal</pipeline_type>
+    <pipeline_status>2</pipeline_status>
+    <parameters>
+    </parameters>
+    <capture_transform_performance>N</capture_transform_performance>
+    <transform_performance_capturing_delay>1000</transform_performance_capturing_delay>
+    <transform_performance_capturing_size_limit>100</transform_performance_capturing_size_limit>
+    <created_user>admin</created_user>
+    <created_date>2011/02/02 21:09:34.000</created_date>
+    <modified_user>admin</modified_user>
+    <modified_date>2014/12/14 11:25:25.280</modified_date>
+  </info>
+  <notepads>
+    <notepad>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorred>255</backgroundcolorred>
+      <bordercolorblue>100</bordercolorblue>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorred>100</bordercolorred>
+      <fontbold>N</fontbold>
+      <fontcolorblue>0</fontcolorblue>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorred>0</fontcolorred>
+      <fontitalic>N</fontitalic>
+      <fontname>Ariel</fontname>
+      <fontsize>9</fontsize>
+      <height>21</height>
+      <xloc>64</xloc>
+      <yloc>32</yloc>
+      <note>Description: see transformation settings</note>
+      <width>251</width>
+    </notepad>
+  </notepads>
+  <order>
+    <hop>
+      <from>stg_management_links</from>
+      <to>ref_data_vault_links</to>
+      <enabled>Y</enabled>
+    </hop>
+  </order>
+  <transform>
+    <name>ref_data_vault_links</name>
+    <type>InsertUpdate</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <commit>${PROP_COMMIT_SIZE_PDI_META}</commit>
+    <connection>pdi_meta</connection>
+    <lookup>
+      <key>
+        <condition>=</condition>
+        <field>link_name</field>
+        <name>link_name</name>
+      </key>
+      <key>
+        <condition>=</condition>
+        <field>id_data_vault</field>
+        <name>id_data_vault</name>
+      </key>
+      <schema/>
+      <table>ref_data_vault_links</table>
+      <value>
+        <name>link_name</name>
+        <rename>link_name</rename>
+        <update>N</update>
+      </value>
+      <value>
+        <name>id_data_vault</name>
+        <rename>id_data_vault</rename>
+        <update>N</update>
+      </value>
+      <value>
+        <name>link_key</name>
+        <rename>link_key</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>description</name>
+        <rename>description</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>ind_current</name>
+        <rename>ind_current</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>id_data_vault_hub_1</name>
+        <rename>id_data_vault_hub_1</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>id_data_vault_hub_2</name>
+        <rename>id_data_vault_hub_2</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>id_data_vault_hub_3</name>
+        <rename>id_data_vault_hub_3</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>id_data_vault_hub_4</name>
+        <rename>id_data_vault_hub_4</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>id_data_vault_hub_5</name>
+        <rename>id_data_vault_hub_5</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>id_data_vault_hub_6</name>
+        <rename>id_data_vault_hub_6</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>id_data_vault_hub_7</name>
+        <rename>id_data_vault_hub_7</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>id_data_vault_hub_8</name>
+        <rename>id_data_vault_hub_8</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>id_data_vault_hub_9</name>
+        <rename>id_data_vault_hub_9</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>id_data_vault_hub_10</name>
+        <rename>id_data_vault_hub_10</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_hub_1_key_column</name>
+        <rename>link_hub_1_key_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_hub_2_key_column</name>
+        <rename>link_hub_2_key_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_hub_3_key_column</name>
+        <rename>link_hub_3_key_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_hub_4_key_column</name>
+        <rename>link_hub_4_key_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_hub_5_key_column</name>
+        <rename>link_hub_5_key_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_hub_6_key_column</name>
+        <rename>link_hub_6_key_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_hub_7_key_column</name>
+        <rename>link_hub_7_key_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_hub_8_key_column</name>
+        <rename>link_hub_8_key_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_hub_9_key_column</name>
+        <rename>link_hub_9_key_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>link_hub_10_key_column</name>
+        <rename>link_hub_10_key_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>lnk_cnt_hubs</name>
+        <rename>lnk_cnt_hubs</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>lnk_ind_attributes</name>
+        <rename>lnk_ind_attributes</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>lnk_bk_columns</name>
+        <rename>lnk_bk_columns</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>lnk_no_bk_columns</name>
+        <rename>lnk_no_bk_columns</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>ind_last_seen_dts</name>
+        <rename>ind_last_seen_dts</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>lnk_group_key_column</name>
+        <rename>lnk_group_key_column</rename>
+        <update>Y</update>
+      </value>
+      <value>
+        <name>lnk_no_group_key_columns</name>
+        <rename>lnk_no_group_key_columns</rename>
+        <update>Y</update>
+      </value>
+    </lookup>
+    <update_bypassed>N</update_bypassed>
+    <attributes/>
+    <GUI>
+      <xloc>384</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform>
+    <name>stg_management_links</name>
+    <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
+    <connection>pdi_meta</connection>
+    <execute_each_row>N</execute_each_row>
+    <limit>0</limit>
+    <sql>select          DISTINCT
+                stg_links.link_name
+,               dv.id_data_vault
+,               stg_links.link_key
+,               stg_links.link_description          as description
+,               1                                   as ind_current
+,               stg_links.ind_last_seen_dts         as ind_last_seen_dts
+,               ref_hub_1.id_data_vault_hub         as id_data_vault_hub_1
+,               ref_hub_2.id_data_vault_hub         as id_data_vault_hub_2
+,               ref_hub_3.id_data_vault_hub         as id_data_vault_hub_3
+,               ref_hub_4.id_data_vault_hub         as id_data_vault_hub_4
+,               ref_hub_5.id_data_vault_hub         as id_data_vault_hub_5
+,               ref_hub_6.id_data_vault_hub         as id_data_vault_hub_6
+,               ref_hub_7.id_data_vault_hub         as id_data_vault_hub_7
+,               ref_hub_8.id_data_vault_hub         as id_data_vault_hub_8
+,               ref_hub_9.id_data_vault_hub         as id_data_vault_hub_9
+,               ref_hub_10.id_data_vault_hub        as id_data_vault_hub_10
+,               coalesce(stg_links.link_hub_1_key_column,ref_hub_1.hub_key)  as link_hub_1_key_column
+,               coalesce(stg_links.link_hub_2_key_column,ref_hub_2.hub_key)  as link_hub_2_key_column
+,               coalesce(stg_links.link_hub_3_key_column,ref_hub_3.hub_key)  as link_hub_3_key_column
+,               coalesce(stg_links.link_hub_4_key_column,ref_hub_4.hub_key)  as link_hub_4_key_column
+,               coalesce(stg_links.link_hub_5_key_column,ref_hub_5.hub_key)  as link_hub_5_key_column
+,               coalesce(stg_links.link_hub_6_key_column,ref_hub_6.hub_key)  as link_hub_6_key_column
+,               coalesce(stg_links.link_hub_7_key_column,ref_hub_7.hub_key)  as link_hub_7_key_column
+,               coalesce(stg_links.link_hub_8_key_column,ref_hub_8.hub_key)  as link_hub_8_key_column
+,               coalesce(stg_links.link_hub_9_key_column,ref_hub_9.hub_key)  as link_hub_9_key_column
+,               coalesce(stg_links.link_hub_10_key_column,ref_hub_10.hub_key) as link_hub_10_key_column
+,               case
+                   when stg_links.hub_10 is not null then 10
+                   when stg_links.hub_9  is not null then 9
+                   when stg_links.hub_8  is not null then 8
+                   when stg_links.hub_7  is not null then 7
+                   when stg_links.hub_6  is not null then 6
+                   when stg_links.hub_5  is not null then 5
+                   when stg_links.hub_4  is not null then 4
+                   when stg_links.hub_3  is not null then 3
+                   when stg_links.hub_2  is not null then 2
+                   when stg_links.hub_1  is not null then 1
+                   else 0
+                end as lnk_cnt_hubs
+,               case
+                   when lnka.nof_attributes is not null then 1
+                   else 0
+                end as lnk_ind_attributes
+,               stg_links.lnk_bk_columns
+,               stg_links.lnk_no_bk_columns
+,               stg_links.lnk_group_key_column
+,               stg_links.lnk_no_group_key_columns
+from            stg_management_links            stg_links
+cross join      stg_management_data_vaults      dv
+inner join      stg_management_source_tables    stg_srctab
+on              stg_links.source_concat       = stg_srctab.source_concat
+inner join      ref_source_systems              ref_srcsys
+on              stg_srctab.source_system      = ref_srcsys.description
+inner join      ref_source_tables               ref_srctab
+on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
+and             stg_srctab.table_name         = ref_srctab.table_name
+inner join      ref_data_vault_hubs             ref_hub_1
+on              stg_links.hub_1               = ref_hub_1.hub_name
+and             dv.id_data_vault              = ref_hub_1.id_data_vault
+left outer join ref_data_vault_hubs             ref_hub_2
+on              stg_links.hub_2               = ref_hub_2.hub_name
+and             dv.id_data_vault              = ref_hub_2.id_data_vault
+left outer join ref_data_vault_hubs             ref_hub_3
+on              stg_links.hub_3               = ref_hub_3.hub_name
+and             dv.id_data_vault              = ref_hub_3.id_data_vault
+left outer join ref_data_vault_hubs             ref_hub_4
+on              stg_links.hub_4               = ref_hub_4.hub_name
+and             dv.id_data_vault              = ref_hub_4.id_data_vault
+left outer join ref_data_vault_hubs             ref_hub_5
+on              stg_links.hub_5               = ref_hub_5.hub_name
+and             dv.id_data_vault              = ref_hub_5.id_data_vault
+left outer join ref_data_vault_hubs             ref_hub_6
+on              stg_links.hub_6               = ref_hub_6.hub_name
+and             dv.id_data_vault              = ref_hub_6.id_data_vault
+left outer join ref_data_vault_hubs             ref_hub_7
+on              stg_links.hub_7               = ref_hub_7.hub_name
+and             dv.id_data_vault              = ref_hub_7.id_data_vault
+left outer join ref_data_vault_hubs             ref_hub_8
+on              stg_links.hub_8               = ref_hub_8.hub_name
+and             dv.id_data_vault              = ref_hub_8.id_data_vault
+left outer join ref_data_vault_hubs             ref_hub_9
+on              stg_links.hub_9               = ref_hub_9.hub_name
+and             dv.id_data_vault              = ref_hub_9.id_data_vault
+left outer join ref_data_vault_hubs             ref_hub_10
+on              stg_links.hub_10              = ref_hub_10.hub_name
+and             dv.id_data_vault              = ref_hub_10.id_data_vault
+left outer join (select link_name,count(1) as nof_attributes from stg_management_link_attributes where ind_current = 1 group by link_name) lnka
+on              stg_links.link_name = lnka.link_name
+where           stg_links.ind_current = 1</sql>
+    <variables_active>Y</variables_active>
+    <attributes/>
+    <GUI>
+      <xloc>96</xloc>
+      <yloc>128</yloc>
+    </GUI>
+  </transform>
+  <transform_error_handling>
+  </transform_error_handling>
+  <attributes/>
+</pipeline>

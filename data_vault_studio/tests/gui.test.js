@@ -141,11 +141,34 @@ describe('parsers', () => {
 describe('staging type mapping', () => {
   beforeEach(resetApp);
 
-  test('booleans widen to VARCHAR(5), json-ish types to TEXT', () => {
+  test('booleans widen to VARCHAR(5), json-ish and large text types to TEXT', () => {
     app.eval(`state.vault.dialect = 'postgresql';`);
     assert.strictEqual(app.eval(`mapColumnType({ type:'boolean' })`), 'VARCHAR(5)');
     assert.strictEqual(app.eval(`mapColumnType({ type:'jsonb' })`), 'TEXT');
+    assert.strictEqual(app.eval(`mapColumnType({ type:'xml' })`), 'TEXT');
+    assert.strictEqual(app.eval(`mapColumnType({ type:'nvarchar(max)' })`), 'TEXT');
     assert.strictEqual(app.eval(`mapColumnType({ type:'integer' })`), 'INTEGER');
+  });
+
+  test('satellite attributes do not narrow large text, binary, or wide character source columns', () => {
+    const types = app.eval(`
+      startNewProject(true);
+      state.vault.dialect='sqlserver';
+      const t=newTable('documents');
+      const xml=Object.assign(newColumn('payload','xml'),{staged:true});
+      const wide=Object.assign(newColumn('notes','nvarchar(4000)'),{staged:true});
+      const small=Object.assign(newColumn('code','varchar(20)'),{staged:true});
+      const bin=Object.assign(newColumn('blob_value','varbinary'),{staged:true});
+      t.columns=[xml,wide,small,bin]; state.tables=[t];
+      const sat={tableId:t.id,attrs:[
+        {colId:xml.id,target:'payload'},
+        {colId:wide.id,target:'notes'},
+        {colId:small.id,target:'code'},
+        {colId:bin.id,target:'blob_value'},
+      ]};
+      sat.attrs.map(a=>satelliteAttributeType(sat,a))
+    `);
+    assert.deepStrictEqual(types,['TEXT','VARCHAR(4000)','VARCHAR(256)','BYTEA']);
   });
 });
 
@@ -1227,33 +1250,208 @@ describe('deployment status derivation (no manifest — probed live)', () => {
   });
 });
 
-describe('MySQL JDBC driver section gating', () => {
+describe('source JDBC driver section gating', () => {
   beforeEach(resetApp);
 
-  test('renders nothing when the source dialect is PostgreSQL', () => {
-    assert.strictEqual(app.eval(`mysqlJdbcDriverSectionHtml({ dialect: 'postgresql' })`), '');
-    assert.strictEqual(app.eval(`mysqlJdbcDriverSectionHtml({ dialect: 'sqlserver' })`), '');
-    assert.strictEqual(app.eval(`mysqlJdbcDriverSectionHtml({ dialect: 'oracle' })`), '');
-    assert.strictEqual(app.eval(`mysqlJdbcDriverSectionHtml({})`), '');
+  test('renders only for supported non-PostgreSQL source dialects', () => {
+    assert.strictEqual(app.eval(`jdbcDriverSectionHtml({ dialect: 'postgresql' })`), '');
+    assert.strictEqual(app.eval(`jdbcDriverSectionHtml({ dialect: 'oracle' })`), '');
+    assert.strictEqual(app.eval(`jdbcDriverSectionHtml({})`), '');
+
+    const mysql = app.eval(`jdbcDriverSectionHtml({ dialect: 'mysql' })`);
+    assert.match(mysql, /MySQL Connector\/J/);
+    assert.match(mysql, /mysql-connector-j-9\.7\.0\.jar/);
+    assert.match(mysql, /btn-deploy-jdbc-driver/);
+
+    const sqlserver = app.eval(`jdbcDriverSectionHtml({ dialect: 'sqlserver' })`);
+    assert.match(sqlserver, /Microsoft JDBC Driver for SQL Server/);
+    assert.match(sqlserver, /mssql-jdbc-13\.4\.0\.jre11\.jar/);
+    assert.match(sqlserver, /SQL Server is always external/);
   });
 
-  test('renders the driver download only for MySQL', () => {
-    const html = app.eval(`mysqlJdbcDriverSectionHtml({ dialect: 'mysql' })`);
-    assert.ok(html.includes('MySQL JDBC driver'));
-    assert.ok(html.includes('mysql-connector-j'));
-    assert.ok(html.includes('btn-deploy-jdbc-driver'));
-  });
-
-  test('the driver section appears exactly once in the app, inside renderConnections', () => {
-    // The template is generated only through mysqlJdbcDriverSectionHtml —
-    // no second copy of the download link may exist anywhere else in the UI.
+  test('the source driver section is rendered from one Connections call site', () => {
     const fs = require('node:fs');
     const path = require('node:path');
     const html = fs.readFileSync(path.join(__dirname, '..', 'millersoft_vault_studio.html'), 'utf8');
-    const uiMatches = html.match(/Download MySQL Connector\/J/g) || [];
-    assert.strictEqual(uiMatches.length, 1, 'driver download link must exist in exactly one place');
-    const sectionCalls = html.match(/\$\{mysqlJdbcDriverSectionHtml\(v\)\}/g) || [];
-    assert.strictEqual(sectionCalls.length, 1, 'section must be rendered from exactly one call site (the source connection panel)');
+    const sectionCalls = html.match(/\$\{jdbcDriverSectionHtml\(v\)\}/g) || [];
+    assert.strictEqual(sectionCalls.length, 1);
+    assert.strictEqual((html.match(/filename:'mysql-connector-j-9\.7\.0\.jar'/g)||[]).length,1);
+    assert.strictEqual((html.match(/filename:'mssql-jdbc-13\.4\.0\.jre11\.jar'/g)||[]).length,1);
+  });
+});
+
+
+describe('physical target JDBC driver checks', () => {
+  beforeEach(resetApp);
+
+  test('a separate target check appears only for a non-PostgreSQL target whose type differs from the source', () => {
+    const production=loadApp({runtimeMode:'production'});
+    production.eval(`
+      startNewProject(true);
+      state.externalTables.enabled=true;
+      state.vault.dialect='postgresql';
+      Object.assign(state.externalTables,{
+        remoteDialect:'mysql',
+        jarfile:'/opt/jdbc-drivers/mysql-connector-j-9.7.0.jar'
+      });
+    `);
+    assert.strictEqual(production.eval(`targetJdbcDriverCheckRequired()`),true);
+    const section=production.eval(`targetJdbcDriverSectionHtml()`);
+    assert.match(section,/Target JDBC driver/);
+    assert.match(section,/id="btn-check-target-jdbc-driver"/);
+    assert.match(section,/id="btn-deploy-target-jdbc-driver"/);
+
+    production.eval(`state.vault.dialect='mysql'`);
+    assert.strictEqual(production.eval(`targetJdbcDriverCheckRequired()`),false,'same source and target type reuse the same mounted driver');
+    production.eval(`state.vault.dialect='mysql'; state.externalTables.remoteDialect='postgresql'`);
+    assert.strictEqual(production.eval(`targetJdbcDriverCheckRequired()`),false,'PostgreSQL uses the standard FDW preflight rather than the extra cross-dialect panel');
+    production.eval(`state.externalTables.enabled=false; state.externalTables.remoteDialect='mysql'; state.vault.dialect='postgresql'`);
+    assert.strictEqual(production.eval(`targetJdbcDriverCheckRequired()`),false,'native target mode has no FDW target driver');
+  });
+
+  test('target driver check uses the configured container jar path and target downloads update that path', () => {
+    const check=app.eval(`refreshTargetJdbcDriverStatus.toString()`);
+    const deploy=app.eval(`deployJdbcDriver.toString()`);
+    assert.match(check,/\/api\/driver-path-status/);
+    assert.match(check,/state\.externalTables\.jarfile/);
+    assert.match(deploy,/context='source'/);
+    assert.match(deploy,/context==='target'/);
+    assert.match(deploy,/state\.externalTables\.jarfile=`\/opt\/jdbc-drivers\/\$\{spec\.filename\}`/);
+  });
+
+  test('model validation rejects FDW storage with an external PostgreSQL engine target', () => {
+    const production=loadApp({runtimeMode:'production'});
+    production.eval(`startNewProject(true); state.vault.targetPreset=''; state.externalTables.enabled=true;`);
+    const result=production.eval(`validateModel()`);
+    assert.ok(result.errors.some(x=>/only with the internal PostgreSQL container/i.test(x)));
+  });
+});
+
+
+describe('external SQL Server support', () => {
+  beforeEach(resetApp);
+
+  test('production exposes SQL Server as a source and FDW physical target, while demo does not', () => {
+    const production=loadApp({runtimeMode:'production'});
+    assert.match(production.eval(`sourceDialectOptionsHtml()`),/value="sqlserver"[^>]*>SQL Server/);
+    const render=production.eval(`renderConnections.toString()`);
+    assert.match(render,/\['postgresql','mysql','sqlserver'\]/);
+
+    const demo=loadApp({runtimeMode:'demo'});
+    assert.doesNotMatch(demo.eval(`sourceDialectOptionsHtml()`),/SQL Server|sqlserver/);
+    assert.match(demo.eval(`renderConnections.toString()`),/demo\?\['mysql'\]:\['postgresql','mysql','sqlserver'\]/);
+  });
+
+  test('SQL Server defaults use an external 1433 route, dbo, and Microsoft JDBC', () => {
+    assert.deepStrictEqual(app.eval(`externalDialectDefaults('sqlserver')`),{
+      port:'1433',schema:'dbo',drivername:'com.microsoft.sqlserver.jdbc.SQLServerDriver',jarfile:'/opt/jdbc-drivers/mssql-jdbc-13.4.0.jre11.jar'
+    });
+    assert.strictEqual(app.eval(`defaultExternalJdbcUrl('sqlserver','sql.example','1433','vault')`),
+      'jdbc:sqlserver://sql.example:1433;databaseName=vault;encrypt=true;trustServerCertificate=true');
+    assert.deepStrictEqual(app.eval(`parseJdbcUrlDefaults('jdbc:sqlserver://sql.example:1444;databaseName=vault;encrypt=true')`),
+      {dialect:'sqlserver',host:'sql.example',port:'1444',database:'vault',schema:'dbo'});
+  });
+
+  test('SQL Server hash override is Unicode-safe, unbounded, and preserves trailing spaces in composite keys', () => {
+    app.eval(`
+      startNewProject(true);
+      state.vault.dialect='sqlserver'; state.vault.sourceSchema='dbo'; state.vault.tenantId='T';
+      const t=newTable('orders');
+      const a=Object.assign(newColumn('country_code','nvarchar(10)'),{pk:true,nullable:false});
+      const b=Object.assign(newColumn('order_number','nvarchar(100)'),{pk:true,nullable:false});
+      t.columns=[a,b];
+      t.derivations=[{id:'d',kind:'both',entity:'order',role:'order',columns:['country_code','order_number'],column:'country_code'}];
+      state.tables=[t];
+    `);
+    const sql=app.eval(`buildOverride(state.tables[0])`);
+    assert.match(sql,/HASHBYTES\('SHA2_256', CONVERT\(VARBINARY\(MAX\), CONVERT\(NVARCHAR\(MAX\),/);
+    assert.match(sql,/LEN\(CONVERT\(NVARCHAR\(MAX\), src\.country_code\) \+ N'#'\) - 1/);
+    assert.match(sql,/N'\|'/);
+    assert.match(sql,/from dbo\.orders src/);
+    assert.doesNotMatch(sql,/VARCHAR\(4000\)/i);
+  });
+
+  test('Hop source metadata uses the native SQL Server plugin rather than a PostgreSQL fallback', () => {
+    app.eval(`state.vault.dialect='sqlserver'; state.vault.sourceSchema='sales';`);
+    const json=JSON.parse(app.eval(`buildHopSourceConnectionJson()`));
+    assert.ok(json.rdbms.MSSQLNATIVE);
+    assert.strictEqual(json.rdbms.MSSQLNATIVE.pluginId,'MSSQLNATIVE');
+    assert.strictEqual(json.rdbms.MSSQLNATIVE.pluginName,'MS SQL Server (Native)');
+    assert.strictEqual(json.rdbms.MSSQLNATIVE.attributes.PREFERRED_SCHEMA_NAME,'${source_schema_name}');
+    assert.strictEqual(json.rdbms.POSTGRESQL,undefined);
+  });
+
+  test('remote SQL Server DDL is idempotent and maps PostgreSQL storage types', () => {
+    seedFixture();
+    app.eval(`
+      suggestModelFromKeys();
+      Object.assign(state.externalTables,{enabled:true,remoteDialect:'sqlserver',studioDatabase:'vault',remoteDatabase:'vault',studioSchema:'dbo',remoteSchema:'dbo'});
+    `);
+    const ddl=app.eval(`buildExternalTablesDdl()`);
+    assert.match(ddl,/IF OBJECT_ID\(N'\[dbo\]\.\[hub_sales_customer\]', N'U'\) IS NULL/);
+    assert.match(ddl,/CREATE TABLE \[dbo\]\.\[hub_sales_customer\]/);
+    assert.match(ddl,/VARBINARY\(32\)/);
+    assert.match(ddl,/DATETIME2\(6\)/);
+    assert.match(ddl,/NVARCHAR\(MAX\)|NVARCHAR\(256\)/);
+    assert.doesNotMatch(ddl,/CREATE TABLE IF NOT EXISTS/);
+    const objects=app.eval(`parseGeneratedDdlObjects(buildExternalTablesDdl())`);
+    assert.strictEqual(objects.length,app.eval(`externalCoreTableCount()`));
+    assert.ok(objects.every(o=>o.schema==='dbo'));
+  });
+
+  test('unbounded Vault text maps to a genuinely large remote type', () => {
+    assert.strictEqual(app.eval(`remoteType('TEXT','sqlserver')`), 'NVARCHAR(MAX)');
+    assert.strictEqual(app.eval(`remoteType('TEXT','mysql')`), 'LONGTEXT');
+  });
+
+  test('Studio Plus quotes SQL Server identifiers and validates with TOP rather than LIMIT', () => {
+    app.eval(`spConn={dialect:'sqlserver',host:'sql.example',port:'1433',database:'vault',schema:'dbo',user:'reporter',password:'x',autoDefault:false};`);
+    assert.strictEqual(app.eval(`spQualifiedTable('hub_order')`),'[dbo].[hub_order]');
+    const validate=app.eval(`spValidateGeneratedViews.toString()`);
+    assert.match(validate,/SELECT TOP \(0\)/);
+    assert.match(app.eval(`renderStudioPlus.toString()`),/value="sqlserver"/);
+  });
+
+  test('SQL Server stays external and does not add a Docker service', () => {
+    const fs=require('node:fs');
+    const path=require('node:path');
+    const root=path.join(__dirname,'..','..');
+    const compose=fs.readFileSync(path.join(root,'docker-compose.yaml'),'utf8');
+    const start=fs.readFileSync(path.join(root,'start.sh'),'utf8');
+    assert.doesNotMatch(compose,/^\s*(sqlserver|mssql):\s*$/m);
+    assert.doesNotMatch(start,/sqlserver|mssql/i);
+  });
+});
+
+
+describe('SQL Server companion-server wiring', () => {
+  test('the Node server carries SQL Server connection, introspection, reporting, and external-target adapters', () => {
+    const fs=require('node:fs');
+    const path=require('node:path');
+    const server=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
+    const pkg=JSON.parse(fs.readFileSync(path.join(__dirname,'..','package.json'),'utf8'));
+    assert.strictEqual(pkg.dependencies.mssql,'^12.7.0');
+    assert.match(server,/function getMssql\(\)/);
+    assert.match(server,/function sqlServerConnectionConfig/);
+    assert.match(server,/SQLSERVER_INTROSPECT_SQL/);
+    assert.match(server,/SQLSERVER_FK_SQL/);
+    assert.match(server,/SQLSERVER_ROWCOUNT_SQL/);
+    assert.match(server,/if \(dialect === 'sqlserver'\) return openSqlServerConnection/);
+    assert.match(server,/SQL Server reporting queries may not use SELECT INTO/);
+    assert.match(server,/\['postgresql','mysql','sqlserver'\]/);
+    assert.match(server,/mssql-jdbc/);
+    assert.match(server,/SCHEMA_NAME\(\) AS default_schema/);
+  });
+
+  test('SQL Server source types are mapped into PostgreSQL-safe staging types', () => {
+    const fs=require('node:fs');
+    const path=require('node:path');
+    const server=fs.readFileSync(path.join(__dirname,'..','server.js'),'utf8');
+    assert.match(server,/datetime2: 'timestamp'/);
+    assert.match(server,/datetimeoffset: 'timestamptz'/);
+    assert.match(server,/uniqueidentifier: 'uuid'/);
+    assert.match(server,/varbinary: 'bytea'/);
+    assert.match(server,/nvarchar/);
   });
 });
 
@@ -1515,33 +1713,404 @@ describe('packaged container presets (MySQL Demo / Postgres Internal)', () => {
   });
 });
 
-describe('external storage hidden for this release', () => {
+describe('external core Data Vault storage (jdbc_fdw)', () => {
   beforeEach(resetApp);
 
-  test('feature flag is off and loaded projects are coerced', () => {
-    assert.strictEqual(app.eval(`FEATURE_EXTERNAL_STORAGE`), false);
+  function seedExternalModel(){
+    seedFixture();
+    app.eval(`suggestModelFromKeys(); Object.assign(state.externalTables, {
+      enabled:true, serverName:'sales_external_srv', drivername:'org.postgresql.Driver',
+      url:'jdbc:postgresql://remote-db:5432/dv_remote?currentSchema=vault',
+      jarfile:'/opt/jdbc-drivers/postgresql-42.7.5.jar', username:'remote_writer', password:'secret',
+      remoteDialect:'postgresql', remoteDatabase:'dv_remote', remoteSchema:'vault',
+      studioHost:'localhost', studioPort:'5544', studioDatabase:'dv_remote', studioSchema:'vault',
+      studioUser:'remote_admin', studioPassword:'secret'
+    });`);
+  }
+
+  test('feature is shipped and loaded projects remain enabled', () => {
+    assert.strictEqual(app.eval(`FEATURE_EXTERNAL_STORAGE`), true);
     app.eval(`state.externalTables.enabled = true; applyFeatureGates()`);
-    assert.strictEqual(app.eval(`state.externalTables.enabled`), false);
+    assert.strictEqual(app.eval(`state.externalTables.enabled`), true);
   });
 
-  test('no fdw/external-storage entry in the AI mode switcher', () => {
+  test('legacy AI-assist FDW mode is not exposed', () => {
     assert.strictEqual(app.eval(`(function(){ aiModalContext='vault'; return aiModeSwitcherHtml(); })()`), '');
   });
 
-  test('vault page does not render the external storage mount', () => {
+  test('Connections exposes the four target choices while MySQL and SQL Server reuse the FDW path', () => {
     const fs = require('node:fs');
     const path = require('node:path');
-    const h = fs.readFileSync(path.join(__dirname, '..', 'millersoft_vault_studio.html'), 'utf8');
-    assert.match(h, /FEATURE_EXTERNAL_STORAGE \? '<div id="ext-storage-mount"/);
-    assert.match(h, /if \(FEATURE_EXTERNAL_STORAGE\) renderExternalSub/);
+    const html = fs.readFileSync(path.join(__dirname, '..', 'millersoft_vault_studio.html'), 'utf8');
+    const connections = app.eval(`renderConnections.toString()`);
+    const fdwConfig = app.eval(`renderExternalSub.toString()`);
+    assert.match(connections, /value="mysql"/);
+    assert.match(connections, /value="sqlserver"/);
+    assert.match(connections, /value="internal-postgres"/);
+    assert.match(connections, /value="postgres"/);
+    assert.doesNotMatch(connections, /id="f-external-tables"|id="f-external-dialect"/);
+    assert.match(connections, /③ Physical storage target/);
+    assert.match(connections, /id="btn-connect-external-target"/);
+    assert.match(connections, /btn-start-fdw-postgres/);
+    assert.match(connections, /ext-storage-mount/);
+    assert.match(fdwConfig, /④ PostgreSQL FDW gateway/);
+    assert.match(fdwConfig, /Foreign server configuration/);
+    assert.match(app.eval(`startAndConnectContainer.toString()`), /fdw:\s*service==='postgres'\s*&&\s*state\.externalTables\.enabled/);
+    assert.strictEqual((html.match(/id="ext-storage-mount"/g)||[]).length, 1, 'FDW configuration mount belongs to Connections only');
+    assert.doesNotMatch(html, /id="ext-enabled"/);
   });
 
-  test('disabled external storage keeps DDL free of foreign tables', () => {
-    seedFixture();
-    app.eval(`state.externalTables.enabled = true; applyFeatureGates(); suggestModelFromKeys()`);
-    const ddl = app.eval(`buildDataVaultDdl()`);
-    assert.doesNotMatch(ddl, /FOREIGN TABLE/);
-    assert.doesNotMatch(ddl, /jdbc_fdw/);
+  test('target choice maps MySQL and SQL Server to the existing internal FDW state', () => {
+    app.eval(`startNewProject(true); applyDeploymentTarget('mysql')`);
+    assert.strictEqual(app.eval(`selectedDeploymentTarget()`), 'mysql');
+    assert.strictEqual(app.eval(`state.vault.targetPreset`), 'internal');
+    assert.strictEqual(app.eval(`state.externalTables.enabled`), true);
+    assert.strictEqual(app.eval(`state.externalTables.remoteDialect`), 'mysql');
+    app.eval(`applyDeploymentTarget('sqlserver')`);
+    assert.strictEqual(app.eval(`selectedDeploymentTarget()`), 'sqlserver');
+    assert.strictEqual(app.eval(`state.vault.targetPreset`), 'internal');
+    assert.strictEqual(app.eval(`state.externalTables.enabled`), true);
+    assert.strictEqual(app.eval(`state.externalTables.remoteDialect`), 'sqlserver');
+    app.eval(`applyDeploymentTarget('internal-postgres')`);
+    assert.strictEqual(app.eval(`selectedDeploymentTarget()`), 'internal-postgres');
+    assert.strictEqual(app.eval(`state.externalTables.enabled`), false);
+    app.eval(`applyDeploymentTarget('postgres')`);
+    assert.strictEqual(app.eval(`selectedDeploymentTarget()`), 'postgres');
+    assert.strictEqual(app.eval(`state.vault.targetPreset`), '');
+    assert.strictEqual(app.eval(`state.externalTables.enabled`), false);
+  });
+
+  test('internal PostgreSQL remains the engine target while FDW details finish the Connections page', () => {
+    const connections = app.eval(`renderConnections.toString()`);
+    const vault = app.eval(`renderVault.toString()`);
+    assert.match(connections, /② Data Vault PostgreSQL[\s\S]*btn-start-fdw-postgres/);
+    assert.match(connections, /\$\{ext\.enabled\?'<div id="ext-storage-mount"/);
+    assert.match(connections, /renderExternalSub\(document\.getElementById\('ext-storage-mount'\)\)/);
+    assert.doesNotMatch(vault, /ext-storage-mount|renderExternalSub/);
+  });
+
+  test('demo physical-target and FDW fields are locked and deployment controls exist only on Export', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const html = fs.readFileSync(path.join(__dirname, '..', 'millersoft_vault_studio.html'), 'utf8');
+    const connections = app.eval(`renderConnections.toString()`);
+    const fdwConfig = app.eval(`renderExternalSub.toString()`);
+    const exportPage = html.slice(html.indexOf('function renderExport'), html.indexOf('function wireExport'));
+    assert.match(connections, /const demo=isDemoRuntime\(\)/);
+    assert.match(connections, /const lockSelect=demo\?'disabled/);
+    assert.match(connections, /const lockInput=demo\?'readonly/);
+    assert.match(fdwConfig, /const configLock=demo\?'readonly/);
+    assert.doesNotMatch(fdwConfig, /Deploy in safe order|Run read-only preflight|id="ext-deploy"|id="ext-preflight"/);
+    assert.match(fdwConfig, /Deployment remains on Export/);
+    assert.match(exportPage, /Apply all updates in order/);
+    assert.match(exportPage, /single authoritative workflow/);
+  });
+
+  test('deployment board groups the external route into concise collapsible stages', () => {
+    const groups = app.eval(`deployRowGroup.toString()`);
+    const board = app.eval(`deployBoardHtml.toString()`);
+    assert.match(groups, /1 · Physical target/);
+    assert.match(groups, /2 · PostgreSQL gateway/);
+    assert.match(groups, /3 · Engine and project/);
+    assert.match(board, /data-deploy-group/);
+    assert.match(board, /Expand a stage for detailed checks and individual actions/);
+  });
+
+  test('ordered deployment creates both databases, remote tables, FDW infrastructure and foreign tables last', () => {
+    const fn = app.eval(`deployExternalStorage.toString()`);
+    const positions = [
+      'ensureLocalGatewayDatabase(checks)',
+      'ensureExternalTargetDatabase(checks)',
+      "buildExternalTablesDdl()",
+      'buildFdwInfrastructureDdl()',
+      'localFdwInfrastructureStatus()',
+      'buildFdwForeignTablesDdl()',
+      'verifyLocalForeignTables()',
+    ].map(token=>fn.indexOf(token));
+    assert.ok(positions.every(pos=>pos>=0), `missing deployment step: ${positions}`);
+    for (let i=1;i<positions.length;i++) assert.ok(positions[i]>positions[i-1], `step ${i} is out of order`);
+  });
+
+  test('ordered deployment verifies the physical target account before creating the FDW mapping', () => {
+    const fn = app.eval(`deployExternalStorage.toString()`);
+    const verify=fn.indexOf('verifyExternalTargetUserAccess(checks)');
+    const mapping=fn.indexOf('buildFdwInfrastructureDdl()');
+    assert.ok(verify>=0 && mapping>verify);
+  });
+
+  test('live route verification performs real remote reads as data_vault and pdi_meta rather than dvuser', () => {
+    const deploy=app.eval(`deployExternalStorage.toString()`);
+    const probe=app.eval(`probeDeploymentStatus.toString()`);
+    const dataVaultQuery=app.eval(`queryTargetAsDataVault.toString()`);
+    const pdiMetaQuery=app.eval(`queryTargetAsPdiMeta.toString()`);
+    assert.match(deploy,/queryTargetAsDataVault\(`SELECT \* FROM data_vault\.\$\{smoke\} LIMIT 1`\)/);
+    assert.match(deploy,/queryTargetAsPdiMeta\(`SELECT \* FROM data_vault\.\$\{smoke\} LIMIT 1`\)/);
+    assert.match(probe,/queryTargetAsDataVault\(`SELECT \* FROM data_vault\.\$\{smoke\} LIMIT 1`\)/);
+    assert.match(probe,/queryTargetAsPdiMeta\(`SELECT \* FROM data_vault\.\$\{smoke\} LIMIT 1`\)/);
+    assert.match(dataVaultQuery,/role:'data_vault'/);
+    assert.match(pdiMetaQuery,/role:'pdi_meta'/);
+    assert.doesNotMatch(deploy,/WHERE 1=0/);
+    assert.match(probe,/runtime access failed/);
+  });
+
+  test('preflight and deployment verify that the PostgreSQL login can assume both FDW service roles', () => {
+    const preflight=app.eval(`runExternalStoragePreflight.toString()`);
+    const deploy=app.eval(`deployExternalStorage.toString()`);
+    const verify=app.eval(`verifyPostgresRoleAssumption.toString()`);
+    const verifyDataVault=app.eval(`verifyDataVaultRoleAssumption.toString()`);
+    const verifyPdiMeta=app.eval(`verifyPdiMetaRoleAssumption.toString()`);
+    assert.match(preflight,/verifyDataVaultRoleAssumption/);
+    assert.match(preflight,/verifyPdiMetaRoleAssumption/);
+    assert.match(deploy,/verifyDataVaultRoleAssumption/);
+    assert.match(deploy,/verifyPdiMetaRoleAssumption/);
+    assert.match(verify,/current_user AS effective_user/);
+    assert.match(verify,/\{role\}/);
+    assert.match(verifyDataVault,/'data_vault'/);
+    assert.match(verifyPdiMeta,/'pdi_meta'/);
+  });
+
+  test('Connections uses one physical-target credential for target DDL, FDW mappings and Studio Plus', () => {
+    const connections = app.eval(`renderConnections.toString()`);
+    const fdwConfig = app.eval(`renderExternalSub.toString()`);
+    assert.match(connections,/Target username/);
+    assert.match(connections,/Target password/);
+    assert.match(connections,/target DDL, both PostgreSQL FDW user mappings, and Studio Plus defaults/);
+    assert.match(fdwConfig,/physical target credential entered above is mapped to both PostgreSQL runtime roles/);
+    assert.doesNotMatch(connections,/f-external-admin-user|f-external-runtime-user|Deployment administrator/);
+  });
+
+  test('Apply all prioritises the single ordered external route', () => {
+    const attach = app.eval(`probeDeploymentStatus.toString()`);
+    const applyAll = app.eval(`applyAllPending.toString()`);
+    assert.match(attach, /row\.workflow = 'external-route'/);
+    assert.match(applyAll, /workflow==='external-route'/);
+  });
+
+  test('deployment status checks both service-role mappings and USAGE grants', () => {
+    const probe = app.eval(`probeDeploymentStatus.toString()`);
+    const status = app.eval(`localFdwInfrastructureStatus.toString()`);
+    const missing = app.eval(`fdwInfrastructureMissing.toString()`);
+    assert.match(probe, /fdw-infrastructure/);
+    assert.match(status, /pg_extension/);
+    assert.match(status, /pg_foreign_server/);
+    assert.match(status, /usename='data_vault'/);
+    assert.match(status, /usename='pdi_meta'/);
+    assert.match(status, /has_server_privilege\('data_vault'/);
+    assert.match(status, /has_server_privilege\('pdi_meta'/);
+    assert.match(missing, /pdi_meta user mapping/);
+    assert.match(missing, /pdi_meta server USAGE grant/);
+  });
+
+  test('external deployment status separates physical tables, local support and foreign bindings', () => {
+    const probe = app.eval(`probeDeploymentStatus.toString()`);
+    assert.match(probe, /Physical Hub\/Link\/Sat\/LSat tables/);
+    assert.match(probe, /PostgreSQL local Vault support objects/);
+    assert.match(probe, /PostgreSQL foreign-table bindings/);
+    assert.match(probe, /not a second copy of the core Vault/);
+  });
+
+  test('external mode creates one physical core set, one foreign binding set, and local error tables only', () => {
+    seedExternalModel();
+    const coreCount=app.eval(`externalCoreTableCount()`);
+    const remote=app.eval(`parseGeneratedDdlObjects(buildExternalTablesDdl())`);
+    const support=app.eval(`parseGeneratedDdlObjects(buildDataVaultLocalSupportDdl())`);
+    const bindings=app.eval(`parseGeneratedDdlObjects(buildFdwForeignTablesDdl())`);
+    assert.strictEqual(remote.length, coreCount);
+    assert.strictEqual(bindings.length, coreCount);
+    assert.ok(bindings.every(x=>x.foreign===true && !x.name.endsWith('_err')));
+    assert.strictEqual(support.length, coreCount);
+    assert.ok(support.every(x=>x.foreign===false && x.name.endsWith('_err')));
+  });
+
+  test('MySQL physical-table verification normalises information_schema field casing', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+    assert.match(server, /SELECT TABLE_NAME AS table_name FROM information_schema\.tables/);
+    assert.match(server, /r\.table_name \?\? r\.TABLE_NAME/);
+  });
+
+  test('demo external target defaults to the packaged MySQL service and datavault database', () => {
+    app.eval(`startNewProject(true); state.externalTables.enabled=true; applyExternalTargetDefaults(false);`);
+    const ext=app.eval(`state.externalTables`);
+    assert.strictEqual(ext.remoteDialect,'mysql');
+    assert.strictEqual(ext.studioHost,'localhost');
+    assert.strictEqual(ext.studioPort,'3306');
+    assert.strictEqual(ext.studioDatabase,'datavault');
+    assert.strictEqual(ext.remoteDatabase,'datavault');
+    assert.strictEqual(ext.drivername,'com.mysql.cj.jdbc.Driver');
+    assert.strictEqual(ext.url,'jdbc:mysql://mysql:3306/datavault');
+    assert.strictEqual(ext.jarfile,'/opt/jdbc-drivers/mysql-connector-j-9.7.0.jar');
+    assert.strictEqual(ext.studioUser,'sakila');
+    assert.strictEqual(ext.username,'sakila');
+    assert.strictEqual(ext.studioPassword,'sourcesecret');
+    assert.strictEqual(app.eval(`externalPhysicalSchemaLabel()`),'datavault');
+  });
+
+  test('demo target reuses the locked Sakila credentials', () => {
+    app.eval(`startNewProject(true); state.externalTables.enabled=true; state.vault.srcUser='shared_user'; state.vault.srcPassword='shared_secret'; applyExternalTargetDefaults(false);`);
+    const ext=app.eval(`state.externalTables`);
+    assert.strictEqual(ext.studioUser,'shared_user');
+    assert.strictEqual(ext.username,'shared_user');
+    assert.strictEqual(ext.studioPassword,'shared_secret');
+    assert.strictEqual(ext.password,'shared_secret');
+    const payload=app.eval(`externalConnectionPayload('datavault')`);
+    assert.strictEqual(payload.user,'shared_user');
+    assert.strictEqual(payload.password,'shared_secret');
+    const ddl=app.eval(`buildFdwPreamble()`);
+    assert.match(ddl,/OPTIONS \(username 'shared_user', password 'shared_secret'\)/);
+  });
+
+  test('production FDW uses the user-defined physical target credential, independently of the source', () => {
+    const production=loadApp({runtimeMode:'production'});
+    production.eval(`
+      startNewProject(true);
+      state.vault.dialect='postgresql';
+      state.vault.srcUser='source_reader'; state.vault.srcPassword='source_secret';
+      state.externalTables.enabled=true;
+      Object.assign(state.externalTables,{
+        remoteDialect:'mysql', studioHost:'db.example', studioPort:'3306',
+        studioDatabase:'datavault', studioSchema:'', remoteDatabase:'datavault', remoteSchema:'',
+        studioUser:'target_writer', studioPassword:'target_secret',
+        username:'target_writer', password:'target_secret',
+        drivername:'com.mysql.cj.jdbc.Driver', url:'jdbc:mysql://db.example:3306/datavault',
+        jarfile:'/opt/jdbc-drivers/mysql-connector-j-9.7.0.jar', studioConnectionOverridden:true
+      });
+      applyExternalTargetDefaults(false);
+    `);
+    const payload=production.eval(`externalConnectionPayload('datavault')`);
+    assert.strictEqual(payload.user,'target_writer');
+    assert.strictEqual(payload.password,'target_secret');
+    const ddl=production.eval(`buildFdwPreamble()`);
+    assert.match(ddl,/OPTIONS \(username 'target_writer', password 'target_secret'\)/);
+    assert.doesNotMatch(ddl,/source_reader|source_secret/);
+    const plus=production.eval(`studioPlusDefaultConnection()`);
+    assert.strictEqual(plus.user,'target_writer');
+    assert.strictEqual(plus.password,'target_secret');
+  });
+
+  test('external storage does not change the Hop PostgreSQL engine connection', () => {
+    app.eval(`startNewProject(true); state.externalTables.enabled=true; applyExternalTargetDefaults(false);`);
+    const env=JSON.parse(app.eval(`buildHopEnvironmentJson()`));
+    const val=name=>env.variables.find(x=>x.name===name).value;
+    assert.strictEqual(val('data_vault_host_name'),'postgres');
+    assert.strictEqual(val('data_vault_port_number'),'5432');
+    assert.strictEqual(val('data_vault_database_name'),'datavault');
+    assert.strictEqual(val('source_host_name'),'mysql');
+  });
+
+  test('core table selector includes only hubs, links, sats and lsats', () => {
+    seedExternalModel();
+    const specs=app.eval(`externalCoreTableSpecs().map(x=>({family:x.family,name:x.name}))`);
+    assert.ok(specs.length>0);
+    assert.ok(specs.every(x=>['hub','link','sat','lsat'].includes(x.family)));
+    assert.ok(specs.every(x=>!x.name.endsWith('_err')));
+  });
+
+  test('external table count is exactly the four model arrays', () => {
+    seedExternalModel();
+    assert.strictEqual(app.eval(`externalCoreTableCount()`), app.eval(`state.hubs.length+state.links.length+state.hubSats.length+state.linkSats.length`));
+  });
+
+  test('main Data Vault tables are foreign while _err tables stay local', () => {
+    seedExternalModel();
+    const ddl=app.eval(`buildDataVaultDdl()`);
+    assert.match(ddl,/CREATE FOREIGN TABLE IF NOT EXISTS data_vault\.hub_/);
+    assert.match(ddl,/CREATE FOREIGN TABLE IF NOT EXISTS data_vault\.link_/);
+    assert.match(ddl,/CREATE FOREIGN TABLE IF NOT EXISTS data_vault\.sat_/);
+    assert.match(ddl,/CREATE TABLE IF NOT EXISTS data_vault\.[a-z0-9_]+_err/);
+    assert.doesNotMatch(ddl,/CREATE FOREIGN TABLE[^;]+_err/);
+  });
+
+  test('the verification view remains a local PostgreSQL view', () => {
+    seedExternalModel();
+    const ddl=app.eval(`buildDataVaultDdl()`);
+    assert.match(ddl,/CREATE OR REPLACE VIEW data_vault\.vw_information_schema_columns_data_vault/);
+  });
+
+  test('FDW preamble is idempotent and maps both engine roles', () => {
+    seedExternalModel();
+    const ddl=app.eval(`buildFdwPreamble()`);
+    assert.match(ddl,/CREATE SERVER IF NOT EXISTS sales_external_srv/);
+    assert.match(ddl,/DROP USER MAPPING IF EXISTS FOR data_vault SERVER sales_external_srv/);
+    assert.match(ddl,/CREATE USER MAPPING FOR data_vault SERVER sales_external_srv/);
+    assert.match(ddl,/DROP USER MAPPING IF EXISTS FOR pdi_meta SERVER sales_external_srv/);
+    assert.match(ddl,/CREATE USER MAPPING FOR pdi_meta SERVER sales_external_srv/);
+    assert.match(ddl,/GRANT USAGE ON FOREIGN SERVER sales_external_srv TO data_vault, pdi_meta/);
+    assert.doesNotMatch(ddl,/FOR CURRENT_USER/);
+  });
+
+  test('foreign-table key OPTIONS precede NOT NULL and parse as the underlying type', () => {
+    seedExternalModel();
+    const ddl=app.eval(`buildFdwForeignTablesDdl()`);
+    assert.match(ddl,/\b[a-z0-9_]+\s+BYTEA OPTIONS \(key 'true'\) NOT NULL/i);
+    assert.doesNotMatch(ddl,/NOT NULL\s+OPTIONS \(key 'true'\)/i);
+    const objects=app.eval(`parseGeneratedDdlObjects(buildFdwForeignTablesDdl())`);
+    assert.ok(objects.length>0);
+    assert.strictEqual(objects[0].columns[0].type.toLowerCase(),'bytea');
+  });
+
+  test('foreign relations use ALTER FOREIGN TABLE for ownership', () => {
+    seedExternalModel();
+    const ddl=app.eval(`buildDataVaultDdl()`);
+    assert.match(ddl,/ALTER FOREIGN TABLE data_vault\.hub_[a-z0-9_]+ OWNER TO data_vault/);
+    assert.match(ddl,/ALTER TABLE data_vault\.[a-z0-9_]+_err OWNER TO data_vault/);
+  });
+
+  test('remote DDL contains only the core physical tables', () => {
+    seedExternalModel();
+    const ddl=app.eval(`buildExternalTablesDdl()`);
+    assert.match(ddl,/CREATE TABLE IF NOT EXISTS "vault"\."hub_/);
+    assert.doesNotMatch(ddl,/CREATE TABLE IF NOT EXISTS [^;]*_err\b/);
+    assert.doesNotMatch(ddl,/CREATE (?:OR REPLACE )?VIEW/i);
+  });
+
+  test('demo MySQL remote DDL writes to datavault while local foreign tables stay in data_vault', () => {
+    seedExternalModel();
+    app.eval(`Object.assign(state.externalTables, externalTargetDefaults(), {enabled:true});`);
+    const remote=app.eval(`buildExternalTablesDdl()`);
+    const local=app.eval(`buildDataVaultDdl()`);
+    assert.match(remote,/CREATE TABLE IF NOT EXISTS `datavault`\.`hub_/);
+    assert.doesNotMatch(remote,/CREATE TABLE IF NOT EXISTS [`"]?data_vault[`"]?\./);
+    assert.match(local,/CREATE FOREIGN TABLE IF NOT EXISTS data_vault\.hub_/);
+  });
+
+  test('generated DDL parser records foreign relation kind', () => {
+    seedExternalModel();
+    const objects=app.eval(`parseGeneratedDdlObjects(buildDataVaultDdl())`);
+    assert.ok(objects.some(o=>o.foreign===true && o.relationKind==='f'));
+    assert.ok(objects.some(o=>o.name.endsWith('_err') && o.foreign===false));
+  });
+
+  test('incremental additions to core tables use ALTER FOREIGN TABLE', () => {
+    seedExternalModel();
+    const sql=app.eval(`buildIncrementalSql({
+      missingTables:[], missingColumns:[{schema:'data_vault',table:externalCoreTableNames()[0],column:'new_attr',type:'TEXT',foreign:true}],
+      missingIndexes:[], obsoleteColumns:[], typeMismatches:[], expectedObjects:parseGeneratedDdlObjects(buildDataVaultDdl())
+    })`);
+    assert.match(sql,/ALTER FOREIGN TABLE data_vault\.[a-z0-9_]+ ADD COLUMN IF NOT EXISTS new_attr TEXT/);
+  });
+
+  test('PostgreSQL JDBC URL defaults are parsed for the Studio route', () => {
+    assert.deepStrictEqual(app.eval(`parseJdbcUrlDefaults('jdbc:postgresql://db.internal:5544/dv?currentSchema=vault')`),
+      {dialect:'postgresql',host:'db.internal',port:'5544',database:'dv',schema:'vault'});
+  });
+
+  test('MySQL JDBC URL defaults use the MySQL port', () => {
+    assert.deepStrictEqual(app.eval(`parseJdbcUrlDefaults('jdbc:mysql://mysql.internal/sales')`),
+      {dialect:'mysql',host:'mysql.internal',port:'3306',database:'sales',schema:''});
+  });
+
+  test('an explicitly overridden Studio route is not replaced by the JDBC URL', () => {
+    app.eval(`Object.assign(state.externalTables,{url:'jdbc:postgresql://container-name:5432/dv',studioHost:'host.docker.internal',studioConnectionOverridden:true}); syncExternalStudioConnection(false);`);
+    assert.strictEqual(app.eval(`state.externalTables.studioHost`),'host.docker.internal');
+  });
+
+  test('validation requires the separate Studio-to-target connection', () => {
+    seedExternalModel();
+    app.eval(`state.externalTables.studioHost=''`);
+    const result=app.eval(`validateModel()`);
+    assert.ok(result.errors.some(e=>/Studio-to-target host/.test(e)));
   });
 });
 
@@ -1574,6 +2143,45 @@ describe('branding and support links', () => {
 });
 
 describe('landing page layout', () => {
+  test('Studio Plus defaults to the selected physical target and its credentials', () => {
+    app.eval(`
+      state.vault.name='sak';
+      state.vault.sourcePreset='demo';
+      state.vault.dialect='mysql';
+      state.vault.srcHost='localhost'; state.vault.srcPort='3306';
+      state.vault.srcUser='sakila'; state.vault.srcPassword='source_secret';
+      state.externalTables.enabled=true;
+      applyExternalTargetDefaults(true);
+    `);
+    const external = app.eval(`studioPlusDefaultConnection()`);
+    assert.strictEqual(external.dialect, 'mysql');
+    assert.strictEqual(external.host, 'localhost');
+    assert.strictEqual(external.port, '3306');
+    assert.strictEqual(external.database, 'datavault');
+    assert.strictEqual(external.schema, 'datavault');
+    assert.strictEqual(external.user, 'sakila');
+    assert.strictEqual(external.password, 'source_secret');
+
+    app.eval(`state.externalTables.enabled=false; state.vault.dvHost='localhost'; state.vault.dvPort='5433'; state.vault.dvDatabase='datavault'; state.vault.dvUser='dvuser'; state.vault.dvPassword='vault_secret';`);
+    const internal = app.eval(`studioPlusDefaultConnection()`);
+    assert.strictEqual(internal.dialect, 'postgresql');
+    assert.strictEqual(internal.database, 'datavault');
+    assert.strictEqual(internal.schema, 'data_vault');
+    assert.strictEqual(internal.user, 'dvuser');
+    assert.strictEqual(internal.password, 'vault_secret');
+
+    const introspect = app.eval(`spIntrospectSchema.toString()`);
+    assert.match(introspect, /\/api\/introspect/);
+    assert.match(introspect, /spQualifiedTable/);
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+    const queryRoute = server.slice(server.indexOf("app.post('/api/query'"), server.indexOf('/* =========================================================================', server.indexOf("app.post('/api/query'")));
+    assert.match(queryRoute, /openSourceConnection\(req\.body\)/);
+    assert.match(queryRoute, /MAX_EXECUTION_TIME/);
+    assert.match(queryRoute, /SET LOCAL search_path/);
+  });
+
   test('cards align their icon and copy on a consistent responsive grid', () => {
     const fs = require('node:fs');
     const path = require('node:path');
@@ -2365,28 +2973,34 @@ describe('AI foreign-key target and role reconciliation', () => {
 });
 
 describe('connections layout & naming hygiene', () => {
-  test('Connections retains disabled demo selectors and readable credentials with one Connect action per service', () => {
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const html = fs.readFileSync(path.join(__dirname, '..', 'millersoft_vault_studio.html'), 'utf8');
-    const naming = html.indexOf('<h3>Naming</h3>');
-    const name = html.indexOf('id="f-name"', naming);
-    assert.ok(name > naming);
-    assert.match(html, /id="f-dialect" disabled/);
-    assert.match(html, /value="mysql_demo" selected>MySQL Demo/);
-    for (const id of ['f-name', 'f-prefix', 'f-tenant', 'f-cod', 'f-srcdesc']) {
-      assert.match(html, new RegExp(`id="${id}"[^>]*readonly`));
-    }
-    assert.match(html, /id="f-target-mode" disabled/);
-    assert.match(html, /value="internal" selected>Postgres Internal/);
-    assert.doesNotMatch(html, /btn-test-connect|btn-test-target/);
-    assert.match(html, /id="btn-connect-source">Connect</);
-    assert.match(html, /id="btn-connect-target">Connect</);
-    assert.match(html, /id="f-srcpass"[^>]*readonly/);
-    assert.match(html, /id="f-dvpass"[^>]*readonly/);
-    // srcDescription is sanitized at entry and demo default is plain "sakila"
-    assert.match(html, /srcDescription = 'sakila'/);
-    assert.match(html, /placeholder="sales_data"/);
+  test('runtime profiles share one Connections implementation while demo locks and production unlocks the supported choices', () => {
+    const render=app.eval(`renderConnections.toString()`);
+    assert.match(render,/const demo=isDemoRuntime\(\)/);
+    assert.match(render,/demo\?'readonly aria-readonly="true"'/);
+    assert.match(render,/demo\?'disabled aria-disabled="true"'/);
+    assert.match(render,/type="password" id="f-srcpass"/);
+    assert.match(render,/type="password" id="f-dvpass"/);
+    assert.match(render,/Deployment target/);
+    assert.match(render,/value="mysql"/);
+    assert.match(render,/value="sqlserver"/);
+    assert.match(render,/value="internal-postgres"/);
+    assert.match(render,/value="postgres"/);
+    assert.match(render,/FDW is not offered for this target mode/);
+    assert.doesNotMatch(render,/id="f-external-tables"|id="f-external-dialect"/);
+    assert.match(render,/sourceDialectOptionsHtml\(\)/);
+    assert.match(app.eval(`sourceDialectOptionsHtml()`),/MySQL Demo<\/option>/);
+
+    assert.strictEqual(app.eval(`isDemoRuntime()`),true);
+    assert.strictEqual(app.eval(`state.vault.sourcePreset`),'demo');
+    assert.strictEqual(app.eval(`state.vault.targetPreset`),'internal');
+
+    const production=loadApp({runtimeMode:'production'});
+    assert.strictEqual(production.eval(`isProductionRuntime()`),true);
+    assert.strictEqual(production.eval(`state.vault.sourcePreset`),'');
+    assert.strictEqual(production.eval(`state.vault.targetPreset`),'internal');
+    const productionRender=production.eval(`renderConnections.toString()`);
+    assert.match(productionRender,/\['postgresql','mysql','sqlserver'\]/);
+    assert.doesNotMatch(production.eval(`sourceDialectOptionsHtml()`),/MySQL Demo|mysql_demo/);
   });
 });
 
@@ -2448,6 +3062,22 @@ describe('Export to Hub handoff', () => {
 
     const runButtonCount = (html.match(/id="btn-docker-runhop"/g) || []).length;
     assert.strictEqual(runButtonCount, 1, 'the engine start control should exist only in Data Vault Hub');
+  });
+});
+
+describe('Data Vault Hub engine log persistence', () => {
+  beforeEach(resetApp);
+
+  test('fetched engine logs survive the scheduler-driven dashboard rerender', () => {
+    app.eval(`engineLogsState = { status:'loaded', text:'line one\\nline two', error:'' };`);
+    const before = app.eval(`engineLogsHtml()`);
+    app.eval(`renderDashboard(document.createElement('div'))`);
+    const after = app.eval(`engineLogsHtml()`);
+    assert.match(before, /line one/);
+    assert.match(before, /line two/);
+    assert.strictEqual(after, before);
+    const render = app.eval(`renderDashboard.toString()`);
+    assert.match(render, /engine-logs-wrap[^`]*\$\{engineLogsHtml\(\)\}/);
   });
 });
 
@@ -2837,30 +3467,46 @@ describe('MySQL Connector/J type overrides', () => {
   });
 });
 
-describe('read-only .env credential model', () => {
+describe('.env runtime credential deployment', () => {
   beforeEach(() => { resetApp(); app.eval(`startNewProject(true)`); });
 
-  test('compares the target login using DB_USER and VAULT_PASSWORD', () => {
+  test('internal targets synchronise only SOURCE_PASSWORD', () => {
     app.eval(`
+      state.vault.targetPreset = 'internal';
       state.vault.srcPassword = 'source-secret';
       state.vault.dvUser = 'data-vault-user'; state.vault.dvPassword = 'target-secret';
-      state.vault.vaultPassword = 'old-hidden-secret';
     `);
     assert.deepStrictEqual(app.eval(`runtimeCredentialPayload()`), {
       sourcePassword: 'source-secret',
-      targetPassword: 'target-secret',
-      targetUser: 'data-vault-user',
+      targetPassword: '',
+      targetUser: '',
+      externalPostgres: false,
     });
     assert.strictEqual(app.eval(`runtimeCredentialValidationMessage()`), '');
   });
 
-  test('reports when source or target login details are missing', () => {
-    app.eval(`state.vault.srcPassword = ''; state.vault.dvUser = 'postgres-admin'; state.vault.dvPassword = 'target-secret';`);
+  test('native PostgreSQL synchronises source, bootstrap and runtime role passwords', () => {
+    app.eval(`
+      state.vault.targetPreset = '';
+      state.vault.srcPassword = 'source-secret';
+      state.vault.dvUser = 'postgres-admin'; state.vault.dvPassword = 'target-secret';
+    `);
+    assert.deepStrictEqual(app.eval(`runtimeCredentialPayload()`), {
+      sourcePassword: 'source-secret',
+      targetPassword: 'target-secret',
+      targetUser: 'postgres-admin',
+      externalPostgres: true,
+    });
+    assert.strictEqual(app.eval(`runtimeCredentialValidationMessage()`), '');
+  });
+
+  test('reports missing source details and native PostgreSQL target details', () => {
+    app.eval(`state.vault.srcPassword = ''; state.vault.targetPreset = 'internal';`);
     assert.match(app.eval(`runtimeCredentialValidationMessage()`), /source password/i);
-    app.eval(`state.vault.srcPassword = 'source-secret'; state.vault.dvUser = '';`);
-    assert.match(app.eval(`runtimeCredentialValidationMessage()`), /target username/i);
+    app.eval(`state.vault.srcPassword = 'source-secret'; state.vault.targetPreset = ''; state.vault.dvUser = ''; state.vault.dvPassword = 'target-secret';`);
+    assert.match(app.eval(`runtimeCredentialValidationMessage()`), /external PostgreSQL username/i);
     app.eval(`state.vault.dvUser = 'postgres-admin'; state.vault.dvPassword = '';`);
-    assert.match(app.eval(`runtimeCredentialValidationMessage()`), /target password/i);
+    assert.match(app.eval(`runtimeCredentialValidationMessage()`), /external PostgreSQL password/i);
   });
 
   test('generated Hop config contains env references, never literal connection passwords', () => {
@@ -2881,14 +3527,12 @@ describe('read-only .env credential model', () => {
     assert.doesNotMatch(sql, /legacy-secret/);
   });
 
-  test('the Connections UI asks for one target password', () => {
+  test('the Connections UI asks for one native PostgreSQL target password', () => {
     const fs = require('node:fs');
     const path = require('node:path');
     const html = fs.readFileSync(path.join(__dirname, '..', 'millersoft_vault_studio.html'), 'utf8');
-    assert.doesNotMatch(html, /id="btn-deploy-runtime-credentials"/);
-    assert.match(html, /Save engine settings/);
-    assert.match(html, /\.env configuration \(read only\)/);
-    assert.match(html, /The root <span class="mono">\.env<\/span> is read-only to Studio/);
+    assert.match(html, /Runtime secrets \(\.env\)/);
+    assert.match(html, /Apply All also synchronises/);
     assert.match(html, /id="f-dvpass"/);
     assert.doesNotMatch(html, /id="f-vaultpass"/);
     assert.match(html, /Target username/);
@@ -2896,23 +3540,32 @@ describe('read-only .env credential model', () => {
     assert.doesNotMatch(html, /Data Vault service password/);
   });
 
-  test('end-user deployment labels avoid internal implementation terms', () => {
+  test('end-user deployment labels avoid duplicate credential concepts', () => {
     const fs = require('node:fs');
     const path = require('node:path');
     const html = fs.readFileSync(path.join(__dirname, '..', 'millersoft_vault_studio.html'), 'utf8');
     assert.doesNotMatch(html, /Bootstrap\/admin username|Bootstrap\/admin password|Engine role password|Deploy engine config &amp; runtime credentials|Deployment credentials \(\.env\)|Columns in final staging projection|<th>Artifact<\/th>|current GUI snapshot/i);
     assert.match(html, /Target username/);
     assert.match(html, /Target password/);
-    assert.match(html, /\.env configuration/);
+    assert.match(html, /Runtime secrets \(\.env\)/);
     assert.match(html, /pdiRow\.applyLabel = 'Set up metadata'/);
   });
 
-  test('engine config deployment never writes credentials', () => {
-    assert.doesNotMatch(app.eval(`deployHopConfig.toString()`), /deployRuntimeCredentials|env-credentials/);
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const html = fs.readFileSync(path.join(__dirname, '..', 'millersoft_vault_studio.html'), 'utf8');
-    assert.doesNotMatch(html, /function deployRuntimeCredentials|localFetch\('\/api\/env-credentials'/);
+  test('Apply All writes env first and mapping last every time', () => {
+    const fn=app.eval(`applyAllPending.toString()`);
+    const envCall=fn.indexOf('await deployRuntimeCredentials({silent:true})');
+    const pendingLoop=fn.indexOf('for (const row of pending)');
+    const mappingCall=fn.indexOf('await deployMappingWorkbook({silent:true})');
+    assert.ok(envCall>=0 && pendingLoop>envCall && mappingCall>pendingLoop);
+    assert.match(fn, /!\['credentials','workbook'\]\.includes\(r\.key\)/);
+  });
+
+  test('metadata bootstrap synchronises env before deploying config and running the container', () => {
+    const fn=app.eval(`probeDeploymentStatus.toString()`);
+    const envCall=fn.indexOf('await deployRuntimeCredentials({ silent:true })');
+    const configCall=fn.indexOf('await deployHopConfig({ silent:true })');
+    const bootstrapCall=fn.indexOf("localFetch('/api/docker/bootstrap'");
+    assert.ok(envCall>=0 && configCall>envCall && bootstrapCall>configCall);
   });
 
   test('starting the engine refreshes the runtime config before the container is launched', () => {

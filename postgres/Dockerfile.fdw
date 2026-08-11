@@ -1,0 +1,123 @@
+FROM postgres:17.10-bookworm AS jdbc-fdw-build
+
+ARG JDBC_FDW_VERSION=v0.5.0
+ARG APT_RETRIES=5
+ARG APT_TIMEOUT=30
+
+RUN set -eux; . /etc/os-release; test "$VERSION_CODENAME" = bookworm
+
+# The official image starts without a populated CA trust store. Bootstrap
+# ca-certificates over the image's signed HTTP APT repositories before changing
+# those repositories to HTTPS; otherwise apt cannot trust the server needed to
+# install ca-certificates itself.
+RUN set -eux; \
+    apt-get -o Acquire::Retries="$APT_RETRIES" \
+            -o Acquire::http::Timeout="$APT_TIMEOUT" update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates; \
+    update-ca-certificates; \
+    find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec \
+      sed -ri \
+        -e 's|http://deb\.debian\.org|https://deb.debian.org|g' \
+        -e 's|http://security\.debian\.org|https://security.debian.org|g' \
+        -e 's|http://apt\.postgresql\.org|https://apt.postgresql.org|g' \
+      '{}' +; \
+    apt-get -o Acquire::Retries="$APT_RETRIES" \
+            -o Acquire::http::Timeout="$APT_TIMEOUT" \
+            -o Acquire::https::Timeout="$APT_TIMEOUT" update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      build-essential \
+      curl \
+      openjdk-17-jdk-headless; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      postgresql-server-dev-17; \
+    rm -rf /var/lib/apt/lists/*
+
+# jdbc_fdw v0.5.0 hard-codes /usr/lib64 for libjvm and does not add the
+# JDK include directories. Keep these compatibility links explicit so a JDK
+# layout change fails here rather than much later at CREATE EXTENSION time.
+RUN set -eux; \
+    jvm="$(find /usr/lib/jvm -type f -path '*/lib/server/libjvm.so' -print -quit)"; \
+    jni="$(find /usr/lib/jvm -type f -path '*/include/jni.h' -print -quit)"; \
+    jni_md="$(find /usr/lib/jvm -type f -path '*/include/linux/jni_md.h' -print -quit)"; \
+    test -n "$jvm"; test -n "$jni"; test -n "$jni_md"; \
+    mkdir -p /usr/lib64; \
+    ln -s "$jvm" /usr/lib64/libjvm.so; \
+    ln -s "$jni" /usr/include/jni.h; \
+    ln -s "$jni_md" /usr/include/jni_md.h; \
+    test -e /usr/lib64/libjvm.so; \
+    test -e /usr/include/jni.h; \
+    test -e /usr/include/jni_md.h
+
+WORKDIR /tmp
+RUN curl --retry 5 --retry-all-errors --connect-timeout 30 -fsSL \
+      "https://github.com/pgspider/jdbc_fdw/archive/refs/tags/${JDBC_FDW_VERSION}.tar.gz" \
+      -o jdbc_fdw.tar.gz \
+ && tar -xzf jdbc_fdw.tar.gz \
+ && mv "jdbc_fdw-${JDBC_FDW_VERSION#v}" jdbc_fdw
+
+WORKDIR /tmp/jdbc_fdw
+RUN set -eux; \
+    USE_PGXS=1 make -j"$(nproc)"; \
+    USE_PGXS=1 make install; \
+    test -s /usr/lib/postgresql/17/lib/jdbc_fdw.so; \
+    test -s /usr/share/postgresql/17/extension/jdbc_fdw.control; \
+    test -s /usr/share/postgresql/17/extension/JDBCUtils.class; \
+    test -s /usr/share/postgresql/17/extension/JDBCDriverLoader.class; \
+    test -s /usr/share/postgresql/17/extension/JDBCConnection.class; \
+    test -s /usr/share/postgresql/17/extension/resultSetInfo.class
+
+FROM postgres:17.10-bookworm
+
+ARG APT_RETRIES=5
+ARG APT_TIMEOUT=30
+
+RUN set -eux; . /etc/os-release; test "$VERSION_CODENAME" = bookworm
+
+RUN set -eux; \
+    apt-get -o Acquire::Retries="$APT_RETRIES" \
+            -o Acquire::http::Timeout="$APT_TIMEOUT" update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ca-certificates; \
+    update-ca-certificates; \
+    find /etc/apt -type f \( -name '*.list' -o -name '*.sources' \) -exec \
+      sed -ri \
+        -e 's|http://deb\.debian\.org|https://deb.debian.org|g' \
+        -e 's|http://security\.debian\.org|https://security.debian.org|g' \
+        -e 's|http://apt\.postgresql\.org|https://apt.postgresql.org|g' \
+      '{}' +; \
+    apt-get -o Acquire::Retries="$APT_RETRIES" \
+            -o Acquire::http::Timeout="$APT_TIMEOUT" \
+            -o Acquire::https::Timeout="$APT_TIMEOUT" update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      openjdk-17-jre-headless; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    jvm="$(find /usr/lib/jvm -type f -path '*/lib/server/libjvm.so' -print -quit)"; \
+    test -n "$jvm"; \
+    mkdir -p /usr/lib64; \
+    ln -s "$jvm" /usr/lib64/libjvm.so; \
+    echo /usr/lib64 > /etc/ld.so.conf.d/jdbc-fdw-jvm.conf; \
+    ldconfig
+
+# Copy the complete install destinations. jdbc_fdw loads its compiled Java
+# classes from PostgreSQL's extension share directory at runtime.
+COPY --from=jdbc-fdw-build /usr/lib/postgresql/17/lib/ /usr/lib/postgresql/17/lib/
+COPY --from=jdbc-fdw-build /usr/share/postgresql/17/extension/ /usr/share/postgresql/17/extension/
+
+# COPY init scripts into the image so sed -i inside the container
+# does not bleed through to the host bind mount.
+COPY db-init/ /docker-entrypoint-initdb.d/
+
+# Make the dir writable so sed -i can create its temp file at runtime
+RUN chmod -R 777 /docker-entrypoint-initdb.d/
+
+RUN set -eux; \
+    test -s /usr/lib/postgresql/17/lib/jdbc_fdw.so; \
+    test -s /usr/share/postgresql/17/extension/jdbc_fdw.control; \
+    test -s /usr/share/postgresql/17/extension/JDBCUtils.class; \
+    test -e /usr/lib64/libjvm.so; \
+    ldd /usr/lib/postgresql/17/lib/jdbc_fdw.so | tee /tmp/jdbc_fdw.ldd; \
+    grep -Eq 'libjvm\.so => /usr/lib64/libjvm\.so' /tmp/jdbc_fdw.ldd; \
+    ! grep -q 'not found' /tmp/jdbc_fdw.ldd

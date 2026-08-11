@@ -67,7 +67,9 @@ function makeLocalStorage(){
 function loadApp(options = {}){
   const htmlPath = options.htmlPath
     || path.join(__dirname, '..', '..', 'millersoft_vault_studio.html');
-  const html = fs.readFileSync(htmlPath, 'utf8');
+  const runtimeMode = options.runtimeMode === 'production' ? 'production' : 'demo';
+  const html = fs.readFileSync(htmlPath, 'utf8')
+    .replace(/__STUDIO_RUNTIME_MODE__/g, runtimeMode);
 
   const localStorage = makeLocalStorage();
   const documentStub = {

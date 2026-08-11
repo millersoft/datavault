@@ -35,6 +35,7 @@ compose() {
   fi
 }
 
+
 check_license_file_exists() {
   if [ ! -f "$LICENSE_FILE" ]; then
     echo "ERROR: License file not found at ${LICENSE_FILE}" >&2
@@ -163,7 +164,14 @@ case "$subcommand" in
 
     demo_mode=false
     external_postgres=false
+    fdw_mode=false
     build_requested=false
+
+    # Data Vault Studio owns generated staging and Data Vault DDL. Always
+    # mask the packaged 03-ddls.sql when the launcher starts services, so a
+    # fresh internal PostgreSQL volume cannot create design-specific tables
+    # before the GUI deployment workflow runs.
+    export COMPOSE_FILE="docker-compose.yaml:docker-compose.studio.yaml"
 
     original_arg_count=$#
 
@@ -179,6 +187,9 @@ case "$subcommand" in
         --external-postgres)
           external_postgres=true
           ;;
+        --fdw)
+          fdw_mode=true
+          ;;
         --build)
           build_requested=true
           set -- "$@" "$arg"
@@ -193,6 +204,17 @@ case "$subcommand" in
       echo "ERROR: --demo and --external-postgres cannot be used together." >&2
       echo "The bundled Sakila demo is only supported with the internal Docker PostgreSQL service." >&2
       exit 1
+    fi
+
+    if [ "$fdw_mode" = true ] && [ "$external_postgres" = true ]; then
+      echo "ERROR: --fdw and --external-postgres cannot be used together." >&2
+      echo "FDW mode requires the packaged PostgreSQL service." >&2
+      exit 1
+    fi
+
+    if [ "$fdw_mode" = true ]; then
+      export COMPOSE_FILE="${COMPOSE_FILE}:docker-compose.fdw.yaml"
+      echo "FDW mode enabled for packaged PostgreSQL."
     fi
 
     if [ "$external_postgres" = true ]; then

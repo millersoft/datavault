@@ -1,0 +1,9 @@
+# FDW-specific PostgreSQL packaging. The Studio override independently owns
+# suppression of generated project-table initialization.
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile.fdw
+    volumes:
+      - ./jdbc-drivers:/opt/jdbc-drivers:ro

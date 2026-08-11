@@ -1,3 +1,7 @@
+# Data Vault Studio owns generated staging and Data Vault DDL.
+# This override masks the packaged project/demo 03-ddls.sql for every
+# Studio-managed internal PostgreSQL start. Baseline metadata init scripts
+# remain available and continue to run normally.
 services:
   postgres:
     volumes:

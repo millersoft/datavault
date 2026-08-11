@@ -1,6 +1,6 @@
 # Millersoft Data Vault Studio
 
-Millersoft Data Vault Studio helps you turn a PostgreSQL or MySQL source database into a Data Vault design.
+Millersoft Data Vault Studio helps you turn a PostgreSQL, MySQL, or external SQL Server source database into a Data Vault design.
 
 You can use it to:
 
@@ -40,26 +40,54 @@ For deployment and data loading, you also need:
 
 AI Assist is optional. **Detect Hash Keys** and **Detect Vault Tables** work without an API key.
 
-The locked demo connections read their credentials from the project-root
+Demo mode reads its locked container credentials from the project-root
 `.env` file:
 
-- `SOURCE_PASSWORD` — packaged MySQL source password;
+- `SOURCE_PASSWORD` — packaged MySQL/Sakila password;
 - `DB_USER` — packaged PostgreSQL target username;
 - `VAULT_PASSWORD` — packaged PostgreSQL target and service-role password.
 
-Studio treats `.env` as read-only. Change these values outside Studio and
-restart any affected containers.
+Studio masks passwords. **Apply All** synchronises `SOURCE_PASSWORD` from the
+source connection. When the selected deployment target is native PostgreSQL,
+it also synchronises the existing `POSTGRES_BOOTSTRAP_USER`,
+`POSTGRES_BOOTSTRAP_PASSWORD`, and `VAULT_PASSWORD` values from the target
+connection. Internal `DB_*` settings remain administrator-controlled and are
+never changed by Studio. Restart or recreate affected containers after changing
+runtime credentials.
 
 ---
 
 ## Start the Studio
 
-Open a terminal in the `data_vault_studio` folder and run:
+Open a terminal in the `data_vault_studio` folder and install dependencies:
 
 ```bash
 npm install
-npm start
 ```
+
+Start the same Studio application in either runtime profile:
+
+```bash
+# Normal startup — production mode is the default
+npm start
+
+# Explicit production mode (equivalent to npm start)
+npm start -- --mode=production
+
+# Locked demonstration environment
+npm start -- --mode=demo
+```
+
+Convenience aliases are also available:
+
+```bash
+npm run start:demo
+npm run start:production
+```
+
+The runtime flag affects only Studio defaults, field locking, and the supported
+connection choices. It does not change `start.sh`, Compose files, deployment
+SQL, or model-generation logic.
 
 Then open:
 
@@ -73,7 +101,7 @@ http://127.0.0.1:8420/
 
 Work through the five numbered tabs from left to right:
 
-1. **Connections** — connect the packaged MySQL and PostgreSQL demo databases.
+1. **Connections** — configure the source and choose MySQL, SQL Server, Internal PostgreSQL, or PostgreSQL as the deployment target.
 2. **Tables** — choose the source tables and columns you want to use.
 3. **Staging** — define the columns and keys that will be produced in staging.
 4. **Vault model** — review and edit the Hubs, Links, and Satellites.
@@ -90,54 +118,82 @@ table has a generated staging hash column.
 
 # Step 1 — Connections
 
-Use this tab to describe the source system and connect to both packaged demo databases.
+The active runtime profile is shown at the top of the page. Demo and production
+use the same connection, modelling, deployment, and reporting code.
 
-## Naming
+## Demo mode
 
-The packaged demo supplies the Vault and source-system naming values. They remain visible for reference but are read-only in this evaluation workflow. These values are used in generated table names, connection names, and metadata.
+Demo mode is the existing self-contained evaluation environment:
 
-Keep the following values stable once a design has been deployed:
+- Source is locked to the packaged MySQL Sakila database.
+- The Data Vault engine is locked to the internal PostgreSQL container.
+- The user may keep native PostgreSQL storage or enable JDBC FDW storage.
+- When FDW is enabled, the physical target is locked to MySQL database/schema
+  `datavault` with the Sakila account.
+- Source, PostgreSQL, physical-target, and FDW fields are visible for clarity
+  but the demo-controlled values cannot be edited.
 
-- **Vault short name** — for example, `sales`;
-- **Staging prefix** — usually the same short name;
-- **Tenant ID** — the value used to identify records from this source;
-- **Source system code**;
-- **Source system description**.
+Passwords are always rendered as password inputs rather than readable text.
 
-Changing these values outside the evaluation workflow can make a new export look like a different source system.
+## Production source
 
-## Source connection
+Production mode removes the demo-source option. Choose PostgreSQL, MySQL, or
+SQL Server and enter the external source host, port, database/schema, username,
+and password. SQL Server is always external and is never started or packaged by
+Studio. The source credential is independent of any physical FDW target
+credential.
 
-The source selector remains visible but is disabled and locked to the packaged
-MySQL Sakila demo. Its fixed host, port, database, username, and readable demo
-password are shown for reference. The password comes from `SOURCE_PASSWORD` in
-the project-root `.env`.
+MySQL and SQL Server sources show a JDBC-driver check and fetch action because
+the Hop engine requires the corresponding jar in `jdbc-drivers/`. SQL Server
+source introspection also requires the Node `mssql` package installed by
+`npm install`. The SQL Server path currently uses SQL authentication and
+encrypted connections with trusted server certificates; Windows integrated
+authentication is not configured by this release.
 
-Select **Connect**. The Studio starts the demo container if necessary, waits for it to become available, and verifies the connection.
+## Deployment target
 
-## Target connection
+Production shows four target choices:
 
-The target selector remains visible but is disabled and locked to the packaged
-PostgreSQL demo. Its fixed connection values and readable demo password are
-shown for reference. The username comes from `DB_USER` and the password comes
-from `VAULT_PASSWORD` in the project-root `.env`.
+- **MySQL** — the packaged PostgreSQL service remains the Hop engine and metadata
+  store; core Hub, Link, Satellite, and Link Satellite tables are stored in the
+  selected MySQL database through the existing JDBC gateway workflow.
+- **SQL Server** — the same packaged PostgreSQL gateway is used, with core Vault
+  tables stored in the selected external SQL Server database.
+- **Internal PostgreSQL** — all staging, metadata, support, and core Vault tables
+  are native objects in the packaged PostgreSQL container.
+- **PostgreSQL** — all objects are deployed natively to the selected external
+  PostgreSQL database. The external metadata bootstrap is run before the
+  vault-specific `pdi_meta` records are generated by the GUI.
 
-The same target password is used when preparing the target database and for the Data Vault service users created by the project.
+MySQL and SQL Server still use the existing ordered physical-target and gateway
+deployment logic; the target list intentionally hides that implementation
+detail. SQL Server remains external and no SQL Server container is created.
 
-Select **Connect** before moving on. Starting and testing the packaged service are handled by the same action.
+Studio-managed `start.sh up` layers `docker-compose.studio.yaml` over the base
+Compose file by default. That override mounts `docker/studio-skip-ddls.sql`
+over `03-ddls.sql`, so a fresh internal PostgreSQL volume cannot create
+generated staging or Data Vault tables before **Export & Deploy** runs. Use
+`--build` to opt into the packaged DDL instead. MySQL and SQL Server add
+`docker-compose.fdw.yaml` as a third layer for the FDW image and JDBC drivers;
+the DDL mask remains owned by the Studio override.
 
-When Studio starts a fresh packaged PostgreSQL target, it uses
-`docker-compose.studio.yaml` to mask the bundled `db-init/03-ddls.sql` with a
-harmless placeholder. This prevents old/demo staging and Data Vault tables
-from being created before the current Studio design is applied. The metadata
-bootstrap still runs normally.
+For native PostgreSQL, enter the host, port, database, username, and password.
+Apply All writes those credentials to the existing external-bootstrap variables
+before running the established metadata-bootstrap flow. The bootstrap script
+itself is unchanged; after it completes, the GUI generates and applies the
+vault-specific `pdi_meta` rows.
 
-This applies only to PostgreSQL started through Studio. A manual
-`./start.sh` launch continues to use the real `03-ddls.sql`. PostgreSQL
-entrypoint scripts run only when the data volume is fresh and empty; Studio
-does not remove tables that already exist in an initialized volume.
+## Studio Plus default
 
----
+Studio Plus follows the actual data location and uses the credentials supplied
+on Connections:
+
+- internal PostgreSQL with native storage → internal PostgreSQL target;
+- internal PostgreSQL with FDW → physical storage target, including an
+  external MySQL or SQL Server target;
+- external PostgreSQL → external PostgreSQL target.
+
+Deployment remains exclusively on **Export & Deploy**.
 
 # Step 2 — Tables
 
@@ -393,7 +449,29 @@ The Vault **Integrity Check** finds:
 - included tables not represented in the model;
 - selected staging columns not assigned to a Satellite.
 
----
+## External core tables with jdbc_fdw
+
+JDBC FDW is available only when the Data Vault engine target is the internal
+PostgreSQL container. Enable it on **Connections**. Configure the physical
+target and the container-side foreign-server route in the two sections that
+appear there; the Vault-model tab contains modelling controls only.
+
+The storage boundary is deliberately narrow:
+
+- `hub_*`, `link_*`, `sat_*`, and `lsat_*` become PostgreSQL foreign tables;
+- the corresponding physical tables live in the selected external target;
+- every `*_err` table, staging object, metadata object, and verification view
+  remains native PostgreSQL.
+
+Hop continues to use the internal PostgreSQL connection. Export performs the
+single ordered deployment: verify/create the PostgreSQL database, verify/create
+the physical target, create physical core tables, create local support objects,
+configure the FDW extension/server/role mappings, create foreign-table bindings
+last, and smoke-test reads as both `data_vault` and `pdi_meta`.
+
+The JDBC URL is the route visible from inside the PostgreSQL container. It may
+use a Docker service hostname while the Studio-visible physical target uses a
+host address such as `localhost` or `host.docker.internal`.
 
 # Step 5 — Export & Deploy
 
@@ -415,7 +493,10 @@ Typical issues include:
 
 Select **Check status** to see which parts of the current design have already been applied.
 
-Select **Apply all updates** to apply the outstanding items in order.
+Select **Apply all updates** to apply the outstanding items in order. Every run
+first synchronises the allowlisted runtime secrets in `.env` and always
+regenerates the metadata spreadsheet at the end, even when its existing file
+cannot be content-diffed.
 
 For a first deployment, this normally includes:
 
@@ -425,8 +506,10 @@ For a first deployment, this normally includes:
 - the source connection file;
 - engine settings.
 
-The project-root `.env` is read-only to Studio. Configure database usernames
-and passwords there outside the app, then restart any affected containers.
+The project-root `.env` remains protected from generic file deployment. Studio
+can update only the allowlisted runtime secrets described above; comments,
+unrelated settings, internal `DB_*` values, and variable references are
+preserved.
 
 ## Download files
 
@@ -487,3 +570,99 @@ visible when the Hub refreshes or re-renders; they are not cleared by the
 normal dashboard polling cycle.
 
 ---
+
+### Runtime profiles and FDW credentials
+
+`npm start` defaults to production mode. Use `npm start -- --mode=demo` only
+for the locked demonstration environment. `npm start -- --mode=production`
+remains supported when an explicit production flag is preferred. The
+server injects the selected profile into the same browser application and
+exposes it through `/api/runtime-profile`.
+
+In demo mode, the physical MySQL target deliberately reuses the locked Sakila
+account. In production mode, the physical target uses the username/password the
+user enters for that target; it never silently reuses the source credential.
+That physical-target account creates or maintains the core tables and is stored
+in the specific `data_vault` and `pdi_meta` FDW user mappings.
+
+The account must be able to create or open the output database and create,
+alter, index, read, and write the core tables. For customer-managed targets, an
+administrator must grant those privileges before deployment.
+
+The packaged MySQL demo grants the existing Sakila account privileges on the
+future `datavault.*` namespace from
+`mysql-init/99-fdw-demo-target-grant.sql`. The file does not create the
+database, and `start.sh` does not contain a MySQL administrator login.
+
+
+## v6.4 runtime-role correction
+
+FDW live checks now run under PostgreSQL role `data_vault`, matching Hop. The Studio deployment login is tested with `SET LOCAL ROLE data_vault` during preflight and deployment; no user mapping is created for the administrative login.
+
+
+## v6.5 pdi_meta FDW mapping correction
+
+The Data Vault engine's metadata procedures read the core Vault tables while connected
+as PostgreSQL role `pdi_meta`. External mode now creates a second specific JDBC FDW user
+mapping for `pdi_meta`, using the same physical-target username/password as `data_vault`,
+and grants both roles `USAGE` on the foreign server. Preflight verifies that the Studio
+deployment login can assume both service roles. Deployment and status checks open one
+foreign table as each role, so a missing `pdi_meta` mapping is detected before the engine
+runs. No `PUBLIC` user mapping is created.
+
+## v6.6 deployment UI
+
+Deployment is performed only from **Export & Deploy**. The packaged demo locks the selected physical target fields and masks demo passwords. Later releases moved the FDW server configuration from the Vault page to the end of Connections and corrected Studio Plus to follow the physical target.
+
+## v6.7 Studio Plus physical-target default
+
+Studio Plus defaults from the physical Target entered on Connections. External mode connects directly to the selected target database with its configured target username/password; the packaged demo therefore uses MySQL `datavault` as `sakila`. Normal mode uses the PostgreSQL Target connection.
+
+## v6.8 compact deployment status
+
+Export shows three compact deployment stages: **Physical target**, **PostgreSQL gateway**, and **Engine and project**. Each stage has one status pill and one summary. Current stages remain collapsed; stages requiring attention open automatically. Expanding a stage exposes the same detailed checks and individual deployment actions as before. Deployment ordering and behaviour are unchanged.
+
+
+## v7.0 runtime profiles and Connections-owned FDW setup
+
+One Studio build now supports `demo` and `production` npm-start modes. Demo keeps
+the existing packaged services and locked values. Production removes the
+MySQL-demo source option, supports user-defined PostgreSQL and MySQL sources,
+and offers either internal PostgreSQL (native or FDW) or external PostgreSQL
+(native only). The FDW server fields now live at the end of Connections. A
+separate physical-target driver check appears when the source and non-PostgreSQL
+FDW target use different database types.
+
+
+## v7.1 external SQL Server support
+
+Production mode now supports SQL Server in two external positions: as a source
+database and as the physical core-table target behind the internal PostgreSQL
+JDBC FDW gateway. SQL Server is never offered as a packaged service or direct
+Data Vault engine target.
+
+The Studio adds SQL Server connection tests, schemas, PK/FK/table introspection,
+profiling, Hop `MSSQLNATIVE` metadata, Unicode-safe SHA-256 override generation,
+remote core-table DDL/status/deployment, JDBC-driver checks, and Studio Plus
+reporting. SQL Server target deployment uses the Target credentials from
+Connections. The selected target schema must match the SQL login user's default
+schema.
+
+Run `npm install` after applying this release so the companion server can load
+the new `mssql` dependency. A live SQL Server plus jdbc_fdw route was not
+available in the packaging environment; certify the intended SQL Server
+version, authentication policy, JDBC driver, and network route before a
+production rollout.
+
+
+## v7.1.1 target and environment hotfix
+
+The Connections target selector is simplified to MySQL, SQL Server, Internal
+PostgreSQL, and PostgreSQL. The existing MySQL and SQL Server JDBC gateway route
+is retained. Apply All now synchronises `SOURCE_PASSWORD`, synchronises native
+PostgreSQL bootstrap credentials, and always redeploys the mapping workbook.
+The existing external PostgreSQL bootstrap script is unchanged. The GUI continues
+to invoke that prerequisite flow and then applies the vault-specific `pdi_meta`
+records itself. Studio-managed internal PostgreSQL starts apply the no-op
+`03-ddls.sql` override by default; `--build` opts into the packaged DDL.
+FDW starts add the FDW packaging override on top.

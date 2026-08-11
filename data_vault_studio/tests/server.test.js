@@ -44,7 +44,7 @@ before(async () => {
     '#!/bin/bash\necho "$@" >> args.log\necho "${COMPOSE_FILE:-}" >> env.log\nexit 0\n');
   fs.writeFileSync(path.join(projectRoot, 'docker-compose.yaml'), 'services: {}\n');
 
-  child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
+  child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js'), '--mode=production'], {
     env: Object.assign({}, process.env, { PORT: String(PORT), DVS_PROJECT_ROOT: projectRoot }),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -69,6 +69,13 @@ after(() => {
   if (projectRoot) fs.rmSync(projectRoot, { recursive: true, force: true });
 });
 
+describe('runtime mode defaults', () => {
+  test('npm start defaults to production when no mode override is supplied', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+    assert.match(source, /requested \|\| process\.env\.STUDIO_MODE \|\| 'production'/);
+  });
+});
+
 describe('basics', () => {
   test('GET /api/health answers with the resolved project root', async () => {
     const r = await fetch(`${BASE}/api/health`);
@@ -76,6 +83,7 @@ describe('basics', () => {
     assert.strictEqual(r.status, 200);
     assert.strictEqual(body.ok, true);
     assert.strictEqual(body.projectRoot, projectRoot);
+    assert.strictEqual(body.studioMode, 'production');
   });
 
   test('GET / serves the GUI', async () => {
@@ -85,16 +93,42 @@ describe('basics', () => {
     const html = await r.text();
     assert.ok(html.includes('Data Vault Studio'));
     assert.ok(html.includes('millersoft'), 'should be the real GUI page');
+    assert.ok(html.includes("const STUDIO_RUNTIME_MODE = 'production' === 'demo' ? 'demo' : 'production'"));
+    assert.ok(!html.includes('__STUDIO_RUNTIME_MODE__'));
+  });
+
+  test('GET /api/runtime-profile reports the selected npm-start mode', async () => {
+    const r = await fetch(`${BASE}/api/runtime-profile`);
+    const body = await r.json();
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(body, { ok:true, mode:'production', isDemo:false, isProduction:true });
   });
 });
 
-describe('internal Postgres image bootstrap scope', () => {
-  test('keeps all init files and masks generated vault DDL only in the Studio compose override', () => {
+describe('Studio-managed Postgres bootstrap scope', () => {
+  test('always masks generated 03-ddls.sql while keeping FDW packaging opt-in', () => {
     const dockerfile = fs.readFileSync(path.join(__dirname, '..', '..', 'postgres', 'Dockerfile'), 'utf8');
-    const override = fs.readFileSync(path.join(__dirname, '..', '..', 'docker-compose.studio.yaml'), 'utf8');
+    const fdwDockerfile = fs.readFileSync(path.join(__dirname, '..', '..', 'postgres', 'Dockerfile.fdw'), 'utf8');
+    const studioOverride = fs.readFileSync(path.join(__dirname, '..', '..', 'docker-compose.studio.yaml'), 'utf8');
+    const fdwOverride = fs.readFileSync(path.join(__dirname, '..', '..', 'docker-compose.fdw.yaml'), 'utf8');
+    const startScript = fs.readFileSync(path.join(__dirname, '..', '..', 'start.sh'), 'utf8');
     const noOpDdl = fs.readFileSync(path.join(__dirname, '..', '..', 'docker', 'studio-skip-ddls.sql'), 'utf8');
+
+    assert.match(dockerfile, /^FROM postgres:17$/m);
     assert.match(dockerfile, /^COPY db-init\/ \/docker-entrypoint-initdb\.d\/$/m);
-    assert.match(override, /studio-skip-ddls\.sql:\/docker-entrypoint-initdb\.d\/03-ddls\.sql:ro/);
+    assert.doesNotMatch(dockerfile, /jdbc_fdw|openjdk/i);
+
+    assert.match(studioOverride, /studio-skip-ddls\.sql:\/docker-entrypoint-initdb\.d\/03-ddls\.sql:ro/);
+    assert.doesNotMatch(studioOverride, /Dockerfile\.fdw|jdbc-drivers/);
+    assert.match(startScript, /COMPOSE_FILE="docker-compose\.yaml:docker-compose\.studio\.yaml"/);
+    assert.match(startScript, /COMPOSE_FILE="\$\{COMPOSE_FILE\}:docker-compose\.fdw\.yaml"/);
+
+    assert.match(fdwDockerfile, /^FROM postgres:17\.10-bookworm AS jdbc-fdw-build$/m);
+    assert.match(fdwDockerfile, /https:\/\/apt\.postgresql\.org/);
+    assert.match(fdwOverride, /dockerfile: postgres\/Dockerfile\.fdw/);
+    assert.match(fdwOverride, /jdbc-drivers:\/opt\/jdbc-drivers:ro/);
+    assert.doesNotMatch(fdwOverride, /studio-skip-ddls\.sql:\/docker-entrypoint-initdb\.d\/03-ddls\.sql:ro/);
+
     assert.match(noOpDdl, /SELECT 1;/);
     assert.doesNotMatch(noOpDdl, /\bCREATE\s+(?:TABLE|VIEW|SCHEMA)\b/i);
   });
@@ -182,6 +216,23 @@ describe('read-only query gate', () => {
     });
     const body = await r.json();
     assert.doesNotMatch(body.error, /Only a single SELECT/i);
+  });
+
+  test('read-only role probes only allow the data_vault and pdi_meta service roles', async () => {
+    const rejected = await api('/api/query', {
+      body: { host: '127.0.0.1', port: 59999, database: 'nope', user: 'nobody', role: 'dvuser', sql: 'SELECT 1' },
+    });
+    const rejectedBody = await rejected.json();
+    assert.strictEqual(rejected.status, 400);
+    assert.match(rejectedBody.error, /Unsupported read-only query role/);
+
+    for (const role of ['data_vault', 'pdi_meta']) {
+      const allowed = await api('/api/query', {
+        body: { host: '127.0.0.1', port: 59999, database: 'nope', user: 'nobody', role, sql: 'SELECT 1' },
+      });
+      const allowedBody = await allowed.json();
+      assert.doesNotMatch(allowedBody.error, /Unsupported read-only query role/);
+    }
   });
 });
 
@@ -275,6 +326,7 @@ describe('driver-status', () => {
     const body = await r.json();
     assert.strictEqual(body.ok, true);
     assert.strictEqual(body.mysqlDriver, null);
+    assert.strictEqual(body.sqlServerDriver, null);
     assert.deepStrictEqual(body.jars, []);
   });
 
@@ -288,6 +340,72 @@ describe('driver-status', () => {
     assert.strictEqual(body.mysqlDriver, 'mysql-connector-j-9.7.0.jar');
     assert.deepStrictEqual(body.jars, ['mysql-connector-j-9.7.0.jar']);
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('finds a Microsoft SQL Server JDBC jar once one is in place', async () => {
+    const dir = path.join(projectRoot, 'jdbc-drivers');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'mssql-jdbc-13.4.0.jre11.jar'), 'stub');
+    const r = await fetch(`${BASE}/api/driver-status`);
+    const body = await r.json();
+    assert.strictEqual(body.sqlServerDriver, 'mssql-jdbc-13.4.0.jre11.jar');
+    assert.deepStrictEqual(body.jars, ['mssql-jdbc-13.4.0.jre11.jar']);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+
+describe('external storage deployment API guards', () => {
+  test('driver path status only accepts the packaged mount path', async () => {
+    let r = await api('/api/driver-path-status', { body: { jarfile: '/tmp/driver.jar' } });
+    assert.strictEqual(r.status, 400);
+    assert.match((await r.json()).error, /only mounts jars below/i);
+
+    r = await api('/api/driver-path-status', { body: { jarfile: '/opt/jdbc-drivers/postgresql-42.7.5.jar' } });
+    let body = await r.json();
+    assert.strictEqual(body.ok, true);
+    assert.strictEqual(body.exists, false);
+
+    const dir = path.join(projectRoot, 'jdbc-drivers');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'postgresql-42.7.5.jar'), 'stub');
+    r = await api('/api/driver-path-status', { body: { jarfile: '/opt/jdbc-drivers/postgresql-42.7.5.jar' } });
+    body = await r.json();
+    assert.strictEqual(body.exists, true);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('unsupported remote engines fail before any connection attempt', async () => {
+    for (const endpoint of ['/api/external-db-status','/api/external-create-database','/api/external-table-status','/api/external-verify-user-access']){
+      const r = await api(endpoint, { body: { dialect:'oracle', host:'127.0.0.1', database:'dv', user:'x', tables:['hub_x'] } });
+      const body = await r.json();
+      assert.strictEqual(r.status, 400);
+      assert.match(body.error, /does not support dialect/i);
+    }
+  });
+
+  test('invalid database and table identifiers are rejected before connecting', async () => {
+    let r = await api('/api/external-db-status', { body: { dialect:'postgresql', host:'127.0.0.1', database:'dv;drop database x', user:'x' } });
+    assert.strictEqual(r.status, 400);
+    assert.match((await r.json()).error, /plain identifier/i);
+
+    r = await api('/api/external-table-status', { body: { dialect:'mysql', host:'127.0.0.1', database:'dv', user:'x', tables:['hub_ok','bad-name'] } });
+    assert.strictEqual(r.status, 400);
+    assert.match((await r.json()).error, /plain identifier/i);
+
+    r = await api('/api/external-verify-user-access', { body: { dialect:'mysql', host:'127.0.0.1', database:'bad-name', user:'x', password:'x' } });
+    assert.strictEqual(r.status, 400);
+    assert.match((await r.json()).error, /plain identifier/i);
+
+    r = await api('/api/external-table-status', { body: { dialect:'sqlserver', host:'127.0.0.1', database:'dv', schema:'dbo', user:'x', tables:['hub_ok','bad-name'] } });
+    assert.strictEqual(r.status, 400);
+    assert.match((await r.json()).error, /plain identifier/i);
+  });
+
+  test('external SQL execution requires a non-empty script', async () => {
+    const r = await api('/api/external-execute-sql', { body: { dialect:'postgresql', sql:'   ' } });
+    assert.strictEqual(r.status, 400);
+    assert.match((await r.json()).error, /No SQL provided/i);
   });
 });
 
@@ -345,19 +463,31 @@ describe('docker endpoints stay fixed-command and answer JSON', () => {
     }
   });
 
-  test('start-db passes the profile-correct start.sh flags (mysql needs --demo)', async () => {
+  test('start-db uses the FDW compose override only when explicitly requested', async () => {
     const logPath = path.join(projectRoot, 'args.log');
     const envLogPath = path.join(projectRoot, 'env.log');
     fs.rmSync(logPath, { force: true });
     fs.rmSync(envLogPath, { force: true });
     await api('/api/docker/start-db', { body: { service: 'mysql' } });
     await api('/api/docker/start-db', { body: { service: 'postgres' } });
+    await api('/api/docker/start-db', { body: { service: 'postgres', fdw: true } });
     const log = fs.readFileSync(logPath, 'utf8').trim().split('\n');
     const envLog = fs.readFileSync(envLogPath, 'utf8').split('\n');
     assert.strictEqual(log[0], 'up --demo -d mysql');
     assert.strictEqual(log[1], 'up -d postgres');
+    assert.strictEqual(log[2], 'up --fdw -d postgres');
     assert.strictEqual(envLog[0], '');
-    assert.strictEqual(envLog[1], ['docker-compose.yaml', 'docker-compose.studio.yaml'].join(path.delimiter));
+    assert.strictEqual(envLog[1], '');
+    assert.strictEqual(envLog[2], '');
+  });
+
+  test('FDW mode is rejected for MySQL and non-boolean values', async () => {
+    let r = await api('/api/docker/start-db', { body: { service: 'mysql', fdw: true } });
+    assert.strictEqual(r.status, 400);
+    assert.match((await r.json()).error, /only valid for the postgres/i);
+    r = await api('/api/docker/start-db', { body: { service: 'postgres', fdw: 'yes' } });
+    assert.strictEqual(r.status, 400);
+    assert.match((await r.json()).error, /must be true or false/i);
   });
 
   test('run-hop maps engine modes to the new start.sh flags', async () => {
@@ -544,48 +674,114 @@ describe('bootstrap endpoint', () => {
   });
 });
 
-describe('read-only project .env', () => {
+describe('allowlisted project .env credential deployment', () => {
   const envPath = () => path.join(projectRoot, '.env');
   afterEach(() => fs.rmSync(envPath(), { force: true }));
 
-  test('credential status reads .env without changing it', async () => {
+  test('credential status distinguishes internal and external PostgreSQL targets', async () => {
+    fs.writeFileSync(envPath(), [
+      'POSTGRES_BOOTSTRAP_USER=postgres_admin',
+      'POSTGRES_BOOTSTRAP_PASSWORD=bootstrap-password',
+      'SOURCE_PASSWORD=source-secret',
+      'VAULT_PASSWORD=target-secret',
+      'DB_USER=data-vault-user',
+      '',
+    ].join('\n'));
+
+    const internal = await (await api('/api/env-credentials/status', {
+      body: { sourcePassword:'source-secret', targetPassword:'target-secret', targetUser:'data-vault-user', externalPostgres:false },
+    })).json();
+    assert.strictEqual(internal.sourceMatches, true);
+    assert.strictEqual(internal.targetMatches, true);
+    assert.strictEqual(internal.targetUserMatches, true);
+
+    const external = await (await api('/api/env-credentials/status', {
+      body: { sourcePassword:'source-secret', targetPassword:'bootstrap-password', targetUser:'postgres_admin', externalPostgres:true },
+    })).json();
+    assert.strictEqual(external.sourceMatches, true);
+    // Native PostgreSQL also requires VAULT_PASSWORD to match the single GUI target password.
+    assert.strictEqual(external.targetMatches, false);
+    assert.strictEqual(external.targetUserMatches, true);
+  });
+
+  test('internal/FDW deployment updates SOURCE_PASSWORD only', async () => {
     const original = [
       '# Existing deployment settings',
       'POSTGRES_BOOTSTRAP_USER=old-admin',
       'POSTGRES_BOOTSTRAP_PASSWORD=old-admin-secret',
       'UNRELATED_SETTING=keep-me',
-      'SOURCE_PASSWORD=source-secret',
-      'VAULT_PASSWORD=target-secret',
-      'DB_USER=data-vault-user',
+      'SOURCE_PASSWORD=old-source',
+      'VAULT_PASSWORD=internal-target-secret',
+      'DB_USER=internal-user',
       'MYSQL_PASSWORD=${SOURCE_PASSWORD}',
-      'DB_PASSWORD=${VAULT_PASSWORD}',
       '',
     ].join('\n');
     fs.writeFileSync(envPath(), original);
 
-    const status = await (await api('/api/env-credentials/status', {
-      body: { sourcePassword:'source-secret', targetPassword:'target-secret', targetUser:'data-vault-user' },
-    })).json();
-    assert.strictEqual(status.found, true);
-    assert.strictEqual(status.sourceMatches, true);
-    assert.strictEqual(status.targetMatches, true);
-    assert.strictEqual(status.targetUserMatches, true);
-    assert.ok(!JSON.stringify(status).includes('source-secret'));
-    assert.ok(!JSON.stringify(status).includes('target-secret'));
-    assert.strictEqual(fs.readFileSync(envPath(), 'utf8'), original);
-  });
-
-  test('the removed credential-write endpoint cannot mutate .env', async () => {
-    const original = 'DB_USER=administrator-controlled\nVAULT_PASSWORD=unchanged\n';
-    fs.writeFileSync(envPath(), original);
     const response = await api('/api/env-credentials', {
-      body: { sourcePassword:'new-source', targetPassword:'new-target', targetUser:'new-user' },
+      body: { sourcePassword:'new source #1', externalPostgres:false },
     });
-    assert.strictEqual(response.status, 404);
-    assert.strictEqual(fs.readFileSync(envPath(), 'utf8'), original);
+    const body = await response.json();
+    assert.strictEqual(response.status, 200);
+    assert.deepStrictEqual(body.updated, ['SOURCE_PASSWORD']);
+    const next=fs.readFileSync(envPath(),'utf8');
+    assert.match(next, /SOURCE_PASSWORD='new source #1'/);
+    assert.match(next, /POSTGRES_BOOTSTRAP_USER=old-admin/);
+    assert.match(next, /POSTGRES_BOOTSTRAP_PASSWORD=old-admin-secret/);
+    assert.match(next, /VAULT_PASSWORD=internal-target-secret/);
+    assert.match(next, /DB_USER=internal-user/);
+    assert.match(next, /UNRELATED_SETTING=keep-me/);
+    assert.match(next, /MYSQL_PASSWORD=\$\{SOURCE_PASSWORD\}/);
   });
 
-  test('generic file deployment refuses the project .env target', async () => {
+  test('native PostgreSQL deployment updates source, bootstrap and runtime role secrets without touching DB_*', async () => {
+    fs.writeFileSync(envPath(), [
+      '# Preserve comments and unrelated values',
+      'SOURCE_PASSWORD=old-source',
+      'POSTGRES_BOOTSTRAP_USER=old-admin',
+      'POSTGRES_BOOTSTRAP_PASSWORD=old-admin-secret',
+      'VAULT_PASSWORD=old-vault-secret',
+      'DB_USER=internal-user',
+      'DB_PASSWORD=${VAULT_PASSWORD}',
+      'UNRELATED_SETTING=keep-me',
+      '',
+    ].join('\n'));
+
+    const response = await api('/api/env-credentials', {
+      body: { sourcePassword:'new-source', targetUser:'customer_admin', targetPassword:'new-target', externalPostgres:true },
+    });
+    const body=await response.json();
+    assert.strictEqual(response.status,200);
+    assert.deepStrictEqual(body.updated, ['SOURCE_PASSWORD','POSTGRES_BOOTSTRAP_USER','POSTGRES_BOOTSTRAP_PASSWORD','VAULT_PASSWORD']);
+    const next=fs.readFileSync(envPath(),'utf8');
+    assert.match(next,/SOURCE_PASSWORD=new-source/);
+    assert.match(next,/POSTGRES_BOOTSTRAP_USER=customer_admin/);
+    assert.match(next,/POSTGRES_BOOTSTRAP_PASSWORD=new-target/);
+    assert.match(next,/VAULT_PASSWORD=new-target/);
+    assert.match(next,/DB_USER=internal-user/);
+    assert.match(next,/DB_PASSWORD=\$\{VAULT_PASSWORD\}/);
+    assert.match(next,/UNRELATED_SETTING=keep-me/);
+  });
+
+  test('updates duplicate allowlisted keys consistently', async () => {
+    fs.writeFileSync(envPath(), 'SOURCE_PASSWORD=first\nSOURCE_PASSWORD=second\nDB_USER=keep\n');
+    const response=await api('/api/env-credentials',{body:{sourcePassword:'replacement',externalPostgres:false}});
+    assert.strictEqual(response.status,200);
+    const next=fs.readFileSync(envPath(),'utf8');
+    assert.strictEqual((next.match(/SOURCE_PASSWORD=replacement/g)||[]).length,2);
+    assert.match(next,/DB_USER=keep/);
+  });
+
+  test('rejects line breaks and leaves .env unchanged', async () => {
+    const original='SOURCE_PASSWORD=unchanged\nDB_USER=keep\n';
+    fs.writeFileSync(envPath(),original);
+    const response=await api('/api/env-credentials',{body:{sourcePassword:'bad\nvalue',externalPostgres:false}});
+    assert.strictEqual(response.status,400);
+    assert.match((await response.json()).error,/line breaks/i);
+    assert.strictEqual(fs.readFileSync(envPath(),'utf8'),original);
+  });
+
+  test('generic file deployment still refuses the project .env target', async () => {
     const original = 'DB_USER=administrator-controlled\n';
     fs.writeFileSync(envPath(), original);
     const response = await api('/api/deploy-files', {

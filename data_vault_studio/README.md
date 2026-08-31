@@ -1,6 +1,6 @@
 # Millersoft Data Vault Studio
 
-Millersoft Data Vault Studio helps you turn a PostgreSQL, MySQL, or external SQL Server source database into a Data Vault design.
+Millersoft Data Vault Studio helps you turn PostgreSQL, MySQL, or a JDBC database supplied through a Database Pack into a Data Vault design.
 
 You can use it to:
 
@@ -35,8 +35,13 @@ For the Studio itself, you need:
 For deployment and data loading, you also need:
 
 - the main Millersoft Data Vault project;
-- Docker and Docker Compose;
+- Docker or Podman with Compose support;
 - network access to the source and target databases.
+
+Studio GUI container operations run through the project-root `start.sh` or
+`start.ps1` launcher and respect root `.env` configuration via
+`CONTAINER_ENGINE=podman|docker` (an explicit host environment value still takes
+precedence).
 
 AI Assist is optional. **Detect Hash Keys** and **Detect Vault Tables** work without an API key.
 
@@ -97,11 +102,48 @@ http://127.0.0.1:8420/
 
 ---
 
+## Development structure
+
+The Studio deliberately uses plain HTML, CSS, classic browser scripts, and
+CommonJS on the server. There is no frontend framework or build step.
+
+- `public/index.html` is the small browser shell and records script order.
+- `public/css/studio.css` owns application styling.
+- `public/js/core`, `domain`, `generators`, `features`, `database-packs`, and
+  `ui` separate shared state, modelling, generated outputs, screens, Pack
+  support, and visual helpers.
+- Source extraction, physical staging-table DDL, and PostgreSQL staging-view
+  DDL have separate generator files. Keep that boundary when changing staging.
+- `server.js` starts the listener only. `server/app.js` assembles middleware,
+  configuration, database services, and feature routers.
+- `server/routes` owns API families; `server/database` owns connection dispatch;
+  `server/database-packs` owns Pack manifests/repository/JDBC behavior.
+- `tests/helpers/load-app.js` executes the local scripts in their exact HTML
+  order, so frontend tests do not depend on one monolithic source file.
+
+When adding a browser feature, place its behavior in the narrowest existing
+feature/domain/generator file and add its `<script>` after its dependencies in
+`public/index.html`. When adding an endpoint, put it in the matching router and
+pass shared dependencies from `server/app.js`; do not add business handlers to
+the startup or assembly files.
+
+Run the complete current-contract suite with:
+
+```bash
+npm test
+```
+
+The active Database Pack contract is v0.2.2: SQL Server is a Pack, source SQL
+extracts source columns, physical staging tables remain source-shaped, and the
+engine-facing `_vw` relation adds hashes, business keys, and tenant metadata.
+
+---
+
 # Recommended workflow
 
 Work through the five numbered tabs from left to right:
 
-1. **Connections** — configure the source and choose MySQL, SQL Server, Internal PostgreSQL, or PostgreSQL as the deployment target.
+1. **Connections** — configure the source and choose MySQL, Internal PostgreSQL, PostgreSQL, or an installed Database Pack as the deployment target.
 2. **Tables** — choose the source tables and columns you want to use.
 3. **Staging** — define the columns and keys that will be produced in staging.
 4. **Vault model** — review and edit the Hubs, Links, and Satellites.
@@ -194,6 +236,50 @@ on Connections:
 - external PostgreSQL → external PostgreSQL target.
 
 Deployment remains exclusively on **Export & Deploy**.
+
+### Business-ready Studio Plus reports
+
+Studio Plus now defaults to a richer business-report workflow. The saved-output
+model is unchanged: the generated HTML is the reusable client report, while the
+Excel workbook contains the live report datasets plus an **Instructions** sheet
+with the SQL used to populate them. Refreshing a report does not redesign it;
+rerun/refresh the workbook SQL and load the refreshed workbook into the same
+HTML file.
+
+When **Business-ready report** is enabled, generation is split into distinct
+steps:
+
+1. a BI-consultant planning pass turns the Vault schema, row counts, data types,
+   and authoritative hash-key join map into decision-focused business questions
+   and analytical techniques;
+2. an analytics-engineering pass generates the reporting `SELECT` datasets;
+3. Studio validates every generated query against the selected physical target;
+4. when **Result-aware design review** is enabled, Studio runs capped samples of
+   the validated datasets and sends no more than 30 rows per dataset (with long
+   cell values truncated and an overall prompt-size cap) to the configured AI
+   provider;
+5. a report-design pass produces reusable section rendering code. Sample values
+   are context only: generated rendering must calculate every displayed metric,
+   filter, chart, and data-dependent narrative from the workbook rows at runtime.
+
+The planning prompt includes an analytics cookbook covering executive KPI and
+variance analysis, lifecycle/funnel analysis, cohorts, RFV/RFM and other scoring,
+Pareto/concentration, contribution, rankings, velocity/ageing, trends, exceptions,
+performance bands, relationship analysis, and Data Vault historical-change
+patterns. The model may choose only techniques supported by the actual schema.
+
+Generated client reports include Apache ECharts plus HTML/CSS/SVG support. The AI
+can therefore use conventional charts where appropriate and bespoke visuals such
+as cohort matrices, journeys, scorecards, timelines, and relationship diagrams.
+The report shell also supplies responsive KPI, insight, filter, chart, table, and
+section-navigation styling. If ECharts is unavailable, generated sections are
+instructed to remain useful with an HTML/SVG/table fallback.
+
+**Privacy note:** schema planning does not send row values. Enabling
+**Result-aware design review** intentionally sends the capped report-result sample
+to whichever AI provider is configured in Studio Plus. This is disclosed next to
+the option in the UI and can be disabled; the downloaded HTML never makes an AI
+request during normal client refreshes.
 
 # Step 2 — Tables
 
@@ -298,12 +384,12 @@ AI suggestions are not accepted blindly. Known foreign keys and the Studio's val
 
 Each table shows:
 
-- **Staging SQL override** — the query used to read and prepare the source table;
-- **Staging DDL** — the PostgreSQL table definition that will receive the data.
+- **Staging SQL override** — explicit selected source columns only. Source databases do not calculate Data Vault hashes in v0.2.0.
+- **Staging DDL** — the physical PostgreSQL landing table plus the engine-facing `_vw` view. The table mirrors selected source columns; the view adds business keys, canonical SHA-256 hashes, and `tenant_id`.
 
-Generated Staging and Data Vault DDL also creates an idempotent PostgreSQL
-index for every generated hash column. This includes Hub and Link keys,
-relationship hashes, Satellite parent keys, and hashdiff columns.
+Data Vault tables still receive idempotent indexes for their generated hash-key
+columns. Ordinary staging views are not indexed; PostgreSQL computes their
+derived key columns when the engine reads the view.
 
 Review these previews when you change columns or key derivations.
 
@@ -333,11 +419,12 @@ The initial staging DDL matches the source definition by default:
   pasted schema or an automatic table profile that could not be completed).
 
 A saved live profile is the exception. If profiling finds a SQL null or a
-blank/whitespace-only value, that staging column is generated as nullable so the
-engine can land the row after blank-to-`NULL` normalisation. Derived hashes,
-business-key helpers, and `tenant_id` remain nullable. Nullability is decided in
-the initial `CREATE TABLE`; no `ALTER TABLE ... DROP NOT NULL` migration or
-repair statements are emitted.
+blank/whitespace-only value, that physical staging column is generated as nullable
+so the engine can land the row after blank-to-`NULL` normalisation. Hashes,
+business-key helpers, and `tenant_id` are computed by the `_vw` relation rather
+than stored in the physical table. Nullability is decided in the initial
+`CREATE TABLE`; no `ALTER TABLE ... DROP NOT NULL` migration or repair statements
+are emitted.
 
 Automatic source-detection profiles are stored only for staging-DDL decisions
 and are not shown on the Tables page. Selecting **Profile table** replaces them
@@ -529,8 +616,8 @@ This is useful when another team manages the database or deployment process.
 Use **Diff against target** after changing an already-deployed design.
 
 The Studio compares the new DDL with the target and generates SQL for missing
-tables, columns, and hash indexes. Type differences are reported for review
-rather than changed automatically.
+staging tables/views, Vault tables, columns, and Vault hash indexes. Type
+differences are reported for review rather than changed automatically.
 
 It can also identify obsolete Link Satellite Hub columns created by older
 Studio DDL. Those removals are listed explicitly and require confirmation
@@ -552,7 +639,7 @@ The Export & Deploy page does not start the engine. Select **Open Data Vault Hub
 
 Use **Data Vault Hub** to start the engine and review the operational status of the Vault. The Hub saves the current spreadsheet, source connection, and engine settings before starting a run; it never rewrites `.env`.
 
-The run dashboard intentionally includes only **Data Vault** and **Test Staging** run records. **Test Staging** is presented as **Staging** because that run owns the usable staging job counts. The separate **Staging** and **Test Staging Files** run types are excluded from dashboard totals, charts, and recent-run rows.
+The run dashboard recognises operational load history from the records actually written to `pdi_meta.inst_run_stg_jobs` and `pdi_meta.inst_run_dv_jobs`, while retaining the familiar **Data Vault** / **Staging** labels. This makes the Hub tolerant of older or differently labelled `ref_runtypes` rows. If an older metadata schema does not expose the per-job tables, Studio falls back to the legacy **Data Vault** / **Test Staging** run-type filter. When the Hub opens with a known Data Vault connection it automatically loads existing history and metrics; the manual **Load metrics** action remains available to refresh them.
 
 Use **View engine logs** to follow the run and diagnose connection or loading errors.
 
@@ -568,6 +655,43 @@ Use **Verify latest load** in **Post-run verification** to run checks against
 the most recent load. Verification progress and completed results remain
 visible when the Hub refreshes or re-renders; they are not cleared by the
 normal dashboard polling cycle.
+
+## Incremental loads — first feature version
+
+Incremental staging configuration is available per included source table. The
+incremental column is metadata; whether it is used is an explicit operational
+choice in **Data Vault Hub**:
+
+1. **Detect Source Tables** attempts to suggest a staged timestamp/datetime
+   Incremental column using update/change name stems such as `modified*`,
+   `updated*`, `last_modified*`, and `change*`.
+2. The Incremental column can be reviewed or changed on **Tables**. The first
+   feature version only allows staged timestamp/datetime-style columns for
+   built-in PostgreSQL/MySQL sources and JDBC Database Packs; plain DATE/TIME,
+   numeric and string cursors are not enabled yet.
+3. **Data Vault Hub** reflects that selection and also lets the user adjust the
+   Incremental column directly. A per-table toggle controls whether the next
+   deployed workbook writes `ind_staging_is_incremental = 1` or `0`.
+4. Studio does not require or infer an "initial full load" before allowing the
+   user to enable incremental loading. The Hub toggle is the user's explicit choice.
+5. **Enable all** switches on every table with a supported Incremental column.
+   Tables with no Incremental column are left unchanged.
+6. The global **Incremental days to load** value is written to
+   `source_systems.staging_days_to_load_default` and is deployed with the same
+   workbook settings.
+
+The **Staging** step deliberately contains no incremental-loading controls; Tables owns column selection and Hub owns operation. The Hub's **Incremental Loads** section is collapsed by default. Changes to the
+column, toggle, or global days value are marked for workbook deployment. Users
+can therefore change a column, turn the table on or off, adjust the days value,
+and use **Save & deploy settings** once to write the complete spreadsheet.
+
+The workbook contract is the same for every source connector:
+
+- `increment_date_column` contains the selected staged timestamp/datetime column;
+- `ind_staging_is_incremental` directly reflects the Hub toggle;
+- `staging_days_to_load_default` is the universal source-system days value.
+
+JDBC Database Packs do not require separate incremental UI code.
 
 ---
 
@@ -666,3 +790,131 @@ to invoke that prerequisite flow and then applies the vault-specific `pdi_meta`
 records itself. Studio-managed internal PostgreSQL starts apply the no-op
 `03-ddls.sql` override by default; `--build` opts into the packaged DDL.
 FDW starts add the FDW packaging override on top.
+
+## Database Packs v0.2.2 (preview)
+
+v0.2.2 simplifies custom database-type authoring without changing the v0.2 staging-table + `_vw` architecture. **+ Add database type...** now opens a guided wizard instead of immediately opening a JSON file picker. Users can either create a new minimal JDBC database type or import an existing Database Pack.
+
+The Create path now starts with the packaged Apache Hop database-type catalogue, with **Other / Generic JDBC...** as the final fallback. Native choices no longer ask the user to name the Pack: Studio owns the display name, generated Pack ID and initial version. Generic JDBC alone asks for a database display name. The remaining inputs are JDBC driver class, JDBC URL template, default port, JDBC JAR filename, and optional default schema. Studio infers the normal Host/Port/Database/Schema/Username/Password connection fields. No live host, credentials, metadata inspection or connection test is requested while defining the database type; those happen later in the normal Connections workflow.
+
+The JDBC JAR must already exist in project-root `jdbc-drivers/` before the wizard will create or import a database type. This remains the single shared driver location for Studio, Hop and JDBC-FDW packaging. Wizard-generated manifests remain minimal on disk; inferred connection fields are expanded only in memory. Newly created Packs explicitly record the selected native Hop `pluginId`, or `hop.forceGeneric: true`, making `metadata/rdbms/source.json` generation deterministic while keeping the legacy matcher for imported/older Packs.
+
+The wizard modal is wider and its JDBC fields are proportioned to expected content length (driver/JAR fields wider than port/schema). Browser autofill remains available for repeat testing, while Studio overrides Chromium's yellow autofill styling so populated inputs retain the application theme.
+
+The SQL Server reference Pack has been reduced accordingly: no explicit standard connection-field list, no target/FDW false boilerplate, no source-side hashing and no explicit Hop plugin ID/name. SQL Server remains a Pack-installed source and the existing built-in SQL Server physical-target path is unchanged.
+
+## Database Packs v0.2.1 (preview)
+
+v0.2.1 is a focused staging-view validation fix on top of the v0.2.0 architecture.
+Hash/BK/tenant derivation remains on the PostgreSQL `_vw`; the physical staging
+table remains selected source columns only. The Staging readiness/integrity check
+now reads hash-producing derivation metadata instead of treating the physical
+landing table as the place where hash columns must exist. Hash fields exposed by
+`buildStagingViewColumns()` also retain `hashed: true` for compatibility with
+existing Studio model/DDL helpers.
+
+The Database Pack manifest schema remains version `1`. The SQL Server proof Pack
+remains `1.0.0` / feature contract `0.2.0`; no Pack manifest change is required.
+
+## Database Packs v0.2.0 (preview)
+
+Database Packs keep source-database differences declarative. The Studio-owned
+`data_vault_studio/database-packs/` directory is the registry: valid top-level
+`*.json` manifests are installed database types, while `examples/` and `schema/`
+are resources. Vendor JDBC JARs stay in project-root `jdbc-drivers/` so Studio,
+Hop and the PostgreSQL JDBC-FDW runtime can share them.
+
+Normal users install a source type from **Source database → + Add database
+type…**. `schemaVersion` remains `1`; the old `source.hashSha256` property is
+still accepted for v0.1.x manifest compatibility but is ignored by v0.2.0.
+
+### One hashing implementation
+
+Source SQL now extracts explicit source columns only. Data Vault preparation is
+centralised in PostgreSQL:
+
+```text
+source database
+    ↓ explicit selected columns
+staging.stg_<prefix>_<table>
+    ↓
+staging.stg_<prefix>_<table>_vw
+    + business keys
+    + SHA-256 hash keys
+    + tenant_id
+    ↓
+existing Hub / Link / Satellite processing
+```
+
+The physical staging table mirrors the selected source columns. The mapping
+workbook's existing single `staging_table_name` points to the `_vw` relation.
+PostgreSQL converts the canonical key text to UTF-8 and applies built-in
+`sha256(bytea)`, so every source database produces hashes under the same rule.
+This removes MySQL `SHA2`, SQL Server `HASHBYTES`, Oracle `STANDARD_HASH`, and
+other vendor hash syntax from the source-adapter contract.
+
+Existing v0.1.x physical staging tables may retain old derived columns after an
+overlay. The new view ignores those harmless legacy columns. Recreating staging
+from the v0.2 DDL produces the clean source-column-only physical layout. Old
+custom `staging_sql_override` values that still return generated hash/BK/tenant
+aliases are blocked until reset or edited, because those `_vw` columns are now
+read-only derivations.
+
+### SQL Server proves the add-a-database workflow
+
+SQL Server remains a supported physical target, but it is deliberately no longer
+a built-in **source** selector entry. The release ships
+`database-packs/sqlserver.json`. Add or import the database type and place a
+Microsoft JDBC JAR matching `mssql-jdbc-*.jar` into `jdbc-drivers/`. The Pack
+uses JDBC metadata for target capabilities and the native Hop `MSSQLNATIVE`
+connection plugin.
+A v0.1.x saved project with the old built-in SQL Server source is migrated to the
+installed SQL Server Pack automatically, preserving its host, port, database,
+schema, username and password.
+
+This is intentionally the reference test for future database additions: adding a
+new source should not require another core Studio source dialect branch.
+
+### Engine compatibility: DELETE, not TRUNCATE
+
+The `_vw` is a simple writable PostgreSQL view for its base columns. The existing
+engine can therefore insert source fields through it and later read the derived
+fields from the same relation. Staging cleanup must use `DELETE FROM
+<staging_table_name>` rather than `TRUNCATE`, because PostgreSQL cannot truncate
+a view.
+
+The Hop `staging_generic` workflow files are outside this Studio tree and were
+not present in the supplied release inputs, so this Studio preview does **not**
+claim that engine-side statement has been patched. Apply the companion engine
+change before end-to-end v0.2 testing; see `ENGINE_CHANGE_REQUIRED.md` in the
+release package. No other engine metadata contract changes are required.
+
+### Hop, namespace and Docker behaviour
+
+Studio still generates `metadata/rdbms/source.json` and
+`hop/postgres-environment.json`; it does not call the running Hop container. A
+Pack can select a native Hop plugin or fall back to Generic JDBC. SQL Server's
+proof Pack selects `MSSQL` declaratively; PostgreSQL and MySQL remain the only
+built-in source mappings in the Hop catalogue.
+
+Pack source SQL never inherits PostgreSQL `public` when the Pack has no schema.
+For Docker runtime networking, `localhost`, `127.x.x.x`, and `::1` source hosts
+are written as `host.docker.internal` for Hop while Studio keeps the original
+JDBC address.
+
+### Dynamic Database Pack targets
+
+Every installed Database Pack can now be selected as a physical Data Vault target. Selecting a non-PostgreSQL target keeps packaged PostgreSQL as the engine/metadata gateway and stores the physical Hub/Link/Satellite tables in the selected database through `jdbc_fdw`.
+
+For Pack targets, **Test connection & map types** runs JDBC metadata discovery and resolves the server's native types into Studio's semantic target model (`BOOLEAN`, integer families, `DECIMAL`, `STRING`, `TIMESTAMP`, `BINARY`, and so on). The resolved profile records database/driver identity, identifier quoting and native type templates with the saved project. Deployment refuses silent profile drift until the user retests and accepts the refreshed mapping.
+
+Pack `target.types`, identifier quoting and DDL templates remain optional exception overrides; legacy target/FDW enablement/certification fields remain readable but no longer act as a target allowlist. Before changing anything, deployment checks that all semantic types required by the current Vault model resolve safely. It then creates only missing physical tables, configures the PostgreSQL JDBC FDW gateway, and verifies the resulting foreign-table route. JDBC metadata cannot safely derive universal schema-creation syntax, so a custom Pack uses an existing/default schema unless it provides `target.createSchemaSql`. Current `jdbc_fdw` user mappings also require target connection fields mapped to username and password.
+
+
+### Incremental loading controls
+
+When **Detect Source Tables** refreshes source metadata, Studio tries to select an incremental column automatically using change/update name stems rather than a fixed list of exact column names. Timestamp/datetime columns containing terms such as `modified*`, `update*`, `updated*`, `last_modified*`, `last_update*`, `change*`, and `changed*` are ranked as candidates, including compound conventions such as `CustomerModifiedDate` and `RowUpdatedAt`. The name match is accepted only when the detected source type is timestamp/datetime-style. Creation-only timestamps such as `created_at` are not selected automatically. The suggestion is visible and editable on **Tables**. Detection never enables incremental execution; activation remains an explicit Data Vault Hub choice and is not gated by staging history.
+
+The **Delete all** action on **Tables** clears all detected/manual source tables, detected FK/row-count metadata, and downstream Vault objects sourced from those tables (with Undo available). It is intended to make a clean **Delete all → Detect Source Tables** refresh cycle quick during source-schema setup.
+
+The collapsed **Incremental Loads** section in Data Vault Hub also owns the universal **Incremental days to load** value. It is persisted as `vault.stagingDaysToLoadDefault` and written to `source_systems.staging_days_to_load_default` in the generated metadata spreadsheet (default `30`). Changing it marks incremental settings as requiring deployment; **Save & deploy settings** regenerates the workbook and clears that pending state together with table-level incremental changes.

@@ -5,6 +5,8 @@
 #   .\start.ps1 --build
 #   .\start.ps1 --demo
 #   .\start.ps1 --build --demo
+#   .\start.ps1 --fdw
+#   .\start.ps1 --build --fdw
 #   .\start.ps1 --external-postgres
 #   .\start.ps1 --build --external-postgres
 #   .\start.ps1 --build -d
@@ -31,6 +33,39 @@ $ErrorActionPreference = "Stop"
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptRoot
 
+# Container engine can be supplied directly in the environment or configured
+# in .env. An explicitly supplied environment variable takes precedence.
+if (-not $env:CONTAINER_ENGINE) {
+    $EnvFile = Join-Path $ScriptRoot ".env"
+
+    if (Test-Path -LiteralPath $EnvFile -PathType Leaf) {
+        $ContainerEngineLine = Get-Content -LiteralPath $EnvFile |
+            Where-Object { $_ -match '^\s*CONTAINER_ENGINE\s*=' } |
+            Select-Object -Last 1
+
+        if ($ContainerEngineLine) {
+            $ContainerEngineValue = ($ContainerEngineLine -split '=', 2)[1].Trim()
+
+            # Remove optional matching single/double quotes.
+            if (
+                ($ContainerEngineValue.StartsWith('"') -and $ContainerEngineValue.EndsWith('"')) -or
+                ($ContainerEngineValue.StartsWith("'") -and $ContainerEngineValue.EndsWith("'"))
+            ) {
+                $ContainerEngineValue = $ContainerEngineValue.Substring(
+                    1,
+                    $ContainerEngineValue.Length - 2
+                )
+            }
+
+            $env:CONTAINER_ENGINE = $ContainerEngineValue
+        }
+    }
+}
+
+if (-not $env:CONTAINER_ENGINE) {
+    $env:CONTAINER_ENGINE = "docker"
+}
+
 $LicenseFile = if ($env:LICENSE_FILE) {
     $env:LICENSE_FILE
 } else {
@@ -52,17 +87,51 @@ function Test-Truthy {
 }
 
 function Get-ComposeCommand {
-    docker compose version *> $null
-    if ($LASTEXITCODE -eq 0) {
-        return @("docker", "compose")
-    }
+    switch ($env:CONTAINER_ENGINE.ToLowerInvariant()) {
+        "docker" {
+            if (Get-Command docker -ErrorAction SilentlyContinue) {
+                docker compose version *> $null
 
-    docker-compose version *> $null
-    if ($LASTEXITCODE -eq 0) {
-        return @("docker-compose")
-    }
+                if ($LASTEXITCODE -eq 0) {
+                    return @("docker", "compose")
+                }
+            }
 
-    throw "Neither 'docker compose' nor 'docker-compose' is available."
+            if (Get-Command docker-compose -ErrorAction SilentlyContinue) {
+                docker-compose version *> $null
+
+                if ($LASTEXITCODE -eq 0) {
+                    return @("docker-compose")
+                }
+            }
+
+            throw "Docker Compose is not available."
+        }
+
+        "podman" {
+            if (!(Get-Command podman -ErrorAction SilentlyContinue)) {
+                throw "Podman is not available."
+            }
+
+            podman info *> $null
+
+            if ($LASTEXITCODE -ne 0) {
+                throw "Podman Machine is not running. Run: podman machine start"
+            }
+
+            podman compose version *> $null
+
+            if ($LASTEXITCODE -ne 0) {
+                throw "Podman Compose is not available."
+            }
+
+            return @("podman", "compose")
+        }
+
+        default {
+            throw "Unknown container engine '$($env:CONTAINER_ENGINE)'. Supported engines: docker, podman."
+        }
+    }
 }
 
 function Invoke-Compose {
@@ -159,13 +228,13 @@ function Ensure-LicenseAccepted {
     Assert-LicenseFileExists
 
     if (Test-LicenseMarkerValid) {
-        Write-Host "License already accepted. Starting Docker Compose..."
+        Write-Host "License already accepted. Starting container deployment..."
         return
     }
 
     if (Test-Truthy $env:ACCEPT_LICENSE) {
         Write-LicenseMarker
-        Write-Host "License accepted via ACCEPT_LICENSE=true. Starting Docker Compose..."
+        Write-Host "License accepted via ACCEPT_LICENSE=true. Starting container deployment..."
         return
     }
 
@@ -177,13 +246,13 @@ function Ensure-LicenseAccepted {
             '^[yY]([eE][sS])?$' {
                 Write-LicenseMarker
                 Write-Host ""
-                Write-Host "License accepted. Starting Docker Compose..."
+                Write-Host "License accepted. Starting container deployment..."
                 Write-Host ""
                 return
             }
             '^[nN]([oO])?$' {
                 Write-Host ""
-                Write-Host "License declined. Docker Compose will not be started."
+                Write-Host "License declined. Container deployment will not be started."
                 Write-Host ""
                 exit 1
             }
@@ -230,7 +299,7 @@ function Reset-License {
 
 $ComposeCommand = Get-ComposeCommand
 
-# Avoid Docker Compose's attached-mode helper menu competing with normal logs.
+# Avoid Compose's attached-mode helper menu competing with normal logs.
 if (-not $env:COMPOSE_MENU) {
     $env:COMPOSE_MENU = "false"
 }
@@ -289,12 +358,34 @@ if ($FilteredArgs.Count -eq 0) {
 }
 
 switch ($Subcommand) {
+    "bootstrap-external-postgres" {
+        Ensure-LicenseAccepted
+
+        $ComposeFileSeparator = [IO.Path]::PathSeparator
+        $env:COMPOSE_FILE = "docker-compose.yaml${ComposeFileSeparator}docker-compose.studio.yaml"
+        $env:DEMO_MODE = "false"
+        $env:WAIT_FOR_MYSQL = "false"
+
+        Invoke-ComposeStep `
+            -ComposeCommand $ComposeCommand `
+            -ComposeArgs @("--profile", "external-postgres-bootstrap", "build", "metadata-bootstrap")
+
+        Invoke-ComposeStep `
+            -ComposeCommand $ComposeCommand `
+            -ComposeArgs @("--profile", "external-postgres-bootstrap", "run", "--rm", "metadata-bootstrap")
+
+        exit 0
+    }
+
     "up" {
         Ensure-LicenseAccepted
 
         $DemoMode = $false
         $ExternalPostgres = $false
+        $FdwMode = $false
         $BuildRequested = $false
+        $StudioBuild = $false
+        $ComposeBuildForwarded = $false
         $CleanComposeArgs = @()
 
         foreach ($arg in $ComposeArgs) {
@@ -305,9 +396,23 @@ switch ($Subcommand) {
                 "--external-postgres" {
                     $ExternalPostgres = $true
                 }
+                "--fdw" {
+                    $FdwMode = $true
+                }
                 "--build" {
                     $BuildRequested = $true
-                    $CleanComposeArgs += $arg
+                    if (-not $ComposeBuildForwarded) {
+                        $CleanComposeArgs += "--build"
+                        $ComposeBuildForwarded = $true
+                    }
+                }
+                "--studio-build" {
+                    $StudioBuild = $true
+                    $BuildRequested = $true
+                    if (-not $ComposeBuildForwarded) {
+                        $CleanComposeArgs += "--build"
+                        $ComposeBuildForwarded = $true
+                    }
                 }
                 default {
                     $CleanComposeArgs += $arg
@@ -315,14 +420,37 @@ switch ($Subcommand) {
             }
         }
 
+        $ComposeFileSeparator = [IO.Path]::PathSeparator
         if ($DemoMode -and $ExternalPostgres) {
-            Write-Error "--demo and --external-postgres cannot be used together. The bundled Sakila demo is only supported with the internal Docker PostgreSQL service."
+            Write-Error "--demo and --external-postgres cannot be used together. The bundled Sakila demo is only supported with the internal PostgreSQL service."
             exit 1
+        }
+
+        if ($FdwMode -and $ExternalPostgres) {
+            Write-Error "--fdw and --external-postgres cannot be used together. FDW mode requires the packaged PostgreSQL service."
+            exit 1
+        }
+
+        if ($StudioBuild -and $ExternalPostgres) {
+            Write-Error "--studio-build is only valid for Studio-managed internal PostgreSQL. Use --build with --external-postgres to keep the external bootstrap semantics."
+            exit 1
+        }
+
+        if ($BuildRequested -and -not $StudioBuild -and -not $ExternalPostgres -and -not $FdwMode) {
+            $env:COMPOSE_FILE = "docker-compose.yaml"
+            Write-Host "Build requested. Packaged 03-ddls.sql is enabled and will run only when PostgreSQL initializes a new data volume."
+        } else {
+            $env:COMPOSE_FILE = "docker-compose.yaml${ComposeFileSeparator}docker-compose.studio.yaml"
+        }
+
+        if ($FdwMode) {
+            $env:COMPOSE_FILE = "$($env:COMPOSE_FILE)${ComposeFileSeparator}docker-compose.fdw.yaml"
+            Write-Host "FDW mode enabled for packaged PostgreSQL."
         }
 
         if ($ExternalPostgres) {
             Write-Host "Starting in EXTERNAL POSTGRES mode."
-            Write-Host "Internal Docker PostgreSQL will not be started."
+            Write-Host "Internal PostgreSQL will not be started."
             Write-Host "Bundled Sakila MySQL source will not be started."
 
             $env:DEMO_MODE = "false"

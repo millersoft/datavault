@@ -1,0 +1,79 @@
+function createSourceDatabase({ Client, mysql, isPackDialect, getDatabasePack, runJdbcBridge }){
+  function makeClient(body){
+    const { host, port, database, user, password } = body || {};
+    if (!host || !database || !user) throw new Error('host, database, and user are required.');
+    return new Client({
+      host,
+      port:port ? Number(port) : 5432,
+      database,
+      user,
+      password:password || undefined,
+      connectionTimeoutMillis:6000,
+      ssl:body.ssl === false ? false : { rejectUnauthorized:false },
+    });
+  }
+
+  async function connectPgWithFallback(body){
+    const client = makeClient(body);
+    try {
+      await client.connect();
+      return client;
+    } catch (err){
+      if (/does not support SSL/i.test(err.message) && body.ssl !== false){
+        try { await client.end(); } catch (_) {}
+        const plainClient = makeClient({ ...body, ssl:false });
+        await plainClient.connect();
+        return plainClient;
+      }
+      throw err;
+    }
+  }
+
+  async function openSourceConnection(body){
+    const dialect = String((body && body.dialect) || 'postgresql').toLowerCase();
+    if (isPackDialect(dialect)){
+      const pack = getDatabasePack(dialect);
+      if (pack.source.enabled === false) throw new Error(`Database Pack ${pack.label} is not enabled as a source.`);
+      return {
+        dialect,
+        pack,
+        testSql:String(pack.jdbc.testSql || 'SELECT 1'),
+        query:async sql => {
+          const data = await runJdbcBridge(pack, body, 'query', String(sql));
+          return { rows:data.rows || [], fields:(data.fields || []).map(name=>({ name })), rowCount:Number(data.rowCount || 0) };
+        },
+        end:async () => {},
+      };
+    }
+    if (dialect === 'mysql'){
+      const { host, port, database, user, password } = body || {};
+      if (!host || !database || !user) throw new Error('host, database, and user are required.');
+      const conn = await mysql.createConnection({
+        host, port:port ? Number(port) : 3306, database, user,
+        password:password || undefined, connectTimeout:6000,
+      });
+      return {
+        dialect:'mysql',
+        query:async (sql, params) => {
+          const [rows, fields] = await conn.query(sql, params);
+          return { rows, fields:(fields || []).map(field=>({ name:field.name })), rowCount:Array.isArray(rows) ? rows.length : 0 };
+        },
+        end:async () => conn.end(),
+      };
+    }
+    if (dialect !== 'postgresql') throw new Error(`Unsupported source dialect "${dialect}".`);
+    const client = await connectPgWithFallback(body);
+    return {
+      dialect:'postgresql',
+      query:async (sql, params) => {
+        const result = await client.query(sql, params);
+        return { rows:result.rows, fields:(result.fields || []).map(field=>({ name:field.name })), rowCount:result.rowCount };
+      },
+      end:async () => client.end(),
+    };
+  }
+
+  return { makeClient, connectPgWithFallback, openSourceConnection };
+}
+
+module.exports = { createSourceDatabase };

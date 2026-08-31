@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Container engine can be supplied directly in the environment or configured
+# in .env. An explicitly supplied environment variable takes precedence.
+if [ -z "${CONTAINER_ENGINE:-}" ] && [ -f .env ]; then
+  CONTAINER_ENGINE="$(
+    sed -n 's/^[[:space:]]*CONTAINER_ENGINE[[:space:]]*=[[:space:]]*//p' .env |
+      tail -n 1 |
+      tr -d '\r' |
+      sed 's/^["'\'']\(.*\)["'\'']$/\1/'
+  )"
+fi
+
+CONTAINER_ENGINE="${CONTAINER_ENGINE:-docker}"
+
 LICENSE_FILE="${LICENSE_FILE:-LICENSE}"
 LICENSE_STATE_DIR="${LICENSE_STATE_DIR:-.license-state}"
 LICENSE_MARKER="${LICENSE_STATE_DIR}/license.accepted"
@@ -17,24 +30,54 @@ is_truthy() {
 }
 
 set_compose_command() {
-  if docker compose version >/dev/null 2>&1; then
-    COMPOSE_IMPL="docker-compose-v2"
-  elif command -v docker-compose >/dev/null 2>&1; then
-    COMPOSE_IMPL="docker-compose-v1"
-  else
-    echo "ERROR: Neither 'docker compose' nor 'docker-compose' is available." >&2
-    exit 1
-  fi
+  case "${CONTAINER_ENGINE:-docker}" in
+    docker)
+      if docker compose version >/dev/null 2>&1; then
+        COMPOSE_IMPL="docker-compose-v2"
+      elif command -v docker-compose >/dev/null 2>&1; then
+        COMPOSE_IMPL="docker-compose-v1"
+      else
+        echo "ERROR: Docker Compose is not available." >&2
+        exit 1
+      fi
+      ;;
+
+    podman)
+      if ! command -v podman >/dev/null 2>&1; then
+        echo "ERROR: Podman is not available." >&2
+        exit 1
+      fi
+
+      if ! podman info >/dev/null 2>&1; then
+        echo "ERROR: Podman Machine is not running." >&2
+        echo "Run: podman machine start" >&2
+        exit 1
+      fi
+
+      COMPOSE_IMPL="podman"
+      ;;
+
+    *)
+      echo "ERROR: Unknown container engine: ${CONTAINER_ENGINE}" >&2
+      echo "Supported engines: docker, podman" >&2
+      exit 1
+      ;;
+  esac
 }
 
 compose() {
-  if [ "$COMPOSE_IMPL" = "docker-compose-v2" ]; then
-    docker compose "$@"
-  else
-    docker-compose "$@"
-  fi
+  case "$COMPOSE_IMPL" in
+    docker-compose-v2)
+      docker compose "$@"
+      ;;
+    docker-compose-v1)
+      docker-compose "$@"
+      ;;
+    podman)
+      podman compose "$@"
+      ;;
+  esac
 }
-
 
 check_license_file_exists() {
   if [ ! -f "$LICENSE_FILE" ]; then
@@ -159,6 +202,18 @@ else
 fi
 
 case "$subcommand" in
+  bootstrap-external-postgres)
+    ensure_license_accepted
+
+    export COMPOSE_FILE="docker-compose.yaml:docker-compose.studio.yaml"
+    export DEMO_MODE=false
+    export WAIT_FOR_MYSQL=false
+
+    compose --profile external-postgres-bootstrap build metadata-bootstrap
+    compose --profile external-postgres-bootstrap run --rm metadata-bootstrap
+    exit 0
+    ;;
+
   up)
     ensure_license_accepted
 
@@ -166,12 +221,14 @@ case "$subcommand" in
     external_postgres=false
     fdw_mode=false
     build_requested=false
+    studio_build=false
+    compose_build_forwarded=false
 
-    # Data Vault Studio owns generated staging and Data Vault DDL. Always
-    # mask the packaged 03-ddls.sql when the launcher starts services, so a
-    # fresh internal PostgreSQL volume cannot create design-specific tables
-    # before the GUI deployment workflow runs.
-    export COMPOSE_FILE="docker-compose.yaml:docker-compose.studio.yaml"
+    # Use the Studio override by default so a fresh internal PostgreSQL volume
+    # cannot create design-specific tables before the GUI deployment workflow
+    # runs. An internal PostgreSQL --build opts into the packaged 03-ddls.sql
+    # instead.
+    export COMPOSE_FILE="docker-compose.yaml"
 
     original_arg_count=$#
 
@@ -192,7 +249,18 @@ case "$subcommand" in
           ;;
         --build)
           build_requested=true
-          set -- "$@" "$arg"
+          if [ "$compose_build_forwarded" = false ]; then
+            set -- "$@" --build
+            compose_build_forwarded=true
+          fi
+          ;;
+        --studio-build)
+          studio_build=true
+          build_requested=true
+          if [ "$compose_build_forwarded" = false ]; then
+            set -- "$@" --build
+            compose_build_forwarded=true
+          fi
           ;;
         *)
           set -- "$@" "$arg"
@@ -210,6 +278,20 @@ case "$subcommand" in
       echo "ERROR: --fdw and --external-postgres cannot be used together." >&2
       echo "FDW mode requires the packaged PostgreSQL service." >&2
       exit 1
+    fi
+
+    if [ "$studio_build" = true ] && [ "$external_postgres" = true ]; then
+      echo "ERROR: --studio-build is only valid for Studio-managed internal PostgreSQL." >&2
+      echo "Use --build with --external-postgres to keep the external bootstrap semantics." >&2
+      exit 1
+    fi
+
+    if [ "$build_requested" = true ] && [ "$studio_build" = false ] && [ "$external_postgres" = false ] && [ "$fdw_mode" = false ]; then
+      echo "Build requested. Packaged 03-ddls.sql is enabled and will run only when PostgreSQL initializes a new data volume."
+    else
+      # Studio-managed and FDW starts must keep the Studio override so a build
+      # never re-enables design-specific init SQL on a fresh PostgreSQL volume.
+      export COMPOSE_FILE="${COMPOSE_FILE}:docker-compose.studio.yaml"
     fi
 
     if [ "$fdw_mode" = true ]; then

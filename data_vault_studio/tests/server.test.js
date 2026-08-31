@@ -1,6 +1,6 @@
 /**
- * Companion-server tests — spawn server.js against a throwaway project root
- * and exercise the security and validation behaviour over real HTTP:
+ * Companion-server tests — create the Express app against a throwaway project
+ * root and invoke its route handlers without opening a network listener:
  *   - GUI serving at /
  *   - deploy-files folder confinement + filename safety
  *   - /api/query read-only shape gate (CTEs allowed, mutations rejected)
@@ -14,24 +14,76 @@
  */
 const { test, before, after, beforeEach, afterEach, describe } = require('node:test');
 const assert = require('node:assert');
-const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { createApp } = require('../server/app');
+const { selectStudioLauncher } = require('../server/routes/engine');
+const { readServerSources } = require('./helpers/load-app');
 
-const PORT = 18420 + Math.floor(Math.random() * 1000);
-const BASE = `http://127.0.0.1:${PORT}`;
-
-let child;
+let app;
 let projectRoot;
 
-function api(pathname, { method = 'POST', body, headers = {} } = {}){
-  const h = Object.assign({ 'Content-Type': 'application/json' }, headers);
-  return fetch(`${BASE}${pathname}`, {
-    method,
-    headers: h,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+function readExternalPostgresBootstrap(){
+  return fs.readFileSync(path.join(__dirname, '..', '..', 'docker', 'bootstrap_postgres_target.sh'), 'utf8');
+}
+
+function matchRoute(routePath, pathname){
+  const expected=String(routePath).split('/').filter(Boolean);
+  const actual=String(pathname).split('?')[0].split('/').filter(Boolean);
+  if(expected.length!==actual.length)return null;
+  const params={};
+  for(let i=0;i<expected.length;i++){
+    if(expected[i].startsWith(':'))params[expected[i].slice(1)]=decodeURIComponent(actual[i]);
+    else if(expected[i]!==actual[i])return null;
+  }
+  return params;
+}
+
+function findRoute(stack, method, pathname){
+  for(const layer of stack||[]){
+    if(layer.route && layer.route.methods[method.toLowerCase()]){
+      const params=matchRoute(layer.route.path,pathname);
+      if(params)return {route:layer.route,params};
+    }
+    if(layer.handle&&Array.isArray(layer.handle.stack)){
+      const nested=findRoute(layer.handle.stack,method,pathname);
+      if(nested)return nested;
+    }
+  }
+  return null;
+}
+
+async function api(pathname, { method = 'POST', body, headers = {} } = {}){
+  const found=findRoute(app._router.stack,method,pathname);
+  if(!found)throw new Error(`Route not registered: ${method} ${pathname}`);
+  const responseHeaders=new Map();
+  let status=200, payload;
+  let finishResponse;
+  const responseFinished=new Promise(resolve=>{finishResponse=resolve;});
+  const res={
+    status(code){status=code;return this;},
+    set(name,value){responseHeaders.set(String(name).toLowerCase(),String(value));return this;},
+    type(value){responseHeaders.set('content-type',value==='html'?'text/html; charset=utf-8':String(value));return this;},
+    json(value){payload=value;finishResponse();return this;},
+    send(value){payload=value;finishResponse();return this;},
+  };
+  const req={body:body||{},headers,params:found.params,method,path:pathname};
+  for(const layer of found.route.stack)await layer.handle(req,res,()=>{});
+  if(payload===undefined){
+    await Promise.race([
+      responseFinished,
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error(`Route did not respond: ${method} ${pathname}`)),30000)),
+    ]);
+  }
+  return {
+    status,
+    ok:status>=200&&status<300,
+    headers:{get(name){return responseHeaders.get(String(name).toLowerCase())||null;}},
+    async json(){return payload;},
+    async text(){return typeof payload==='string'?payload:JSON.stringify(payload);},
+  };
 }
 
 before(async () => {
@@ -41,44 +93,58 @@ before(async () => {
   // Stub start.sh records its arguments so tests can assert the exact
   // flag-based invocations (matching the real script's new interface).
   fs.writeFileSync(path.join(projectRoot, 'start.sh'),
-    '#!/bin/bash\necho "$@" >> args.log\necho "${COMPOSE_FILE:-}" >> env.log\nexit 0\n');
+    '#!/bin/bash\necho "$@" >> args.log\necho "${INTERNAL_DATA_VAULT_DATABASE:-}" >> env.log\nexit 0\n');
   fs.writeFileSync(path.join(projectRoot, 'docker-compose.yaml'), 'services: {}\n');
 
-  child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js'), '--mode=production'], {
-    env: Object.assign({}, process.env, { PORT: String(PORT), DVS_PROJECT_ROOT: projectRoot }),
-    stdio: ['ignore', 'pipe', 'pipe'],
+  const env=Object.assign({},process.env,{
+    DVS_PROJECT_ROOT:projectRoot,
+    DVS_DATABASE_PACK_HOME:path.join(projectRoot,'data_vault_studio','database-packs'),
   });
-  let stderr = '';
-  child.stderr.on('data', d => { stderr += d.toString(); });
-
-  // Wait for the server to answer /api/health.
-  const deadline = Date.now() + 15000;
-  let up = false;
-  while (Date.now() < deadline){
-    try {
-      const r = await fetch(`${BASE}/api/health`);
-      if (r.ok){ up = true; break; }
-    } catch (_){ /* not up yet */ }
-    await new Promise(r => setTimeout(r, 150));
-  }
-  if (!up) throw new Error(`Server did not start on ${BASE}. stderr: ${stderr}`);
+  app=createApp({studioMode:'production',env});
 });
 
 after(() => {
-  if (child) child.kill('SIGKILL');
   if (projectRoot) fs.rmSync(projectRoot, { recursive: true, force: true });
+});
+
+describe('Studio launcher selection', () => {
+  test('uses bash and start.sh on non-Windows platforms', () => {
+    const root = path.join('tmp', 'studio project');
+    const scriptPath = path.join(root, 'start.sh');
+    assert.deepStrictEqual(selectStudioLauncher(root, ['up', '--fdw'], 'linux'), {
+      command: 'bash',
+      args: [scriptPath, 'up', '--fdw'],
+      scriptPath,
+      label: 'start.sh',
+    });
+  });
+
+  test('uses native noninteractive Windows PowerShell and start.ps1 on win32', () => {
+    const winPath = path.win32;
+    const root = 'C:\\studio project';
+    const scriptPath = winPath.join(root, 'start.ps1');
+    assert.deepStrictEqual(selectStudioLauncher(root, ['exec', '-T', 'postgres'], 'win32', winPath), {
+      command: 'powershell.exe',
+      args: [
+        '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+        '-File', scriptPath, 'exec', '-T', 'postgres',
+      ],
+      scriptPath,
+      label: 'start.ps1',
+    });
+  });
 });
 
 describe('runtime mode defaults', () => {
   test('npm start defaults to production when no mode override is supplied', () => {
-    const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-    assert.match(source, /requested \|\| process\.env\.STUDIO_MODE \|\| 'production'/);
+    const source = readServerSources();
+    assert.match(source, /requested \|\| env\.STUDIO_MODE \|\| 'production'/);
   });
 });
 
 describe('basics', () => {
   test('GET /api/health answers with the resolved project root', async () => {
-    const r = await fetch(`${BASE}/api/health`);
+    const r = await api('/api/health',{method:'GET'});
     const body = await r.json();
     assert.strictEqual(r.status, 200);
     assert.strictEqual(body.ok, true);
@@ -87,7 +153,7 @@ describe('basics', () => {
   });
 
   test('GET / serves the GUI', async () => {
-    const r = await fetch(`${BASE}/`);
+    const r = await api('/',{method:'GET'});
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.headers.get('cache-control'), 'no-store');
     const html = await r.text();
@@ -98,7 +164,7 @@ describe('basics', () => {
   });
 
   test('GET /api/runtime-profile reports the selected npm-start mode', async () => {
-    const r = await fetch(`${BASE}/api/runtime-profile`);
+    const r = await api('/api/runtime-profile',{method:'GET'});
     const body = await r.json();
     assert.strictEqual(r.status, 200);
     assert.deepStrictEqual(body, { ok:true, mode:'production', isDemo:false, isProduction:true });
@@ -106,12 +172,144 @@ describe('basics', () => {
 });
 
 describe('Studio-managed Postgres bootstrap scope', () => {
+  function runVaultPasswordInit(dumpSource, env = {}){
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dvs-init-test-'));
+    const dumpPath = path.join(temp, '02-dump.sql');
+    const scriptPath = path.join(temp, '01-vault-password.sh');
+    fs.writeFileSync(dumpPath, dumpSource);
+    const source = fs.readFileSync(path.join(__dirname, '..', '..', 'db-init', '01-vault-password.sh'), 'utf8')
+      .replace('DUMP_FILE="/docker-entrypoint-initdb.d/02-dump.sql"', `DUMP_FILE=${JSON.stringify(dumpPath)}`);
+    fs.writeFileSync(scriptPath, source, { mode:0o755 });
+    const sedPath = path.join(temp, 'sed');
+    fs.writeFileSync(sedPath, '#!/bin/bash\nif [ "$1" = "-i" ]; then shift; exec /usr/bin/sed -i "" "$@"; fi\nexec /usr/bin/sed "$@"\n', { mode:0o755 });
+    const result = spawnSync('bash', [scriptPath], {
+      encoding:'utf8',
+      env:{ ...process.env, PATH:`${temp}:${process.env.PATH}`, VAULT_PASSWORD:'test_password', ...env },
+    });
+    const dump = fs.readFileSync(dumpPath, 'utf8');
+    fs.rmSync(temp, { recursive:true, force:true });
+    return { ...result, dump };
+  }
+
+  test('internal init validates and exactly rewrites the default target database fallback', () => {
+    const source = '\\set unrelated datavault\n\\set target_database datavault\nSELECT \'VAULT_PASSWORD\';\n';
+    const valid = runVaultPasswordInit(source, { INTERNAL_DATA_VAULT_DATABASE:'Customer_Vault2' });
+    assert.strictEqual(valid.status, 0, valid.stderr);
+    assert.match(valid.dump, /^\\set target_database Customer_Vault2$/m);
+    assert.doesNotMatch(valid.dump, /^\\set target_database datavault$/m);
+    assert.match(valid.dump, /^\\set unrelated datavault$/m, 'only the exact fallback line is rewritten');
+
+    const defaulted = runVaultPasswordInit(source);
+    assert.strictEqual(defaulted.status, 0, defaulted.stderr);
+    assert.match(defaulted.dump, /^\\set target_database datavault$/m);
+
+    for (const database of ['9vault', 'vault-name', 'vault; SELECT 1']) {
+      const invalid = runVaultPasswordInit(source, { INTERNAL_DATA_VAULT_DATABASE:database });
+      assert.notStrictEqual(invalid.status, 0);
+      assert.match(invalid.stderr + invalid.stdout, /plain SQL identifier/i);
+      assert.match(invalid.dump, /^\\set target_database datavault$/m);
+    }
+  });
+
+  test('external init keeps the fallback target line and injects only core target-role grants', () => {
+    const source = '\\set target_database datavault\nDO $$\nBEGIN\n  NULL;\nEND\n$$;\nSELECT \'VAULT_PASSWORD\';\n';
+    const result = runVaultPasswordInit(source, {
+      EXTERNAL_POSTGRES_BOOTSTRAP:'true',
+      POSTGRES_BOOTSTRAP_USER:'bootstrap_admin',
+      INTERNAL_DATA_VAULT_DATABASE:'must_not_apply',
+    });
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.match(result.dump, /^\\set target_database datavault$/m);
+    assert.doesNotMatch(result.dump, /must_not_apply/);
+    assert.match(result.dump, /External bootstrap role grants added by 01-vault-password\.sh/);
+    assert.match(result.dump, /GRANT pdi_meta TO "bootstrap_admin";/);
+    assert.match(result.dump, /GRANT staging TO "bootstrap_admin";/);
+    assert.match(result.dump, /GRANT data_vault TO "bootstrap_admin";/);
+    assert.doesNotMatch(result.dump, /GRANT sakila TO "bootstrap_admin";/);
+  });
+
+  test('parameterizes the operational database name for internal and external bootstrap', () => {
+    const dump = fs.readFileSync(path.join(__dirname, '..', '..', 'db-init', '02-dump.sql'), 'utf8');
+    const compose = fs.readFileSync(path.join(__dirname, '..', '..', 'docker-compose.yaml'), 'utf8');
+    const wrapper = readExternalPostgresBootstrap();
+
+    assert.match(compose, /^\s+INTERNAL_DATA_VAULT_DATABASE: \$\{INTERNAL_DATA_VAULT_DATABASE:-datavault\}$/m);
+
+    assert.match(dump, /\\if :\{\?target_database\}[\s\S]*\\set target_database datavault[\s\S]*\\endif/);
+    assert.match(dump, /format\('CREATE DATABASE %I OWNER data_vault', :'target_database'\)/);
+    assert.match(dump, /\\connect :target_database/);
+    for (const hardcoded of [
+      /CREATE DATABASE datavault/i,
+      /ALTER DATABASE datavault/i,
+      /\\connect\s+datavault/i,
+      /IN DATABASE datavault/i,
+    ]) assert.doesNotMatch(dump, hardcoded);
+    assert.doesNotMatch(dump, /DROP\s+DATABASE/i);
+
+    assert.match(wrapper, /\[\[ ! "\$TARGET_DATABASE" =~ \^\[a-zA-Z_\]\[a-zA-Z0-9_\]\*\$ \]\]/);
+    assert.match(wrapper, /format\('CREATE DATABASE %I', :'target_database'\)/);
+    assert.strictEqual((wrapper.match(/-v target_database="\$TARGET_DATABASE"/g) || []).length, 2);
+  });
+
+  test('core PostgreSQL bootstrap contains no Sakila target role or schema', () => {
+    const dump = fs.readFileSync(path.join(__dirname, '..', '..', 'db-init', '02-dump.sql'), 'utf8');
+    const wrapper = readExternalPostgresBootstrap();
+
+    assert.doesNotMatch(dump, /\bsakila\b/i);
+    assert.doesNotMatch(dump, /include_sakila/i);
+    assert.doesNotMatch(wrapper, /include_sakila/i);
+    assert.match(dump, /ARRAY\['pdi_meta', 'staging', 'data_vault'\]/);
+    assert.match(dump, /SET search_path TO staging, data_vault, pdi_meta, public/);
+  });
+
+  test('external bootstrap uses the exact ordered core-file allowlist and requires regular files', () => {
+    const wrapper = readExternalPostgresBootstrap();
+    const allowlist = wrapper.match(/core_files=\(\n([\s\S]*?)\n\)/);
+
+    assert.ok(allowlist, 'core bootstrap allowlist should be declared explicitly');
+    assert.deepStrictEqual(
+      [...allowlist[1].matchAll(/"\$INIT_DIR\/([^"]+)"/g)].map(match => match[1]),
+      ['01-vault-password.sh', '02-dump.sql']);
+    assert.match(wrapper, /if \[ ! -d "\$INIT_DIR" \]; then[\s\S]*fail "Init directory not found: \$INIT_DIR"/);
+    assert.match(wrapper, /for core_file in "\$\{core_files\[@\]\}"; do[\s\S]*if \[ ! -f "\$core_file" \]; then[\s\S]*fail "Required core bootstrap file not found or not a regular file: \$core_file"[\s\S]*done/);
+  });
+
+  test('external bootstrap logs every non-core entry and has no generic extension dispatcher', () => {
+    const wrapper = readExternalPostgresBootstrap();
+    const enumeration = wrapper.slice(
+      wrapper.indexOf('for entry in "${init_entries[@]}"; do'),
+      wrapper.indexOf('\ndone', wrapper.indexOf('for entry in "${init_entries[@]}"; do')) + '\ndone'.length);
+    const allowlist = wrapper.match(/core_files=\(\n([\s\S]*?)\n\)/)[1];
+
+    assert.match(wrapper, /shopt -s nullglob dotglob[\s\S]*init_entries=\("\$INIT_DIR"\/\*\)/);
+    assert.match(enumeration, /01-vault-password\.sh\|02-dump\.sql\)[\s\S]*\*\)[\s\S]*Skipping non-core file during external PostgreSQL bootstrap: \$base_file/);
+    for (const excluded of ['03-ddls.sql', '04-project.sql', '05-metadata.sql']) {
+      assert.ok(!allowlist.includes(excluded), `${excluded} must not be in the core allowlist`);
+    }
+    assert.doesNotMatch(wrapper, /\*\.(?:sh|sql|sql\.gz)\)/);
+    assert.doesNotMatch(wrapper, /gunzip|Running compressed SQL bootstrap file/);
+  });
+
+  test('external bootstrap executes 01 then 02 with target_database before writing the marker', () => {
+    const wrapper = readExternalPostgresBootstrap();
+    const shellIndex = wrapper.indexOf('bash "${core_files[0]}"');
+    const sqlIndex = wrapper.indexOf('-f "${core_files[1]}"');
+    const markerIndex = wrapper.lastIndexOf('write_bootstrap_marker');
+    const sqlExecution = wrapper.slice(wrapper.lastIndexOf('psql \\', sqlIndex), sqlIndex + '-f "${core_files[1]}"'.length);
+
+    assert.ok(shellIndex >= 0, '01-vault-password.sh should execute with bash');
+    assert.ok(sqlIndex > shellIndex, '02-dump.sql should execute after 01-vault-password.sh');
+    assert.ok(markerIndex > sqlIndex, 'the marker should be written only after both core files succeed');
+    assert.match(sqlExecution, /-d "\$POSTGRES_BOOTSTRAP_DATABASE"[\s\S]*-v ON_ERROR_STOP=1[\s\S]*-v target_database="\$TARGET_DATABASE"/);
+  });
+
   test('always masks generated 03-ddls.sql while keeping FDW packaging opt-in', () => {
     const dockerfile = fs.readFileSync(path.join(__dirname, '..', '..', 'postgres', 'Dockerfile'), 'utf8');
     const fdwDockerfile = fs.readFileSync(path.join(__dirname, '..', '..', 'postgres', 'Dockerfile.fdw'), 'utf8');
     const studioOverride = fs.readFileSync(path.join(__dirname, '..', '..', 'docker-compose.studio.yaml'), 'utf8');
     const fdwOverride = fs.readFileSync(path.join(__dirname, '..', '..', 'docker-compose.fdw.yaml'), 'utf8');
     const startScript = fs.readFileSync(path.join(__dirname, '..', '..', 'start.sh'), 'utf8');
+    const startPowerShell = fs.readFileSync(path.join(__dirname, '..', '..', 'start.ps1'), 'utf8');
     const noOpDdl = fs.readFileSync(path.join(__dirname, '..', '..', 'docker', 'studio-skip-ddls.sql'), 'utf8');
 
     assert.match(dockerfile, /^FROM postgres:17$/m);
@@ -120,8 +318,43 @@ describe('Studio-managed Postgres bootstrap scope', () => {
 
     assert.match(studioOverride, /studio-skip-ddls\.sql:\/docker-entrypoint-initdb\.d\/03-ddls\.sql:ro/);
     assert.doesNotMatch(studioOverride, /Dockerfile\.fdw|jdbc-drivers/);
-    assert.match(startScript, /COMPOSE_FILE="docker-compose\.yaml:docker-compose\.studio\.yaml"/);
+    assert.match(startScript, /if \[ "\$build_requested" = true \] && \[ "\$studio_build" = false \] && \[ "\$external_postgres" = false \] && \[ "\$fdw_mode" = false \]; then/);
+    assert.match(startPowerShell, /if \(\$BuildRequested -and -not \$StudioBuild -and -not \$ExternalPostgres -and -not \$FdwMode\) \{/);
+    assert.match(startScript, /COMPOSE_FILE="docker-compose\.yaml"/);
+    assert.match(startScript, /COMPOSE_FILE="\$\{COMPOSE_FILE\}:docker-compose\.studio\.yaml"/);
     assert.match(startScript, /COMPOSE_FILE="\$\{COMPOSE_FILE\}:docker-compose\.fdw\.yaml"/);
+
+    for (const launcher of [startScript, startPowerShell]) {
+      assert.match(launcher, /--studio-build/);
+      assert.match(launcher, /studio-build[\s\S]{0,180}--build/);
+      assert.match(launcher, /studio-build[\s\S]*external-postgres[\s\S]{0,240}(?:only valid|Write-Error)/i);
+    }
+    assert.ok(
+      startScript.indexOf('docker-compose.studio.yaml') < startScript.lastIndexOf('docker-compose.fdw.yaml'),
+      'Bash must apply the Studio override before the FDW override');
+    assert.ok(
+      startPowerShell.indexOf('docker-compose.studio.yaml') < startPowerShell.lastIndexOf('docker-compose.fdw.yaml'),
+      'PowerShell must apply the Studio override before the FDW override');
+    assert.doesNotMatch(startScript, /compose[^\n]*--studio-build/);
+    assert.doesNotMatch(startPowerShell, /ComposeArgs[^\n]*--studio-build/);
+
+    const shellBootstrap = startScript.slice(
+      startScript.indexOf('  bootstrap-external-postgres)'),
+      startScript.indexOf('\n  up)', startScript.indexOf('  bootstrap-external-postgres)')));
+    const powershellBootstrap = startPowerShell.slice(
+      startPowerShell.indexOf('    "bootstrap-external-postgres" {'),
+      startPowerShell.indexOf('\n    "up" {', startPowerShell.indexOf('    "bootstrap-external-postgres" {')));
+    assert.match(shellBootstrap, /ensure_license_accepted/);
+    assert.match(shellBootstrap, /COMPOSE_FILE="docker-compose\.yaml:docker-compose\.studio\.yaml"/);
+    assert.match(shellBootstrap, /export DEMO_MODE=false[\s\S]*export WAIT_FOR_MYSQL=false/);
+    assert.match(shellBootstrap, /compose --profile external-postgres-bootstrap build metadata-bootstrap[\s\S]*compose --profile external-postgres-bootstrap run --rm metadata-bootstrap[\s\S]*exit 0/);
+    assert.doesNotMatch(shellBootstrap, /build hop|\bup\b/);
+    assert.match(powershellBootstrap, /Ensure-LicenseAccepted/);
+    assert.match(powershellBootstrap, /\[IO\.Path\]::PathSeparator/);
+    assert.match(powershellBootstrap, /COMPOSE_FILE = "docker-compose\.yaml\$\{ComposeFileSeparator\}docker-compose\.studio\.yaml"/);
+    assert.match(powershellBootstrap, /DEMO_MODE = "false"[\s\S]*WAIT_FOR_MYSQL = "false"/);
+    assert.match(powershellBootstrap, /external-postgres-bootstrap", "build", "metadata-bootstrap"[\s\S]*external-postgres-bootstrap", "run", "--rm", "metadata-bootstrap"[\s\S]*exit 0/);
+    assert.doesNotMatch(powershellBootstrap, /build", "hop"|"up"/);
 
     assert.match(fdwDockerfile, /^FROM postgres:17\.10-bookworm AS jdbc-fdw-build$/m);
     assert.match(fdwDockerfile, /https:\/\/apt\.postgresql\.org/);
@@ -322,7 +555,7 @@ describe('file-status', () => {
 
 describe('driver-status', () => {
   test('reports no MySQL driver when jdbc-drivers/ is empty or missing', async () => {
-    const r = await fetch(`${BASE}/api/driver-status`);
+    const r = await api('/api/driver-status',{method:'GET'});
     const body = await r.json();
     assert.strictEqual(body.ok, true);
     assert.strictEqual(body.mysqlDriver, null);
@@ -335,7 +568,7 @@ describe('driver-status', () => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'mysql-connector-j-9.7.0.jar'), 'stub');
     fs.writeFileSync(path.join(dir, 'notes.txt'), 'ignored'); // non-jar ignored
-    const r = await fetch(`${BASE}/api/driver-status`);
+    const r = await api('/api/driver-status',{method:'GET'});
     const body = await r.json();
     assert.strictEqual(body.mysqlDriver, 'mysql-connector-j-9.7.0.jar');
     assert.deepStrictEqual(body.jars, ['mysql-connector-j-9.7.0.jar']);
@@ -346,7 +579,7 @@ describe('driver-status', () => {
     const dir = path.join(projectRoot, 'jdbc-drivers');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'mssql-jdbc-13.4.0.jre11.jar'), 'stub');
-    const r = await fetch(`${BASE}/api/driver-status`);
+    const r = await api('/api/driver-status',{method:'GET'});
     const body = await r.json();
     assert.strictEqual(body.sqlServerDriver, 'mssql-jdbc-13.4.0.jre11.jar');
     assert.deepStrictEqual(body.jars, ['mssql-jdbc-13.4.0.jre11.jar']);
@@ -397,9 +630,6 @@ describe('external storage deployment API guards', () => {
     assert.strictEqual(r.status, 400);
     assert.match((await r.json()).error, /plain identifier/i);
 
-    r = await api('/api/external-table-status', { body: { dialect:'sqlserver', host:'127.0.0.1', database:'dv', schema:'dbo', user:'x', tables:['hub_ok','bad-name'] } });
-    assert.strictEqual(r.status, 400);
-    assert.match((await r.json()).error, /plain identifier/i);
   });
 
   test('external SQL execution requires a non-empty script', async () => {
@@ -428,7 +658,7 @@ describe('scheduler config', () => {
   });
 
   test('status endpoint reflects persisted state', async () => {
-    const r = await fetch(`${BASE}/api/scheduler/status`);
+    const r = await api('/api/scheduler/status',{method:'GET'});
     const body = await r.json();
     assert.strictEqual(body.ok, true);
     assert.strictEqual(typeof body.intervalMinutes, 'number');
@@ -436,10 +666,45 @@ describe('scheduler config', () => {
 });
 
 describe('docker endpoints stay fixed-command and answer JSON', () => {
-  test('docker/logs returns a JSON envelope even when docker is unavailable', async () => {
-    const r = await api('/api/docker/logs', { body: { tail: 50 } });
-    const body = await r.json();
-    assert.strictEqual(typeof body.ok, 'boolean'); // ok:false w/ error when docker is missing — never a crash
+  test('logs and status endpoints use exact launcher arguments', async () => {
+    const logPath = path.join(projectRoot, 'args.log');
+    const cases = [
+      ['/api/docker/logs', { tail: 50 }, 'logs --no-color --tail 50 hop', { ok:true, logs:'' }],
+      ['/api/docker/logs', { tail: 99999 }, 'logs --no-color --tail 2000 hop', { ok:true, logs:'' }],
+      ['/api/docker/hop-status', {}, 'ps -a --format json hop', {
+        ok:true, present:false, running:false, state:'', status:'', exitCode:null, name:'',
+      }],
+      ['/api/docker/status', {}, 'ps --format json', { ok:true, containers:[] }],
+    ];
+    for (const [route, body, expectedArgs, expectedPayload] of cases) {
+      fs.rmSync(logPath, { force: true });
+      const response = await api(route, { body });
+      assert.deepStrictEqual(await response.json(), expectedPayload, route);
+      assert.strictEqual(fs.readFileSync(logPath, 'utf8').trim(), expectedArgs, route);
+    }
+  });
+
+  test('stop-hop always uses exact fixed launcher arguments and returns its result', async () => {
+    const logPath = path.join(projectRoot, 'args.log');
+    for (const body of [
+      {},
+      { args:['down'], service:'postgres' },
+      { command:'stop postgres; rm -rf /', mode:'evil' },
+    ]){
+      fs.rmSync(logPath, { force:true });
+      const response = await api('/api/docker/stop-hop', { body });
+      assert.strictEqual(response.status, 200);
+      assert.deepStrictEqual(await response.json(), {
+        ok:true, code:0, stdout:'', stderr:'', args:'stop hop',
+      });
+      assert.strictEqual(fs.readFileSync(logPath, 'utf8').trim(), 'stop hop');
+    }
+  });
+
+  test('engine routes never spawn a hardcoded container engine command', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'server', 'routes', 'engine.js'), 'utf8');
+    assert.doesNotMatch(source, /spawn\s*\(\s*['"](?:docker|docker-compose|podman)['"]/);
+    assert.doesNotMatch(source, /runComposeCommand/);
   });
 
   test('start-db/stop-db reject services outside the allowlist', async () => {
@@ -463,22 +728,47 @@ describe('docker endpoints stay fixed-command and answer JSON', () => {
     }
   });
 
-  test('start-db uses the FDW compose override only when explicitly requested', async () => {
+  test('start-db uses exact native/FDW commands and postgres-only database overrides', async () => {
     const logPath = path.join(projectRoot, 'args.log');
     const envLogPath = path.join(projectRoot, 'env.log');
     fs.rmSync(logPath, { force: true });
     fs.rmSync(envLogPath, { force: true });
     await api('/api/docker/start-db', { body: { service: 'mysql' } });
-    await api('/api/docker/start-db', { body: { service: 'postgres' } });
-    await api('/api/docker/start-db', { body: { service: 'postgres', fdw: true } });
+    await api('/api/docker/start-db', { body: { service: 'postgres', database: 'Customer_Vault2' } });
+    await api('/api/docker/start-db', { body: { service: 'postgres', database: 'fdw_vault', fdw: true } });
     const log = fs.readFileSync(logPath, 'utf8').trim().split('\n');
-    const envLog = fs.readFileSync(envLogPath, 'utf8').split('\n');
-    assert.strictEqual(log[0], 'up --demo -d mysql');
-    assert.strictEqual(log[1], 'up -d postgres');
-    assert.strictEqual(log[2], 'up --fdw -d postgres');
-    assert.strictEqual(envLog[0], '');
-    assert.strictEqual(envLog[1], '');
-    assert.strictEqual(envLog[2], '');
+    const envLog = fs.readFileSync(envLogPath, 'utf8').trimEnd().split('\n');
+    assert.deepStrictEqual(log, [
+      'up --demo -d mysql',
+      'up --studio-build -d postgres',
+      'up --fdw --build --force-recreate -d postgres',
+    ]);
+    assert.deepStrictEqual(envLog, ['', 'Customer_Vault2', 'fdw_vault']);
+  });
+
+  test('start-db defaults blank postgres names and rejects unsafe names before invoking the launcher', async () => {
+    const logPath = path.join(projectRoot, 'args.log');
+    const envLogPath = path.join(projectRoot, 'env.log');
+    for (const database of [undefined, '', '   ']) {
+      fs.rmSync(logPath, { force: true });
+      fs.rmSync(envLogPath, { force: true });
+      const body = { service:'postgres' };
+      if (database !== undefined) body.database = database;
+      const response = await api('/api/docker/start-db', { body });
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual((await response.json()).database, 'datavault');
+      assert.strictEqual(fs.readFileSync(envLogPath, 'utf8').trim(), 'datavault');
+    }
+    for (const database of ['9vault', 'vault-name', 'vault; touch /tmp/injected', 'vault name', ' vault', 'vault ', {}, 12]) {
+      fs.rmSync(logPath, { force: true });
+      const response = await api('/api/docker/start-db', { body: { service:'postgres', database } });
+      assert.strictEqual(response.status, 400, JSON.stringify(database));
+      assert.match((await response.json()).error, /plain SQL identifier/i);
+      assert.strictEqual(fs.existsSync(logPath), false, 'invalid database must not reach start.sh');
+    }
+    const mysql = await api('/api/docker/start-db', { body: { service:'mysql', database:'datavault' } });
+    assert.strictEqual(mysql.status, 400);
+    assert.match((await mysql.json()).error, /only valid for the postgres/i);
   });
 
   test('FDW mode is rejected for MySQL and non-boolean values', async () => {
@@ -651,9 +941,17 @@ describe('env-defaults', () => {
 
 describe('bootstrap endpoint', () => {
   const licPath = () => path.join(projectRoot, 'LICENSE');
+  const argsPath = () => path.join(projectRoot, 'args.log');
+  const envPath = () => path.join(projectRoot, 'env.log');
+  async function acceptLicense(){
+    fs.writeFileSync(licPath(), 'TEST LICENSE\n');
+    await api('/api/license-accept', { body: { accept: true } });
+  }
   afterEach(() => {
     fs.rmSync(licPath(), { force: true });
     fs.rmSync(path.join(projectRoot, '.license-state'), { recursive: true, force: true });
+    fs.rmSync(argsPath(), { force: true });
+    fs.rmSync(envPath(), { force: true });
   });
 
   test('refuses to run without an accepted license', async () => {
@@ -663,14 +961,81 @@ describe('bootstrap endpoint', () => {
     assert.match((await r.json()).error, /license/i);
   });
 
-  test('after acceptance it attempts the compose bootstrap (fixed args only)', async () => {
-    fs.writeFileSync(licPath(), 'TEST LICENSE\n');
-    await api('/api/license-accept', { body: { accept: true } });
+  test('external bootstrap uses only the dedicated fixed launcher subcommand', async () => {
+    await acceptLicense();
     const r = await (await api('/api/docker/bootstrap', { body: {} })).json();
-    // no docker in the test env — we only assert the gate opened and the
-    // response has the endpoint's shape, never a hang or a 403
-    assert.strictEqual(typeof r.ok, 'boolean');
-    if (!r.ok) assert.ok(r.error);
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.step, 'done');
+    assert.strictEqual(fs.readFileSync(argsPath(), 'utf8').trim(), 'bootstrap-external-postgres');
+  });
+
+  test('rejects invalid internal mode fields before invoking start.sh', async () => {
+    await acceptLicense();
+    for (const body of [
+      { mode: 'external' },
+      { database: 'vault-name' },
+      { fdw: 'true' },
+      { mode: 'internal' },
+      { mode: 'internal', database: '9vault' },
+      { mode: 'internal', database: 'vault; touch /tmp/injected' },
+      { mode: 'internal', database: 'vault-name' },
+      { mode: 'internal', database: 'vault', fdw: 'true' },
+    ]) {
+      const response = await api('/api/docker/bootstrap', { body });
+      assert.strictEqual(response.status, 400, JSON.stringify(body));
+      assert.strictEqual((await response.json()).ok, false);
+    }
+    assert.strictEqual(fs.existsSync(argsPath()), false, 'invalid fields must not reach start.sh');
+  });
+
+  test('internal native bootstrap uses only the exact fixed start.sh command sequence', async () => {
+    await acceptLicense();
+    const response = await api('/api/docker/bootstrap', { body: { mode:'internal', database:'customer_vault' } });
+    const body = await response.json();
+    assert.strictEqual(body.ok, true);
+    assert.strictEqual(body.step, 'done');
+    assert.strictEqual(body.mode, 'internal');
+    assert.strictEqual(body.database, 'customer_vault');
+    assert.deepStrictEqual(fs.readFileSync(argsPath(), 'utf8').trim().split('\n'), [
+      'up --studio-build --force-recreate -d postgres',
+      'exec -T postgres bash /docker-entrypoint-initdb.d/01-vault-password.sh',
+      'exec -T postgres psql -U dvuser -d postgres -v ON_ERROR_STOP=1 -v target_database=customer_vault -f /docker-entrypoint-initdb.d/02-dump.sql',
+    ]);
+    assert.deepStrictEqual(fs.readFileSync(envPath(), 'utf8').split('\n').slice(0, 3), ['customer_vault', '', '']);
+  });
+
+  test('internal FDW bootstrap selects the FDW build and keeps all exec arguments fixed', async () => {
+    await acceptLicense();
+    const response = await api('/api/docker/bootstrap', { body: { mode:'internal', database:'Customer_2', fdw:true } });
+    const body = await response.json();
+    assert.strictEqual(body.ok, true);
+    assert.strictEqual(body.database, 'Customer_2');
+    assert.deepStrictEqual(fs.readFileSync(argsPath(), 'utf8').trim().split('\n'), [
+      'up --fdw --build --force-recreate -d postgres',
+      'exec -T postgres bash /docker-entrypoint-initdb.d/01-vault-password.sh',
+      'exec -T postgres psql -U dvuser -d postgres -v ON_ERROR_STOP=1 -v target_database=Customer_2 -f /docker-entrypoint-initdb.d/02-dump.sql',
+    ]);
+    assert.deepStrictEqual(fs.readFileSync(envPath(), 'utf8').split('\n').slice(0, 3), ['Customer_2', '', '']);
+  });
+
+  test('internal bootstrap stops at the first failed step and identifies it', async () => {
+    await acceptLicense();
+    const startPath = path.join(projectRoot, 'start.sh');
+    const original = fs.readFileSync(startPath);
+    try {
+      fs.writeFileSync(startPath, '#!/bin/bash\necho "$@" >> args.log\nif [ "$1" = "exec" ]; then echo "password failed" >&2; exit 7; fi\nexit 0\n');
+      fs.chmodSync(startPath, 0o755);
+      const body = await (await api('/api/docker/bootstrap', { body: { mode:'internal', database:'safe_name' } })).json();
+      assert.strictEqual(body.ok, false);
+      assert.strictEqual(body.step, 'password');
+      assert.deepStrictEqual(fs.readFileSync(argsPath(), 'utf8').trim().split('\n'), [
+        'up --studio-build --force-recreate -d postgres',
+        'exec -T postgres bash /docker-entrypoint-initdb.d/01-vault-password.sh',
+      ]);
+    } finally {
+      fs.writeFileSync(startPath, original);
+      fs.chmodSync(startPath, 0o755);
+    }
   });
 });
 
@@ -790,5 +1155,98 @@ describe('allowlisted project .env credential deployment', () => {
     assert.strictEqual(response.status, 400);
     assert.match((await response.json()).error, /\.env file is read-only/i);
     assert.strictEqual(fs.readFileSync(envPath(), 'utf8'), original);
+  });
+});
+
+describe('Database Packs v0.2.2 manifest lifecycle', () => {
+  const pack = {
+    schemaVersion:1, featureVersion:'0.1.0', id:'testdb', label:'Test DB', version:'1.0.0',
+    connectionFields:[
+      {key:'endpoint',label:'Endpoint',type:'text',required:true},
+      {key:'catalog',label:'Catalog',type:'text',required:true,mapsTo:'catalog'},
+      {key:'schema',label:'Schema',type:'text',required:true,mapsTo:'schema'},
+      {key:'user',label:'User',type:'text',required:true,mapsTo:'user'},
+      {key:'password',label:'Password',type:'password',required:true,mapsTo:'password'}
+    ],
+    namespace:{usesCatalog:true,catalogLabel:'Catalog',usesSchema:true,schemaLabel:'Schema'},
+    jdbc:{driverClass:'com.example.Driver',jarfile:'testdb.jar',urlTemplate:'jdbc:testdb://{endpoint}/{catalog}?schema={schema}',testSql:'SELECT 1'},
+    source:{enabled:true,nativeTypeOverrides:{SPECIAL_XML:'XML'}},
+    target:{enabled:true,identifierQuote:'"',createSchemaSql:'CREATE SCHEMA IF NOT EXISTS {schema};',types:{STRING:'VARCHAR({length})',LARGE_TEXT:'CLOB',INTEGER:'INT',BIG_INTEGER:'BIGINT',DECIMAL:'DECIMAL({precision},{scale})',TIMESTAMP:'TIMESTAMP',BINARY:'BLOB',UNKNOWN:'CLOB'}},
+    fdw:{enabled:true,read:true,insert:true,update:false,delete:false,certified:false},
+    hop:{enabled:true,pluginId:'GENERIC',pluginName:'Generic database'}
+  };
+
+  test('imports, overwrites, lists, and deletes a pack directly in the Studio database-packs folder', async () => {
+    let r=await api('/api/database-packs',{body:{pack}}); let data=await r.json();
+    assert.strictEqual(r.status,200); assert.strictEqual(data.pack.version,'1.0.0'); assert.strictEqual(data.pack.driverPresent,false);
+    const directFile=path.join(projectRoot,'data_vault_studio','database-packs','testdb.json');
+    assert.ok(fs.existsSync(directFile));
+    assert.ok(!fs.existsSync(path.join(projectRoot,'data_vault_studio','database-packs','installed')));
+
+    r=await api('/api/database-packs',{method:'GET'}); data=await r.json();
+    assert.strictEqual(data.featureVersion,'0.2.2'); assert.ok(data.packs.some(p=>p.id==='testdb'&&p.version==='1.0.0')); assert.strictEqual(data.hopCatalog.databaseTypes.length,46);
+
+    const next={...pack,version:'1.1.0',label:'Test DB Updated'};
+    r=await api('/api/database-packs',{body:{pack:next}}); data=await r.json();
+    assert.strictEqual(data.pack.version,'1.1.0');
+    assert.strictEqual(JSON.parse(fs.readFileSync(directFile,'utf8')).version,'1.1.0');
+
+    r=await api('/api/database-packs/testdb',{method:'DELETE'}); data=await r.json();
+    assert.strictEqual(r.status,200); assert.strictEqual(data.removed.id,'testdb'); assert.ok(!fs.existsSync(directFile));
+  });
+
+  test('picks up any valid top-level pack JSON by manifest id, not by filename', async () => {
+    const manual={...pack,id:'manualdb',label:'Manual DB'};
+    const dir=path.join(projectRoot,'data_vault_studio','database-packs'); fs.mkdirSync(dir,{recursive:true});
+    const manualFile=path.join(dir,'manualdb.database-pack.v1.0.0.json');
+    fs.writeFileSync(manualFile,JSON.stringify(manual,null,2));
+    let r=await api('/api/database-packs',{method:'GET'}); let data=await r.json();
+    assert.strictEqual(r.status,200); assert.ok(data.packs.some(p=>p.id==='manualdb'&&p.label==='Manual DB'));
+    r=await api('/api/database-packs/manualdb',{method:'DELETE'}); data=await r.json();
+    assert.strictEqual(r.status,200); assert.strictEqual(data.removed.id,'manualdb'); assert.ok(!fs.existsSync(manualFile));
+  });
+
+  test('deduplicates multiple filenames for the same pack id and prefers canonical id.json', async () => {
+    const dir=path.join(projectRoot,'data_vault_studio','database-packs'); fs.mkdirSync(dir,{recursive:true});
+    fs.writeFileSync(path.join(dir,'duplicate-old.json'),JSON.stringify({...pack,id:'dedupdb',label:'Old copy',version:'1.0.0'},null,2));
+    fs.writeFileSync(path.join(dir,'dedupdb.json'),JSON.stringify({...pack,id:'dedupdb',label:'Canonical copy',version:'2.0.0'},null,2));
+    const r=await api('/api/database-packs',{method:'GET'}); const data=await r.json();
+    const matches=data.packs.filter(p=>p.id==='dedupdb');
+    assert.strictEqual(matches.length,1); assert.strictEqual(matches[0].version,'2.0.0'); assert.strictEqual(matches[0].label,'Canonical copy');
+  });
+
+
+  test('accepts a minimal source pack, derives normal fields, keeps the stored JSON minimal, and defaults target/FDW off', async () => {
+    const driverDir=path.join(projectRoot,'jdbc-drivers'); fs.mkdirSync(driverDir,{recursive:true});
+    fs.writeFileSync(path.join(driverDir,'example-jdbc.jar'),'test');
+    const minimal={schemaVersion:1,id:'exampledb',label:'Example DB',version:'1.0.0',jdbc:{driverClass:'com.example.Driver',jarfile:'example-jdbc.jar',urlTemplate:'jdbc:example://{host}:{port}/{database}',defaultPort:7777},namespace:{defaultSchema:'APP'}};
+    const r=await api('/api/database-packs',{body:{pack:minimal,requireDriver:true}}); const data=await r.json();
+    assert.strictEqual(r.status,200); assert.strictEqual(data.pack.driverPresent,true); assert.strictEqual(data.pack.driverFile,'example-jdbc.jar');
+    assert.deepStrictEqual(data.pack.connectionFields.map(f=>f.key),['host','port','database','schema','user','password']);
+    assert.strictEqual(data.pack.connectionFields.find(f=>f.key==='port').default,'7777');
+    assert.strictEqual(data.pack.connectionFields.find(f=>f.key==='schema').default,'APP');
+    assert.strictEqual(data.pack.target.enabled,false); assert.strictEqual(data.pack.fdw.enabled,false);
+    const stored=JSON.parse(fs.readFileSync(path.join(projectRoot,'data_vault_studio','database-packs','exampledb.json'),'utf8'));
+    assert.strictEqual(stored.connectionFields,undefined); assert.strictEqual(stored.source,undefined); assert.strictEqual(stored.target,undefined); assert.strictEqual(stored.fdw,undefined); assert.strictEqual(stored.hop,undefined); assert.strictEqual(stored.featureVersion,undefined);
+  });
+
+  test('wizard-style installation requires the named driver to already exist in project-root jdbc-drivers', async () => {
+    const minimal={schemaVersion:1,id:'missingdriver',label:'Missing Driver DB',version:'1.0.0',jdbc:{driverClass:'com.example.Driver',jarfile:'missing-driver.jar',urlTemplate:'jdbc:missing://{host}:{port}/{database}',defaultPort:9999}};
+    const r=await api('/api/database-packs',{body:{pack:minimal,requireDriver:true}}); const data=await r.json();
+    assert.strictEqual(r.status,400); assert.match(data.error,/jdbc-drivers/i); assert.match(data.error,/missing-driver\.jar/i);
+    assert.ok(!fs.existsSync(path.join(projectRoot,'data_vault_studio','database-packs','missingdriver.json')));
+  });
+
+  test('rejects manifests whose JDBC URL references an undeclared connection field', async () => {
+    const invalid={...pack,id:'badpack',jdbc:{...pack.jdbc,urlTemplate:'jdbc:test://{missing_field}'}};
+    const r=await api('/api/database-packs',{body:{pack:invalid}}); const data=await r.json();
+    assert.strictEqual(r.status,400); assert.match(data.error,/unknown field/i);
+  });
+
+  test('rejects legacy direct SQL Server source connections so SQL Server is exercised through a Database Pack', async () => {
+    const r=await api('/api/test-connection',{body:{dialect:'sqlserver',host:'127.0.0.1',port:1433,database:'Sales',user:'sa',password:'secret'}});
+    const data=await r.json();
+    assert.strictEqual(r.status,400);
+    assert.match(data.error,/Unsupported source dialect "sqlserver"/i);
   });
 });

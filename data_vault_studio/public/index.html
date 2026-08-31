@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Millersoft — Data Vault Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/studio.css">
+<script src="js/core/theme.js"></script>
+</head>
+<body>
+
+<div id="toast-wrap"></div>
+
+<div class="topbar">
+  <a class="brand" href="https://millersoft.co/data-vault-services" target="_blank" rel="noopener" title="Millersoft — Data Vault services &amp; support">
+    <img class="brand-mark-logo" src="https://millersoft.co/img/data-vault/dvs-header-image.png" alt="Millersoft" referrerpolicy="no-referrer-when-downgrade">
+    <div class="brand-sub" style="margin-left:10px;">Data Vault Studio</div>
+  </a>
+  <div class="topbar-actions">
+    <span class="topbar-links">
+      <a href="https://millersoft.co/data-vault-services" target="_blank" rel="noopener">Support</a>
+    </span>
+    <span class="legend">
+      <span><span class="sw hub"></span>hub</span>
+      <span><span class="sw link"></span>link</span>
+      <span><span class="sw sat"></span>satellite</span>
+    </span>
+    <label class="theme-switch" title="Switch between light and dark mode">
+      <span class="theme-switch-icon">☼</span>
+      <input type="checkbox" id="theme-switch-input">
+      <span class="theme-switch-track"><span class="theme-switch-thumb"></span></span>
+      <span class="theme-switch-icon">☾</span>
+    </label>
+    <span id="topbar-project-actions">
+      <button class="btn small ghost" id="btn-new-project">New project</button>
+      <button class="btn small" id="btn-save-project">Save project</button>
+      <button class="btn small" id="btn-load-project">Load project</button>
+      <input type="file" id="file-load-project" accept=".json" style="display:none;">
+    </span>
+  </div>
+</div>
+
+<div class="mode-switch" id="mode-switch">
+  <button class="mode-btn" id="mode-home">Home</button>
+  <button class="mode-btn active" id="mode-designer">Designer</button>
+  <button class="mode-btn" id="mode-dashboard">Data Vault Hub</button>
+  <button class="mode-btn" id="mode-studioplus">Studio Plus</button>
+</div>
+
+<div class="tabs" id="tabs"></div>
+<main id="main"></main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+<script>
+const STUDIO_RUNTIME_MODE = '__STUDIO_RUNTIME_MODE__' === 'demo' ? 'demo' : 'production';
+</script>
+<script src="js/core/feature-gates-runtime.js"></script>
+<script src="js/database-packs/registry.js"></script>
+<script src="js/core/state.js"></script>
+<script src="js/core/undo-and-guards.js"></script>
+<script src="js/domain/derivations.js"></script>
+<script src="js/generators/source-extract-sql.js"></script>
+<script src="js/core/navigation.js"></script>
+
+<script src="js/features/driver-ui.js"></script>
+<script src="js/database-packs/wizard.js"></script>
+<script src="js/features/connections.js"></script>
+
+<script src="js/core/api.js"></script>
+<script src="js/features/connection-actions.js"></script>
+<script src="js/features/source-introspection.js"></script>
+<script src="js/domain/schema-drift.js"></script>
+
+<script src="js/features/tables.js"></script>
+
+<script src="js/features/staging.js"></script>
+
+<script src="js/features/vault.js"></script>
+<script src="js/features/external-storage.js"></script>
+<script src="js/ui/vault-diagram.js"></script>
+<script src="js/features/hubs.js"></script>
+<script src="js/features/links.js"></script>
+<script src="js/features/satellites.js"></script>
+
+<script src="js/features/ai-assist.js"></script>
+<script src="js/domain/suggestions.js"></script>
+<script src="js/domain/model-coverage.js"></script>
+
+<script src="js/domain/staging-columns.js"></script>
+<script src="js/generators/staging-base-ddl.js"></script>
+<script src="js/generators/staging-view-ddl.js"></script>
+<script src="js/generators/staging-ddl.js"></script>
+<script src="js/generators/vault-ddl.js"></script>
+<script src="js/generators/external-ddl.js"></script>
+<script src="js/generators/hop-config.js"></script>
+<script src="js/generators/pdi-metadata.js"></script>
+<script src="js/generators/workbook.js"></script>
+<script src="js/domain/validation.js"></script>
+
+<script src="js/features/export-state.js"></script>
+<script src="js/features/deployment-status.js"></script>
+<script src="js/domain/target-diff.js"></script>
+<script src="js/features/export.js"></script>
+<script src="js/features/deployment-actions.js"></script>
+
+<script src="js/core/project.js"></script>
+<script src="js/core/autosave.js"></script>
+<script src="js/features/license.js"></script>
+
+<script src="js/features/dashboard.js"></script>
+<script src="js/features/studio-plus.js"></script>
+
+</body>
+</html>

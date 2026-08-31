@@ -213,7 +213,7 @@ The connection is determined by the the job parameter 'id_connection'.</descript
       <clear_rows>N</clear_rows>
       <create_parent_folder>N</create_parent_folder>
       <exec_per_row>N</exec_per_row>
-      <filename>${PROJECT_HOME}/data_vault/trf_data_vault_sat_generic_dv2.0.hpl</filename>
+      <filename>${PROJECT_HOME}/data_vault/trf_data_vault_sat_generic_dv2.0${TABLE_ERRORS}.hpl</filename>
       <loglevel>Basic</loglevel>
       <parameters>
         <pass_all_parameters>Y</pass_all_parameters>

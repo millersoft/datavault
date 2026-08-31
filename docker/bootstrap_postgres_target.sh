@@ -135,6 +135,10 @@ if [ -z "$TARGET_DATABASE" ]; then
   fail "data_vault_database_name is empty in $ENV_TEMPLATE_FILE"
 fi
 
+if [[ ! "$TARGET_DATABASE" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+  fail "Database name must be a plain identifier (letters, numbers, underscores, not starting with a number)."
+fi
+
 if [ -z "$POSTGRES_BOOTSTRAP_USER" ]; then
   fail "POSTGRES_BOOTSTRAP_USER is not set. Set this to the external Postgres admin/master user."
 fi
@@ -186,10 +190,11 @@ if is_truthy "$CREATE_EXTERNAL_DATABASE"; then
     -p "$TARGET_PORT" \
     -U "$POSTGRES_BOOTSTRAP_USER" \
     -d "$POSTGRES_BOOTSTRAP_DATABASE" \
-    -v ON_ERROR_STOP=1 <<SQL
-SELECT 'CREATE DATABASE ${TARGET_DATABASE}'
+    -v ON_ERROR_STOP=1 \
+    -v target_database="$TARGET_DATABASE" <<'SQL'
+SELECT format('CREATE DATABASE %I', :'target_database')
 WHERE NOT EXISTS (
-  SELECT FROM pg_database WHERE datname = '${TARGET_DATABASE}'
+  SELECT FROM pg_database WHERE datname = :'target_database'
 )\gexec
 SQL
 else
@@ -219,59 +224,44 @@ if [ ! -d "$INIT_DIR" ]; then
   fail "Init directory not found: $INIT_DIR"
 fi
 
-shopt -s nullglob
+core_files=(
+  "$INIT_DIR/01-vault-password.sh"
+  "$INIT_DIR/02-dump.sql"
+)
 
-init_files=("$INIT_DIR"/*)
+for core_file in "${core_files[@]}"; do
+  if [ ! -f "$core_file" ]; then
+    fail "Required core bootstrap file not found or not a regular file: $core_file"
+  fi
+done
 
-if [ "${#init_files[@]}" -eq 0 ]; then
-  fail "No init files found in $INIT_DIR"
-fi
+shopt -s nullglob dotglob
+init_entries=("$INIT_DIR"/*)
 
-echo "Running bootstrap files from $INIT_DIR"
-
-for file in "${init_files[@]}"; do
-  base_file="$(basename "$file")"
+for entry in "${init_entries[@]}"; do
+  base_file="$(basename "$entry")"
 
   case "$base_file" in
-    03-ddls.sql|03-ddls.sql.gz)
-      echo "Skipping project/demo-specific DDL file during external PostgreSQL bootstrap: $base_file"
-      echo "The GUI is expected to create staging, hub, link, and satellite tables."
-      continue
+    01-vault-password.sh|02-dump.sql)
       ;;
-  esac
-
-  case "$file" in
-    *.sh)
-      echo "Running shell bootstrap file: $file"
-      bash "$file"
-      ;;
-
-    *.sql)
-      echo "Running SQL bootstrap file: $file"
-      psql \
-        -h "$TARGET_HOST" \
-        -p "$TARGET_PORT" \
-        -U "$POSTGRES_BOOTSTRAP_USER" \
-        -d "$POSTGRES_BOOTSTRAP_DATABASE" \
-        -v ON_ERROR_STOP=1 \
-        -f "$file"
-      ;;
-
-    *.sql.gz)
-      echo "Running compressed SQL bootstrap file: $file"
-      gunzip -c "$file" | psql \
-        -h "$TARGET_HOST" \
-        -p "$TARGET_PORT" \
-        -U "$POSTGRES_BOOTSTRAP_USER" \
-        -d "$POSTGRES_BOOTSTRAP_DATABASE" \
-        -v ON_ERROR_STOP=1
-      ;;
-
     *)
-      echo "Skipping unsupported bootstrap file: $file"
+      echo "Skipping non-core file during external PostgreSQL bootstrap: $base_file"
       ;;
   esac
 done
+
+echo "Running shell bootstrap file: ${core_files[0]}"
+bash "${core_files[0]}"
+
+echo "Running SQL bootstrap file: ${core_files[1]}"
+psql \
+  -h "$TARGET_HOST" \
+  -p "$TARGET_PORT" \
+  -U "$POSTGRES_BOOTSTRAP_USER" \
+  -d "$POSTGRES_BOOTSTRAP_DATABASE" \
+  -v ON_ERROR_STOP=1 \
+  -v target_database="$TARGET_DATABASE" \
+  -f "${core_files[1]}"
 
 echo "Writing external PostgreSQL bootstrap marker..."
 write_bootstrap_marker

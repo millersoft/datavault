@@ -30,10 +30,13 @@ services:
       POSTGRES_USER: dvuser
       POSTGRES_PASSWORD: ${VAULT_PASSWORD}
       VAULT_PASSWORD: ${VAULT_PASSWORD}
+      INTERNAL_DATA_VAULT_DATABASE: ${INTERNAL_DATA_VAULT_DATABASE:-datavault}
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - datavault
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dvuser -d postgres"]
       interval: 10s
@@ -60,6 +63,8 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./mysql-init:/docker-entrypoint-initdb.d
+    networks:
+      - datavault
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${SOURCE_PASSWORD}"]
       interval: 10s
@@ -87,6 +92,8 @@ services:
     volumes:
       - ./hop/postgres-environment.json:/app/postgres-environment.json:ro
       - ./docker/bootstrap_postgres_target.sh:/usr/local/bin/bootstrap_postgres_target.sh:ro
+    networks:
+      - datavault
     entrypoint:
       - /bin/bash
       - /usr/local/bin/bootstrap_postgres_target.sh
@@ -131,6 +138,12 @@ services:
       - ./jdbc-drivers:/opt/hop/lib/jdbc-extra:ro
       - ./LICENSE:/app/LICENSE:ro
       - ./.license-state:/var/lib/datavault-hop
+    networks:
+      - datavault
+
+networks:
+  datavault:
+    driver: bridge
 
 volumes:
   postgres_data:

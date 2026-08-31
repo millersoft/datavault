@@ -18,13 +18,19 @@ SET row_security = off;
 -- Bootstrap: database, roles, schemas, and role search paths
 --
 -- Usage:
---   psql -d postgres -v shared_password='replace-with-a-secure-password' -f pdi_meta_data_vault_bootstrap.sql
+--   psql -d postgres -v target_database=datavault -v shared_password='replace-with-a-secure-password' -f pdi_meta_data_vault_bootstrap.sql
 --
 -- Notes:
 --   * Run this from a maintenance database such as postgres, not from inside a transaction.
---   * The executing account needs permission to create/alter roles and create/alter the data_vault database.
+--   * The executing account needs permission to create/alter roles and create/alter the target database.
+--   * target_database defaults to datavault when it is not supplied.
 --   * The password is supplied through the psql variable shared_password and is not stored in this file.
 --
+
+\if :{?target_database}
+\else
+\set target_database datavault
+\endif
 
 -- SET app.shared_password = :'shared_password';
 SET app.shared_password = 'VAULT_PASSWORD';
@@ -34,7 +40,7 @@ DECLARE
     shared_password text := current_setting('app.shared_password');
     role_name text;
 BEGIN
-    FOREACH role_name IN ARRAY ARRAY['pdi_meta', 'staging', 'data_vault', 'sakila']
+    FOREACH role_name IN ARRAY ARRAY['pdi_meta', 'staging', 'data_vault']
     LOOP
         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = role_name) THEN
             EXECUTE format('CREATE ROLE %I LOGIN PASSWORD %L', role_name, shared_password);
@@ -45,83 +51,69 @@ BEGIN
 END
 $$;
 
-SELECT 'CREATE DATABASE datavault OWNER data_vault'
-WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'datavault')\gexec
+SELECT format('CREATE DATABASE %I OWNER data_vault', :'target_database')
+WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'target_database')\gexec
 
-ALTER DATABASE datavault OWNER TO data_vault;
+SELECT format('ALTER DATABASE %I OWNER TO data_vault', :'target_database')\gexec
 
-\connect datavault
+\connect :target_database
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE SCHEMA IF NOT EXISTS pdi_meta AUTHORIZATION pdi_meta;
 CREATE SCHEMA IF NOT EXISTS staging AUTHORIZATION staging;
 CREATE SCHEMA IF NOT EXISTS data_vault AUTHORIZATION data_vault;
-CREATE SCHEMA IF NOT EXISTS sakila AUTHORIZATION sakila;
 
 ALTER SCHEMA pdi_meta OWNER TO pdi_meta;
 ALTER SCHEMA staging OWNER TO staging;
 ALTER SCHEMA data_vault OWNER TO data_vault;
-ALTER SCHEMA sakila OWNER TO sakila;
 
-ALTER DATABASE datavault SET search_path TO staging, data_vault, pdi_meta, sakila, public;
+SELECT format('ALTER DATABASE %I SET search_path TO staging, data_vault, pdi_meta, public', :'target_database')\gexec
 
-ALTER ROLE pdi_meta IN DATABASE datavault SET search_path = pdi_meta, pg_catalog, public;
-ALTER ROLE staging IN DATABASE datavault SET search_path = staging, pg_catalog, public;
-ALTER ROLE data_vault IN DATABASE datavault SET search_path = data_vault, pg_catalog, public;
-ALTER ROLE sakila IN DATABASE datavault SET search_path = sakila, pg_catalog, public;
+SELECT format('ALTER ROLE pdi_meta IN DATABASE %I SET search_path = pdi_meta, pg_catalog, public', :'target_database')\gexec
+SELECT format('ALTER ROLE staging IN DATABASE %I SET search_path = staging, pg_catalog, public', :'target_database')\gexec
+SELECT format('ALTER ROLE data_vault IN DATABASE %I SET search_path = data_vault, pg_catalog, public', :'target_database')\gexec
 
--- Grant full access on every schema to all roles
-GRANT ALL ON SCHEMA pdi_meta   TO pdi_meta, staging, data_vault, sakila;
-GRANT ALL ON SCHEMA staging    TO pdi_meta, staging, data_vault, sakila;
-GRANT ALL ON SCHEMA data_vault TO pdi_meta, staging, data_vault, sakila;
-GRANT ALL ON SCHEMA sakila     TO pdi_meta, staging, data_vault, sakila;
+-- Grant full access on every target schema to all runtime roles.
+GRANT ALL ON SCHEMA pdi_meta   TO pdi_meta, staging, data_vault;
+GRANT ALL ON SCHEMA staging    TO pdi_meta, staging, data_vault;
+GRANT ALL ON SCHEMA data_vault TO pdi_meta, staging, data_vault;
 
 -- Set default privileges for objects created by the bootstrap user in each schema.
 -- Note: ROUTINES covers both functions and procedures (PostgreSQL 11+)
-ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault, sakila;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault;
 
-ALTER DEFAULT PRIVILEGES IN SCHEMA staging    GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES IN SCHEMA staging    GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES IN SCHEMA staging    GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES IN SCHEMA staging    GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault, sakila;
+ALTER DEFAULT PRIVILEGES IN SCHEMA staging    GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES IN SCHEMA staging    GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES IN SCHEMA staging    GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES IN SCHEMA staging    GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault;
 
-ALTER DEFAULT PRIVILEGES IN SCHEMA data_vault GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES IN SCHEMA data_vault GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES IN SCHEMA data_vault GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES IN SCHEMA data_vault GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault, sakila;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA sakila     GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES IN SCHEMA sakila     GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES IN SCHEMA sakila     GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES IN SCHEMA sakila     GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault, sakila;
+ALTER DEFAULT PRIVILEGES IN SCHEMA data_vault GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES IN SCHEMA data_vault GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES IN SCHEMA data_vault GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES IN SCHEMA data_vault GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault;
 
 -- Set default privileges for objects created by each schema-owning role itself.
 -- This is the key fix: without FOR ROLE, triggers, tables, and functions created
 -- by e.g. the staging role are NOT covered by the defaults above, causing
 -- permission denied errors when pdi_meta procedures/triggers access them.
-ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault, sakila;
+ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault, sakila;
+ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault;
 
-ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault, sakila;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE sakila     IN SCHEMA sakila     GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES FOR ROLE sakila     IN SCHEMA sakila     GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES FOR ROLE sakila     IN SCHEMA sakila     GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault, sakila;
-ALTER DEFAULT PRIVILEGES FOR ROLE sakila     IN SCHEMA sakila     GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault, sakila;
+ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault;
+ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault;
 
 SET search_path = pdi_meta, pg_catalog;
 
@@ -2171,15 +2163,15 @@ ALTER TABLE inst_runs OWNER TO pdi_meta;
 
 CREATE TABLE ref_connections (
     id_connection integer NOT NULL,
-    name character varying(32),
-    type character varying(32),
-    description character varying(128),
-    host_name character varying(128),
-    database_name character varying(128),
+    name character varying(64),
+    type character varying(64),
+    description character varying(256),
+    host_name character varying(256),
+    database_name character varying(256),
     port_number integer,
     user_name character varying(128),
     password character varying(128),
-    instance_name character varying(128)
+    instance_name character varying(256)
 );
 
 
@@ -2192,15 +2184,15 @@ ALTER TABLE ref_connections OWNER TO pdi_meta;
 CREATE TABLE ref_connections_hist (
     id_connection integer NOT NULL,
     hist_date_insert timestamp without time zone NOT NULL,
-    name character varying(32),
-    type character varying(32),
-    description character varying(128),
-    host_name character varying(128),
-    database_name character varying(128),
+    name character varying(64),
+    type character varying(64),
+    description character varying(256),
+    host_name character varying(256),
+    database_name character varying(256),
     port_number integer,
     user_name character varying(128),
     password character varying(128),
-    instance_name character varying(128),
+    instance_name character varying(256),
     dml_operation character(1)
 );
 

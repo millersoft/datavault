@@ -1,0 +1,326 @@
+{
+  "schemaVersion": 1,
+  "id": "sapdb",
+  "label": "MaxDB (SAP DB)",
+  "version": "1.0.0",
+  "certified": false,
+  "jdbc": {
+    "driverClass": "com.sap.dbtech.jdbc.DriverSapDB",
+    "jarPattern": "*sapdbc*.jar",
+    "jarPatternSource": "inferred-from-driver-class",
+    "jarPatternConfidence": "high",
+    "urlTemplate": "jdbc:sapdb://{host}/{database}",
+    "urlSource": "hop-getURL-base-profile",
+    "urlConfidence": "exact",
+    "hopFullUrlTemplate": "jdbc:sapdb://{host}/{database}"
+  },
+  "connectionFields": [
+    {
+      "key": "host",
+      "label": "Server host name",
+      "type": "text",
+      "required": true,
+      "mapsTo": "host",
+      "runtimeVariable": "source_host_name",
+      "hopField": "hostname",
+      "hopProperty": "hostname",
+      "hopType": "TEXT",
+      "hopOrder": "01",
+      "metadataSource": "org.apache.hop.core.database.BaseDatabaseMeta"
+    },
+    {
+      "key": "port",
+      "label": "Port number",
+      "type": "number",
+      "required": false,
+      "mapsTo": "port",
+      "runtimeVariable": "source_port_number",
+      "hopField": "port",
+      "hopProperty": "port",
+      "hopType": "TEXT",
+      "hopOrder": "02",
+      "metadataSource": "org.apache.hop.core.database.BaseDatabaseMeta"
+    },
+    {
+      "key": "database",
+      "label": "Database name",
+      "type": "text",
+      "required": true,
+      "mapsTo": "database",
+      "runtimeVariable": "source_database_name",
+      "hopField": "databaseName",
+      "hopProperty": "databaseName",
+      "hopType": "TEXT",
+      "hopOrder": "03",
+      "metadataSource": "org.apache.hop.core.database.BaseDatabaseMeta"
+    },
+    {
+      "key": "user",
+      "label": "Username",
+      "type": "text",
+      "required": false,
+      "mapsTo": "user",
+      "runtimeVariable": "source_user_name",
+      "hopField": "username",
+      "hopProperty": "username",
+      "hopType": "TEXT",
+      "hopOrder": "90",
+      "metadataSource": "org.apache.hop.ui.core.database.DatabaseMetaEditor"
+    },
+    {
+      "key": "password",
+      "label": "Password",
+      "type": "password",
+      "required": false,
+      "mapsTo": "password",
+      "runtimeVariable": "source_password",
+      "hopField": "password",
+      "hopProperty": "password",
+      "hopType": "TEXT",
+      "hopOrder": "91",
+      "metadataSource": "org.apache.hop.ui.core.database.DatabaseMetaEditor"
+    },
+    {
+      "key": "schema",
+      "label": "Schema",
+      "type": "text",
+      "required": false,
+      "mapsTo": "schema",
+      "runtimeVariable": "source_schema_name",
+      "hopField": "PREFERRED_SCHEMA_NAME",
+      "hopProperty": "preferredSchemaName",
+      "hopType": "ADVANCED_ATTRIBUTE",
+      "metadataSource": "Hop DatabaseMetaEditor Advanced / PREFERRED_SCHEMA_NAME"
+    }
+  ],
+  "engineProfile": {
+    "id": "data-vault-source-v1",
+    "compatible": true,
+    "compatibilityBasis": "Hop getURL(host, port, database) succeeds with database-specific fields left at Hop defaults",
+    "variables": [
+      "source_host_name",
+      "source_port_number",
+      "source_database_name",
+      "source_user_name",
+      "source_password",
+      "source_schema_name"
+    ],
+    "baseUrlTemplate": "jdbc:sapdb://{host}/{database}",
+    "ignoredHopFields": [
+      {
+        "hopField": "manualUrl",
+        "hopProperty": "manualUrl",
+        "label": "Manual connection URL",
+        "reason": "The current Data Vault engine profile has no manual URL parameter"
+      }
+    ]
+  },
+  "namespace": {
+    "usesSchema": true,
+    "discovery": {
+      "supportsSchemas": true,
+      "supportsCatalogs": true
+    }
+  },
+  "hop": {
+    "enabled": true,
+    "pluginId": "SAPDB",
+    "pluginName": "MaxDB (SAP DB)",
+    "pluginIds": [
+      "SAPDB"
+    ],
+    "module": "sapdb",
+    "className": "org.apache.hop.databases.sapdb.SAPDBDatabaseMeta",
+    "attributes": {
+      "SUPPORTS_TIMESTAMP_DATA_TYPE": "N",
+      "QUOTE_ALL_FIELDS": "N",
+      "SUPPORTS_BOOLEAN_DATA_TYPE": "N",
+      "FORCE_IDENTIFIERS_TO_LOWERCASE": "N",
+      "PRESERVE_RESERVED_WORD_CASE": "Y",
+      "FORCE_IDENTIFIERS_TO_UPPERCASE": "N"
+    },
+    "connectionModel": {
+      "requiresDatabaseName": true,
+      "accessType": 0,
+      "accessTypes": [
+        0
+      ]
+    },
+    "connectionForm": {
+      "source": "Hop DatabaseMetaEditor metadata",
+      "parentId": "DatabaseMeta-PluginSpecific-Options",
+      "fields": [
+        {
+          "hopFieldId": "hostname",
+          "key": "hostname",
+          "property": "hostname",
+          "getter": "getHostname",
+          "setter": "setHostname",
+          "hopType": "TEXT",
+          "label": "Server host name",
+          "labelRaw": "i18n:org.apache.hop.ui.core.database:DatabaseDialog.label.ServerHostname",
+          "order": "01",
+          "parentId": "DatabaseMeta-PluginSpecific-Options",
+          "password": false,
+          "variables": true,
+          "ignored": false,
+          "visible": true,
+          "sourceClass": "org.apache.hop.core.database.BaseDatabaseMeta",
+          "sourceMember": "hostname",
+          "studioSourceVisible": true,
+          "studioSourceVariable": "source_host_name",
+          "studioSourceMapsTo": "host",
+          "studioSourceReason": "Mapped into the Data Vault engine source_* profile"
+        },
+        {
+          "hopFieldId": "port",
+          "key": "port",
+          "property": "port",
+          "getter": "getPort",
+          "setter": "setPort",
+          "hopType": "TEXT",
+          "label": "Port number",
+          "labelRaw": "i18n:org.apache.hop.ui.core.database:DatabaseDialog.label.PortNumber",
+          "order": "02",
+          "parentId": "DatabaseMeta-PluginSpecific-Options",
+          "password": false,
+          "variables": true,
+          "ignored": false,
+          "visible": true,
+          "sourceClass": "org.apache.hop.core.database.BaseDatabaseMeta",
+          "sourceMember": "port",
+          "studioSourceVisible": true,
+          "studioSourceVariable": "source_port_number",
+          "studioSourceMapsTo": "port",
+          "studioSourceReason": "Mapped into the Data Vault engine source_* profile"
+        },
+        {
+          "hopFieldId": "databaseName",
+          "key": "databaseName",
+          "property": "databaseName",
+          "getter": "getDatabaseName",
+          "setter": "setDatabaseName",
+          "hopType": "TEXT",
+          "label": "Database name",
+          "labelRaw": "i18n:org.apache.hop.ui.core.database:DatabaseDialog.label.DatabaseName",
+          "order": "03",
+          "parentId": "DatabaseMeta-PluginSpecific-Options",
+          "password": false,
+          "variables": true,
+          "ignored": false,
+          "visible": true,
+          "sourceClass": "org.apache.hop.core.database.BaseDatabaseMeta",
+          "sourceMember": "databaseName",
+          "studioSourceVisible": true,
+          "studioSourceVariable": "source_database_name",
+          "studioSourceMapsTo": "database",
+          "studioSourceReason": "Mapped into the Data Vault engine source_* profile"
+        },
+        {
+          "hopFieldId": "username",
+          "key": "username",
+          "property": "username",
+          "getter": "getUsername",
+          "setter": "setUsername",
+          "hopType": "TEXT",
+          "label": "Username",
+          "order": "90",
+          "parentId": "DatabaseMetaEditor-General",
+          "password": false,
+          "variables": true,
+          "ignored": false,
+          "visible": true,
+          "sourceClass": "org.apache.hop.ui.core.database.DatabaseMetaEditor",
+          "sourceMember": "username",
+          "studioSourceVisible": true,
+          "studioSourceVariable": "source_user_name",
+          "studioSourceMapsTo": "user",
+          "studioSourceReason": "Mapped into the Data Vault engine source_* profile"
+        },
+        {
+          "hopFieldId": "password",
+          "key": "password",
+          "property": "password",
+          "getter": "getPassword",
+          "setter": "setPassword",
+          "hopType": "TEXT",
+          "label": "Password",
+          "order": "91",
+          "parentId": "DatabaseMetaEditor-General",
+          "password": true,
+          "variables": true,
+          "ignored": false,
+          "visible": true,
+          "sourceClass": "org.apache.hop.ui.core.database.DatabaseMetaEditor",
+          "sourceMember": "password",
+          "studioSourceVisible": true,
+          "studioSourceVariable": "source_password",
+          "studioSourceMapsTo": "password",
+          "studioSourceReason": "Mapped into the Data Vault engine source_* profile"
+        },
+        {
+          "hopFieldId": "manualUrl",
+          "key": "manualUrl",
+          "property": "manualUrl",
+          "getter": "getManualUrl",
+          "setter": "setManualUrl",
+          "hopType": "TEXT",
+          "label": "Manual connection URL",
+          "order": "99",
+          "parentId": "DatabaseMetaEditor-General",
+          "password": false,
+          "variables": true,
+          "ignored": false,
+          "visible": true,
+          "sourceClass": "org.apache.hop.ui.core.database.DatabaseMetaEditor",
+          "sourceMember": "manualUrl",
+          "studioSourceVisible": false,
+          "studioSourceReason": "The current Data Vault engine profile has no manual URL parameter"
+        }
+      ],
+      "hasDynamicWidgetListener": false,
+      "optionsTab": true,
+      "manualUrlField": true,
+      "advancedPreferredSchema": true,
+      "sshTunnelTab": false
+    }
+  },
+  "source": {
+    "enabled": true
+  },
+  "capabilities": {
+    "tableInput": true,
+    "hop": {
+      "tableInput": true,
+      "explorable": true,
+      "testable": true,
+      "exploringDisabled": false,
+      "supportsViews": true,
+      "supportsSynonyms": false,
+      "supportsOptionsInURL": true,
+      "supportsBooleanDataType": false,
+      "supportsTimestampDataType": false,
+      "supportsTransactions": true,
+      "supportsPreparedStatementMetadataRetrieval": true,
+      "quoteReservedWords": true,
+      "quoteAllFields": false,
+      "preserveReservedCase": true,
+      "forcingIdentifiersToLowerCase": false,
+      "forcingIdentifiersToUpperCase": false,
+      "defaultingToUppercase": true,
+      "requiringTransactionsOnQueries": true
+    }
+  },
+  "notes": {
+    "generatedFromHop": true,
+    "metadataPolicy": "Hop defines database metadata; Studio exposes only the intersection with the Data Vault engine source_* profile and preserves all other Hop fields as non-rendered metadata.",
+    "driverPatternSource": "inferred-from-driver-class",
+    "driverPatternConfidence": "high",
+    "hopUrlStatus": "extracted",
+    "urlSource": "hop-getURL-base-profile",
+    "urlConfidence": "exact",
+    "hopFullUrlSource": "hop-getURL",
+    "hopFullUrlConfidence": "exact",
+    "connectionReview": false
+  }
+}

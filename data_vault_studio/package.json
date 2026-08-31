@@ -1,7 +1,7 @@
 {
   "name": "vault-bench-introspect-server",
   "version": "1.2.1",
-  "description": "Local companion server for Data Vault Studio — introspects PostgreSQL, MySQL, and external SQL Server sources and deploys supported Data Vault targets.",
+  "description": "Local companion server for Data Vault Studio \u2014 built-in PostgreSQL/MySQL plus versioned JDBC Database Packs.",
   "main": "server.js",
   "engines": {
     "node": ">=18.17.0"
@@ -10,7 +10,7 @@
     "start": "node server.js",
     "start:demo": "node server.js --mode=demo",
     "start:production": "node server.js --mode=production",
-    "test": "node --test tests/gui.test.js tests/server.test.js"
+    "test": "node --test tests/gui.test.js tests/server.test.js tests/database-packs-v020.test.js tests/structure.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

@@ -85,7 +85,7 @@ There are two main startup modes:
 
 | Command                                  | Behaviour                                                                                                                                                                                 |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `./start.sh --build`                     | Starts PostgreSQL and Hop only. Builds the Postgres metadata DB. Does **not** start the bundled MySQL Sakila demo source.                                                                 |
+| `./start.sh --build`                     | Starts PostgreSQL and Hop only. Enables packaged `03-ddls.sql` for a fresh PostgreSQL data volume. Does **not** start the bundled MySQL Sakila demo source.                               |
 | `./start.sh`                             | Starts PostgreSQL and Hop only. Runs the ETL. Does **not** start the bundled MySQL Sakila demo source.                                                                                    |
 |                                          |                                                                                                                                                                                           |
 | `./start.sh --build --demo`              | Starts PostgreSQL, Builds MySQL Sakila demo source and starts Hop. Runs the bundled demo flow.                                                                                            |
@@ -99,7 +99,7 @@ On Windows, use the PowerShell launcher:
 
 | Command                                   | Behaviour                                                                                                                                                                                 |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `.\start.ps1 --build`                     | Starts PostgreSQL and Hop only. Builds the Postgres metadata DB. Does **not** start the bundled MySQL Sakila demo source.                                                                 |
+| `.\start.ps1 --build`                     | Starts PostgreSQL and Hop only. Enables packaged `03-ddls.sql` for a fresh PostgreSQL data volume. Does **not** start the bundled MySQL Sakila demo source.                               |
 | `.\start.ps1`                             | Starts PostgreSQL and Hop only. Runs the ETL. Does **not** start the bundled MySQL Sakila demo source.                                                                                    |
 |                                           |                                                                                                                                                                                           |
 | `.\start.ps1 --build --demo`              | Starts PostgreSQL, Builds MySQL Sakila demo source and starts Hop. Runs the bundled demo flow.                                                                                            |
@@ -110,6 +110,18 @@ On Windows, use the PowerShell launcher:
 
 
 Note: `--demo` and `--external-postgres` cannot be used together. The bundled Sakila demo is intended to run against the internal Docker PostgreSQL service only.
+
+Without `--build`, both launchers use the Studio override to skip the packaged
+`03-ddls.sql`; Data Vault Studio deploys generated staging and Vault DDL through
+**Export & Deploy**. Use `--build` when you specifically want the packaged DDL:
+
+```bash
+./start.sh --build --demo
+```
+
+PostgreSQL initialization scripts run only when `postgres_data` is new. To run
+the packaged DDL on a fresh database, first remove the existing volume with
+`./start.sh down -v` (this deletes local PostgreSQL and demo data).
 
 ---
 

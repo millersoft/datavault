@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "id": "exampledb",
+  "label": "Example Database",
+  "version": "1.0.0",
+
+  "jdbc": {
+    "driverClass": "com.vendor.jdbc.ExampleDriver",
+    "urlTemplate": "jdbc:example://{host}:{port}/{database}?sslMode={sslMode}",
+    "defaultPort": 1234,
+    "jarPattern": "example-jdbc-*.jar",
+    "driverDownloadUrl": "https://vendor.example/downloads/jdbc",
+    "testSql": "SELECT 1"
+  },
+
+  "connectionFields": [
+    {
+      "key": "host",
+      "label": "Host",
+      "type": "text",
+      "required": true,
+      "mapsTo": "host",
+      "help": "Database server hostname or IP address."
+    },
+    {
+      "key": "port",
+      "label": "Port",
+      "type": "number",
+      "required": true,
+      "default": "1234",
+      "mapsTo": "port"
+    },
+    {
+      "key": "database",
+      "label": "Database",
+      "type": "text",
+      "required": true,
+      "mapsTo": "database"
+    },
+    {
+      "key": "schema",
+      "label": "Schema",
+      "type": "text",
+      "required": false,
+      "mapsTo": "schema"
+    },
+    {
+      "key": "user",
+      "label": "Username",
+      "type": "text",
+      "required": true,
+      "mapsTo": "user"
+    },
+    {
+      "key": "password",
+      "label": "Password",
+      "type": "password",
+      "required": true,
+      "mapsTo": "password"
+    },
+    {
+      "key": "sslMode",
+      "label": "SSL mode",
+      "type": "select",
+      "required": false,
+      "default": "require",
+      "options": [
+        { "value": "disable", "label": "Disabled" },
+        { "value": "require", "label": "Require TLS" }
+      ],
+      "help": "Custom Pack field referenced by the JDBC URL template."
+    }
+  ],
+
+  "namespace": {
+    "usesCatalog": false,
+    "catalogLabel": "Catalog",
+    "defaultCatalog": "",
+    "usesSchema": true,
+    "schemaLabel": "Schema",
+    "defaultSchema": ""
+  },
+
+  "source": {
+    "nativeTypeOverrides": {
+      "EXAMPLE_UUID": "UUID",
+      "EXAMPLE_JSON": "JSON",
+      "EXAMPLE_DATETIME": "TIMESTAMP",
+      "EXAMPLE_TIMESTAMP_TZ": "TIMESTAMP_TZ"
+    }
+  },
+
+  "hop": {
+    "forceGeneric": true,
+    "attributes": {
+      "EXTRA_OPTION_GENERIC.exampleOption": "exampleValue"
+    }
+  },
+
+  "target": {
+    "identifierQuote": "\"",
+    "types": {
+      "UUID": "VARCHAR(36)",
+      "JSON": "TEXT"
+    }
+  },
+
+  "fdw": {
+    "remoteSchemaResolution": "connection-default",
+    "serviceUser": {
+      "defaultUsernameTemplate": "dv_fdw_{schema}",
+      "maintenanceCatalog": "admin",
+      "loginExistsSql": "SELECT username FROM system_users WHERE username = {serviceUserLiteral}",
+      "createLoginSql": "CREATE USER {serviceUser} IDENTIFIED BY {servicePasswordLiteral}",
+      "databaseUserExistsSql": "SELECT username FROM database_users WHERE username = {serviceUserLiteral}",
+      "createDatabaseUserSql": "CREATE USER {serviceUser}",
+      "setDefaultSchemaSql": "ALTER USER {serviceUser} SET DEFAULT_SCHEMA = {schema}",
+      "grantSql": [
+        "GRANT CONNECT TO {serviceUser}",
+        "GRANT CREATE TABLE TO {serviceUser}"
+      ],
+      "configureDatabaseUserSql": ""
+    }
+  },
+
+  "provisioning": {
+    "maintenanceCatalog": "admin",
+    "databaseExistsSql": "SELECT database_name FROM system_databases WHERE database_name = {databaseLiteral}",
+    "createDatabaseSql": "CREATE DATABASE {database}",
+    "ensureDatabaseSql": "",
+    "schemaExistsSql": "SELECT schema_name FROM information_schema.schemata WHERE schema_name = {schemaLiteral}",
+    "createSchemaSql": "CREATE SCHEMA {schema}",
+    "tableStatusSql": "SELECT table_name FROM information_schema.tables WHERE table_schema = {schemaLiteral} AND table_name IN ({tableNamesLiteral})"
+  }
+}

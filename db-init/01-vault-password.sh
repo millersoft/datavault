@@ -13,7 +13,21 @@ fi
 sed -i "s|VAULT_PASSWORD|${VAULT_PASSWORD}|g" "$DUMP_FILE"
 
 if [ "${EXTERNAL_POSTGRES_BOOTSTRAP:-false}" != "true" ]; then
-  echo "=== Internal PostgreSQL init detected. Skipping external bootstrap role grants. ==="
+
+  TARGET_DATABASE="${INTERNAL_DATA_VAULT_DATABASE:-datavault}"
+  if [[ ! "$TARGET_DATABASE" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    echo "ERROR: INTERNAL_DATA_VAULT_DATABASE must be a plain SQL identifier."
+    exit 1
+  fi
+
+  echo "=== Internal PostgreSQL init detected. Selecting target database: ${TARGET_DATABASE} ==="
+  sed -i "s/^\\\\set target_database datavault$/\\\\set target_database ${TARGET_DATABASE}/" "$DUMP_FILE"
+  if ! grep -Fxq "\\set target_database ${TARGET_DATABASE}" "$DUMP_FILE"; then
+    echo "ERROR: Failed to set the internal target database in 02-dump.sql."
+    exit 1
+  fi
+
+  echo "=== Skipping external bootstrap role grants. ==="
   echo "=== 02-dump.sql ready ==="
   exit 0
 fi
@@ -51,7 +65,6 @@ else
         print "GRANT pdi_meta TO " quote_ident(bootstrap_role) ";"
         print "GRANT staging TO " quote_ident(bootstrap_role) ";"
         print "GRANT data_vault TO " quote_ident(bootstrap_role) ";"
-        print "GRANT sakila TO " quote_ident(bootstrap_role) ";"
         print ""
         inserted = 1
         in_first_do_block = 0
@@ -70,6 +83,6 @@ else
 fi
 
 echo "=== Verifying injected role grants ==="
-grep -n "External bootstrap role grants added\|GRANT pdi_meta TO\|GRANT staging TO\|GRANT data_vault TO\|GRANT sakila TO" "$DUMP_FILE"
+grep -n "External bootstrap role grants added\|GRANT pdi_meta TO\|GRANT staging TO\|GRANT data_vault TO" "$DUMP_FILE"
 
 echo "=== 02-dump.sql ready ==="

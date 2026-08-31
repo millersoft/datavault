@@ -989,7 +989,7 @@ That previous run should not be succesfully finished, except when parameter ind_
     <hop>
       <from>job_data_vault_create_link_run_tables_all</from>
       <to>job_data_vault_load_links_all</to>
-      <enabled>Y</enabled>
+      <enabled>N</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
     </hop>
@@ -1031,7 +1031,7 @@ That previous run should not be succesfully finished, except when parameter ind_
     <hop>
       <from>job_data_vault_create_hub_run_tables_all</from>
       <to>job_data_vault_load_hubs_all</to>
-      <enabled>Y</enabled>
+      <enabled>N</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
     </hop>
@@ -1059,7 +1059,7 @@ That previous run should not be succesfully finished, except when parameter ind_
     <hop>
       <from>Process hubs?</from>
       <to>job_data_vault_create_hub_run_tables_all</to>
-      <enabled>Y</enabled>
+      <enabled>N</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
     </hop>
@@ -1080,7 +1080,7 @@ That previous run should not be succesfully finished, except when parameter ind_
     <hop>
       <from>Process links?</from>
       <to>job_data_vault_create_link_run_tables_all</to>
-      <enabled>Y</enabled>
+      <enabled>N</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
     </hop>
@@ -1325,7 +1325,7 @@ That previous run should not be succesfully finished, except when parameter ind_
     <hop>
       <from>job_data_vault_create_link_run_tables_all</from>
       <to>end_run (error)</to>
-      <enabled>Y</enabled>
+      <enabled>N</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
     </hop>
@@ -1339,7 +1339,7 @@ That previous run should not be succesfully finished, except when parameter ind_
     <hop>
       <from>job_data_vault_create_hub_run_tables_all</from>
       <to>end_run (error)</to>
-      <enabled>Y</enabled>
+      <enabled>N</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
     </hop>
@@ -1454,6 +1454,20 @@ That previous run should not be succesfully finished, except when parameter ind_
       <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>Y</unconditional>
+    </hop>
+    <hop>
+      <from>Process hubs?</from>
+      <to>job_data_vault_load_hubs_all</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
+    </hop>
+    <hop>
+      <from>Process links?</from>
+      <to>job_data_vault_load_links_all</to>
+      <enabled>Y</enabled>
+      <evaluation>Y</evaluation>
+      <unconditional>N</unconditional>
     </hop>
   </hops>
   <notepads>

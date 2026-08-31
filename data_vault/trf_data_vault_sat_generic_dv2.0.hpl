@@ -100,11 +100,6 @@ is compared to the equivalent concatenation in de Data Vault.
   </notepads>
   <order>
     <hop>
-      <from>sat_dv_insert</from>
-      <to>sat_dv_errors</to>
-      <enabled>Y</enabled>
-    </hop>
-    <hop>
       <from>Get transformation and job batch ID</from>
       <to>Set var_etl_trf_id_batch and var_etl_job_id_job</to>
       <enabled>N</enabled>
@@ -213,40 +208,6 @@ is compared to the equivalent concatenation in de Data Vault.
     </GUI>
   </transform>
   <transform>
-    <name>sat_dv_errors</name>
-    <type>TableOutput</type>
-    <description/>
-    <distribute>Y</distribute>
-    <custom_distribution/>
-    <copies>1</copies>
-    <partitioning>
-      <method>none</method>
-      <schema_name/>
-    </partitioning>
-    <commit>${PROP_COMMIT_SIZE_DATA_VAULT}</commit>
-    <connection>data_vault</connection>
-    <fields>
-</fields>
-    <ignore_errors>N</ignore_errors>
-    <only_when_have_rows>N</only_when_have_rows>
-    <partitioning_daily>N</partitioning_daily>
-    <partitioning_enabled>N</partitioning_enabled>
-    <partitioning_monthly>Y</partitioning_monthly>
-    <return_keys>N</return_keys>
-    <schema>${data_vault_schema_name}</schema>
-    <specify_fields>N</specify_fields>
-    <table>vw_${sat_name}_err</table>
-    <tablename_in_field>N</tablename_in_field>
-    <tablename_in_table>N</tablename_in_table>
-    <truncate>N</truncate>
-    <use_batch>Y</use_batch>
-    <attributes/>
-    <GUI>
-      <xloc>528</xloc>
-      <yloc>480</yloc>
-    </GUI>
-  </transform>
-  <transform>
     <name>sat_dv_insert</name>
     <type>TableOutput</type>
     <description/>
@@ -257,8 +218,13 @@ is compared to the equivalent concatenation in de Data Vault.
       <method>none</method>
       <schema_name/>
     </partitioning>
+    <add_columns>N</add_columns>
+    <always_drop_and_recreate>N</always_drop_and_recreate>
+    <auto_update_table_structure>N</auto_update_table_structure>
+    <change_column_types>N</change_column_types>
     <commit>${PROP_COMMIT_SIZE_DATA_VAULT}</commit>
     <connection>data_vault</connection>
+    <drop_columns>N</drop_columns>
     <fields>
 </fields>
     <ignore_errors>N</ignore_errors>
@@ -339,7 +305,7 @@ where  sat.hub_key is null
     <error>
       <source_transform>sat_dv_insert</source_transform>
       <target_transform>sat_dv_errors</target_transform>
-      <is_enabled>Y</is_enabled>
+      <is_enabled>N</is_enabled>
       <nr_valuename>etl_err_noe</nr_valuename>
       <descriptions_valuename>etl_err_desc</descriptions_valuename>
       <fields_valuename>etl_err_col</fields_valuename>

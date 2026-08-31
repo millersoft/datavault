@@ -14,82 +14,75 @@ trf_staging_generic_source_system_table_id_srcsys_${par_id_srcsys}
 
 Example: for the source system with id_srcsys '8' the transformation trf_staging_generic_source_system_table_id_srcsys_8 will be called.
 </extended_description>
-  <workflow_version>1.3</workflow_version>
-  <workflow_status>0</workflow_status>
   <created_user/>
-  <created_date>2014/12/15 01:10:16.889</created_date>
   <modified_user>admin</modified_user>
+  <created_date>2014/12/15 01:10:16.889</created_date>
   <modified_date>2017/11/14 14:55:30.334</modified_date>
+  <workflow_version>1.3</workflow_version>
   <parameters>
     <parameter>
-      <name>current_sat</name>
+      <name>par_source_table_where_clause</name>
+      <description>The (possible) WHERE-clause defining the increment.</description>
       <default_value/>
-      <description>The satellite table found using the table name</description>
-    </parameter>
-    <parameter>
-      <name>par_id_srcsys</name>
-      <default_value>1</default_value>
-      <description>Id of the source system to stage</description>
     </parameter>
     <parameter>
       <name>par_record_source_id</name>
-      <default_value/>
       <description>The record_source_id of the source table as defined in ref_source_tables.</description>
-    </parameter>
-    <parameter>
-      <name>par_source_sql</name>
       <default_value/>
-      <description>The SQL for the source table without the possible incremental WHERE clause. Default: select * from &lt;source_table> where 1=1, possibly overruled by  staging_sql_override.</description>
-    </parameter>
-    <parameter>
-      <name>par_source_table_name</name>
-      <default_value/>
-      <description>The source table.</description>
-    </parameter>
-    <parameter>
-      <name>par_source_table_stg_load_from</name>
-      <default_value/>
-      <description>The (possible) start date of the interval</description>
-    </parameter>
-    <parameter>
-      <name>par_source_table_where_clause</name>
-      <default_value/>
-      <description>The (possible) WHERE-clause defining the increment.</description>
-    </parameter>
-    <parameter>
-      <name>par_source_table_where_clause_to_log</name>
-      <default_value/>
-      <description/>
     </parameter>
     <parameter>
       <name>par_staging_table_name</name>
-      <default_value/>
       <description>The staging table.</description>
+      <default_value/>
     </parameter>
     <parameter>
       <name>reindex</name>
-      <default_value>0</default_value>
       <description/>
+      <default_value>0</default_value>
+    </parameter>
+    <parameter>
+      <name>par_source_sql</name>
+      <description>The SQL for the source table without the possible incremental WHERE clause. Default: select * from &lt;source_table> where 1=1, possibly overruled by  staging_sql_override.</description>
+      <default_value/>
     </parameter>
     <parameter>
       <name>row_version</name>
-      <default_value/>
       <description/>
+      <default_value/>
+    </parameter>
+    <parameter>
+      <name>par_source_table_name</name>
+      <description>The source table.</description>
+      <default_value/>
+    </parameter>
+    <parameter>
+      <name>current_sat</name>
+      <description>The satellite table found using the table name</description>
+      <default_value/>
+    </parameter>
+    <parameter>
+      <name>par_id_srcsys</name>
+      <description>Id of the source system to stage</description>
+      <default_value>1</default_value>
+    </parameter>
+    <parameter>
+      <name>par_source_table_stg_load_from</name>
+      <description>The (possible) start date of the interval</description>
+      <default_value/>
+    </parameter>
+    <parameter>
+      <name>par_source_table_where_clause_to_log</name>
+      <description/>
+      <default_value/>
     </parameter>
     <parameter>
       <name>rv_exists</name>
-      <default_value/>
       <description/>
+      <default_value/>
     </parameter>
   </parameters>
   <actions>
     <action>
-      <name>Log start transformation</name>
-      <description/>
-      <type>SQL</type>
-      <attributes/>
-      <connection>pdi_meta</connection>
-      <sendOneStatement>N</sendOneStatement>
       <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_log_stg_job_in_run
 ('job_staging_generic_source_system_table'
 ,'trf_staging_generic_source_system_table_id_srcsys_${par_id_srcsys}'
@@ -104,20 +97,20 @@ Example: for the source system with id_srcsys '8' the transformation trf_staging
 ,${var_id_rtyp}
 , NULL, NULL
 )</sql>
-      <sqlfromfile>N</sqlfromfile>
+      <connection>pdi_meta</connection>
       <useVariableSubstitution>Y</useVariableSubstitution>
-      <parallel>N</parallel>
-      <xloc>224</xloc>
-      <yloc>352</yloc>
-      <attributes_hac/>
-    </action>
-    <action>
-      <name>Log end transformation</name>
+      <sqlfromfile>N</sqlfromfile>
+      <sendOneStatement>N</sendOneStatement>
+      <name>Log start transformation</name>
       <description/>
       <type>SQL</type>
       <attributes/>
-      <connection>pdi_meta</connection>
-      <sendOneStatement>N</sendOneStatement>
+      <xloc>224</xloc>
+      <yloc>352</yloc>
+      <parallel>N</parallel>
+      <attributes_hac/>
+    </action>
+    <action>
       <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_log_stg_job_in_run
 ('job_staging_generic_source_system_table'
 ,'trf_staging_generic_source_system_table_id_srcsys_${par_id_srcsys}'
@@ -132,56 +125,62 @@ Example: for the source system with id_srcsys '8' the transformation trf_staging
 ,${var_id_rtyp}
 ,${var_etl_job_id_job},${var_etl_trf_id_batch}
 )</sql>
-      <sqlfromfile>N</sqlfromfile>
+      <connection>pdi_meta</connection>
       <useVariableSubstitution>Y</useVariableSubstitution>
-      <parallel>N</parallel>
+      <sqlfromfile>N</sqlfromfile>
+      <sendOneStatement>N</sendOneStatement>
+      <name>Log end transformation</name>
+      <description/>
+      <type>SQL</type>
+      <attributes/>
       <xloc>1616</xloc>
       <yloc>480</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <repeat>N</repeat>
+      <schedulerType>0</schedulerType>
+      <intervalSeconds>0</intervalSeconds>
+      <intervalMinutes>60</intervalMinutes>
+      <DayOfMonth>1</DayOfMonth>
+      <weekDay>1</weekDay>
+      <minutes>0</minutes>
+      <hour>12</hour>
+      <doNotWaitOnFirstExecution>N</doNotWaitOnFirstExecution>
       <name>START</name>
       <description/>
       <type>SPECIAL</type>
       <attributes/>
-      <DayOfMonth>1</DayOfMonth>
-      <doNotWaitOnFirstExecution>N</doNotWaitOnFirstExecution>
-      <hour>12</hour>
-      <intervalMinutes>60</intervalMinutes>
-      <intervalSeconds>0</intervalSeconds>
-      <minutes>0</minutes>
-      <repeat>N</repeat>
-      <schedulerType>0</schedulerType>
-      <weekDay>1</weekDay>
-      <parallel>N</parallel>
       <xloc>64</xloc>
       <yloc>240</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <filename>${PROJECT_HOME}/staging_generic/staging_generic_tables_source_system/trf_staging_generic_source_system_table_id_srcsys_${par_id_srcsys}.hpl</filename>
+      <params_from_previous>N</params_from_previous>
+      <exec_per_row>N</exec_per_row>
+      <clear_rows>N</clear_rows>
+      <clear_files>N</clear_files>
+      <create_parent_folder>N</create_parent_folder>
+      <set_logfile>N</set_logfile>
+      <set_append_logfile>N</set_append_logfile>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <loglevel>Basic</loglevel>
+      <wait_until_finished>Y</wait_until_finished>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <run_configuration>local</run_configuration>
       <name>staging_no_rv</name>
       <description/>
       <type>PIPELINE</type>
       <attributes/>
-      <add_date>N</add_date>
-      <add_time>N</add_time>
-      <clear_files>N</clear_files>
-      <clear_rows>N</clear_rows>
-      <create_parent_folder>N</create_parent_folder>
-      <exec_per_row>N</exec_per_row>
-      <filename>${PROJECT_HOME}/staging_generic/staging_generic_tables_source_system/trf_staging_generic_source_system_table_id_srcsys_${par_id_srcsys}.hpl</filename>
-      <loglevel>Basic</loglevel>
-      <parameters>
-        <pass_all_parameters>Y</pass_all_parameters>
-      </parameters>
-      <params_from_previous>N</params_from_previous>
-      <run_configuration>local</run_configuration>
-      <set_append_logfile>N</set_append_logfile>
-      <set_logfile>N</set_logfile>
-      <wait_until_finished>Y</wait_until_finished>
-      <parallel>N</parallel>
       <xloc>704</xloc>
       <yloc>352</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
@@ -189,346 +188,342 @@ Example: for the source system with id_srcsys '8' the transformation trf_staging
       <description/>
       <type>SUCCESS</type>
       <attributes/>
-      <parallel>N</parallel>
       <xloc>1776</xloc>
       <yloc>480</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <valuetype>variable</valuetype>
+      <fieldtype>number</fieldtype>
+      <variablename>${var_ind_archive_staging_tables}</variablename>
+      <comparevalue>1</comparevalue>
+      <successcondition>equal</successcondition>
+      <successwhenvarset>N</successwhenvarset>
+      <successbooleancondition>false</successbooleancondition>
+      <successnumbercondition>equal</successnumbercondition>
       <name>Archive the staging table?</name>
       <description/>
       <type>SIMPLE_EVAL</type>
       <attributes/>
-      <comparevalue>1</comparevalue>
-      <fieldtype>number</fieldtype>
-      <successbooleancondition>false</successbooleancondition>
-      <successcondition>equal</successcondition>
-      <successnumbercondition>equal</successnumbercondition>
-      <successwhenvarset>N</successwhenvarset>
-      <valuetype>variable</valuetype>
-      <variablename>${var_ind_archive_staging_tables}</variablename>
-      <parallel>N</parallel>
       <xloc>880</xloc>
       <yloc>480</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
-      <name>Archive the staging table MYSQL</name>
-      <description/>
-      <type>SQL</type>
-      <attributes/>
-      <connection>pdi_meta</connection>
-      <sendOneStatement>N</sendOneStatement>
       <sql>drop table if exists ${staging_schema_name}_archive.${par_staging_table_name}_${var_archive_table_suffix};
 create table         ${staging_schema_name}_archive.${par_staging_table_name}_${var_archive_table_suffix} as select * from ${staging_schema_name}.${par_staging_table_name} where 1 = 0;
 alter  table         ${staging_schema_name}_archive.${par_staging_table_name}_${var_archive_table_suffix} ${PROP_DATABASE_ARCHIVE_TABLE_ENGINE};
 
 insert into          ${staging_schema_name}_archive.${par_staging_table_name}_${var_archive_table_suffix}
 select * from        ${staging_schema_name}.${par_staging_table_name};</sql>
-      <sqlfromfile>N</sqlfromfile>
+      <connection>pdi_meta</connection>
       <useVariableSubstitution>Y</useVariableSubstitution>
-      <parallel>N</parallel>
+      <sqlfromfile>N</sqlfromfile>
+      <sendOneStatement>N</sendOneStatement>
+      <name>Archive the staging table MYSQL</name>
+      <description/>
+      <type>SQL</type>
+      <attributes/>
       <xloc>1248</xloc>
       <yloc>576</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <valuetype>variable</valuetype>
+      <fieldtype>string</fieldtype>
+      <variablename>${PROP_DATABASE_TYPE}</variablename>
+      <comparevalue>MYSQL</comparevalue>
+      <successcondition>equal</successcondition>
+      <successwhenvarset>N</successwhenvarset>
+      <successbooleancondition>false</successbooleancondition>
+      <successnumbercondition>equal</successnumbercondition>
       <name>Database type MYSQL ?</name>
       <description/>
       <type>SIMPLE_EVAL</type>
       <attributes/>
-      <comparevalue>MYSQL</comparevalue>
-      <fieldtype>string</fieldtype>
-      <successbooleancondition>false</successbooleancondition>
-      <successcondition>equal</successcondition>
-      <successnumbercondition>equal</successnumbercondition>
-      <successwhenvarset>N</successwhenvarset>
-      <valuetype>variable</valuetype>
-      <variablename>${PROP_DATABASE_TYPE}</variablename>
-      <parallel>N</parallel>
       <xloc>880</xloc>
       <yloc>576</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <valuetype>variable</valuetype>
+      <fieldtype>string</fieldtype>
+      <variablename>${PROP_DATABASE_TYPE}</variablename>
+      <comparevalue>POSTGRESQL</comparevalue>
+      <successcondition>equal</successcondition>
+      <successwhenvarset>N</successwhenvarset>
+      <successbooleancondition>false</successbooleancondition>
+      <successnumbercondition>equal</successnumbercondition>
       <name>Database type POSTGRESQL ?</name>
       <description/>
       <type>SIMPLE_EVAL</type>
       <attributes/>
-      <comparevalue>POSTGRESQL</comparevalue>
-      <fieldtype>string</fieldtype>
-      <successbooleancondition>false</successbooleancondition>
-      <successcondition>equal</successcondition>
-      <successnumbercondition>equal</successnumbercondition>
-      <successwhenvarset>N</successwhenvarset>
-      <valuetype>variable</valuetype>
-      <variablename>${PROP_DATABASE_TYPE}</variablename>
-      <parallel>N</parallel>
       <xloc>880</xloc>
       <yloc>704</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
-      <name>Archive the staging table POSTGRESQL</name>
-      <description/>
-      <type>SQL</type>
-      <attributes/>
-      <connection>pdi_meta</connection>
-      <sendOneStatement>N</sendOneStatement>
       <sql>drop table if exists ${staging_schema_name}_archive.${par_staging_table_name}_${var_archive_table_suffix};
 create table         ${staging_schema_name}_archive.${par_staging_table_name}_${var_archive_table_suffix} as select * from ${staging_schema_name}.${par_staging_table_name} where 1 = 0;
 
 insert into          ${staging_schema_name}_archive.${par_staging_table_name}_${var_archive_table_suffix}
 select * from        ${staging_schema_name}.${par_staging_table_name};</sql>
-      <sqlfromfile>N</sqlfromfile>
+      <connection>pdi_meta</connection>
       <useVariableSubstitution>Y</useVariableSubstitution>
-      <parallel>N</parallel>
+      <sqlfromfile>N</sqlfromfile>
+      <sendOneStatement>N</sendOneStatement>
+      <name>Archive the staging table POSTGRESQL</name>
+      <description/>
+      <type>SQL</type>
+      <attributes/>
       <xloc>1376</xloc>
       <yloc>704</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <message>Unsupported database type!</message>
+      <always_log_rows>N</always_log_rows>
       <name>Abort job</name>
       <description/>
       <type>ABORT</type>
       <attributes/>
-      <always_log_rows>N</always_log_rows>
-      <message>Unsupported database type!</message>
-      <parallel>N</parallel>
       <xloc>608</xloc>
       <yloc>704</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <filename>${PROJECT_HOME}/staging_generic/staging_generic_tables_source_system/get_row_version.hpl</filename>
+      <params_from_previous>N</params_from_previous>
+      <exec_per_row>N</exec_per_row>
+      <clear_rows>N</clear_rows>
+      <clear_files>N</clear_files>
+      <create_parent_folder>N</create_parent_folder>
+      <set_logfile>N</set_logfile>
+      <set_append_logfile>N</set_append_logfile>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <loglevel>Basic</loglevel>
+      <wait_until_finished>Y</wait_until_finished>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <run_configuration>local</run_configuration>
       <name>get_row_version</name>
       <description/>
       <type>PIPELINE</type>
       <attributes/>
-      <add_date>N</add_date>
-      <add_time>N</add_time>
-      <clear_files>N</clear_files>
-      <clear_rows>N</clear_rows>
-      <create_parent_folder>N</create_parent_folder>
-      <exec_per_row>N</exec_per_row>
-      <filename>${PROJECT_HOME}/staging_generic/staging_generic_tables_source_system/get_row_version.hpl</filename>
-      <loglevel>Basic</loglevel>
-      <parameters>
-        <pass_all_parameters>Y</pass_all_parameters>
-      </parameters>
-      <params_from_previous>N</params_from_previous>
-      <run_configuration>local</run_configuration>
-      <set_append_logfile>N</set_append_logfile>
-      <set_logfile>N</set_logfile>
-      <wait_until_finished>Y</wait_until_finished>
-      <parallel>N</parallel>
       <xloc>880</xloc>
       <yloc>144</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <filename>${PROJECT_HOME}/staging_generic/staging_generic_tables_source_system/get_increment.hpl</filename>
+      <params_from_previous>N</params_from_previous>
+      <exec_per_row>N</exec_per_row>
+      <clear_rows>N</clear_rows>
+      <clear_files>N</clear_files>
+      <create_parent_folder>N</create_parent_folder>
+      <set_logfile>N</set_logfile>
+      <set_append_logfile>N</set_append_logfile>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <loglevel>Basic</loglevel>
+      <wait_until_finished>Y</wait_until_finished>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <run_configuration>local</run_configuration>
       <name>get_increment</name>
       <description/>
       <type>PIPELINE</type>
       <attributes/>
-      <add_date>N</add_date>
-      <add_time>N</add_time>
-      <clear_files>N</clear_files>
-      <clear_rows>N</clear_rows>
-      <create_parent_folder>N</create_parent_folder>
-      <exec_per_row>N</exec_per_row>
-      <filename>${PROJECT_HOME}/staging_generic/staging_generic_tables_source_system/get_increment.hpl</filename>
-      <loglevel>Basic</loglevel>
-      <parameters>
-        <pass_all_parameters>Y</pass_all_parameters>
-      </parameters>
-      <params_from_previous>N</params_from_previous>
-      <run_configuration>local</run_configuration>
-      <set_append_logfile>N</set_append_logfile>
-      <set_logfile>N</set_logfile>
-      <wait_until_finished>Y</wait_until_finished>
-      <parallel>N</parallel>
       <xloc>384</xloc>
       <yloc>144</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <valuetype>variable</valuetype>
+      <fieldtype>number</fieldtype>
+      <variablename>${is_inc}</variablename>
+      <comparevalue>0</comparevalue>
+      <successcondition>equal</successcondition>
+      <successwhenvarset>N</successwhenvarset>
+      <successbooleancondition>false</successbooleancondition>
+      <successnumbercondition>equal</successnumbercondition>
       <name>is_incremental</name>
       <description/>
       <type>SIMPLE_EVAL</type>
       <attributes/>
-      <comparevalue>0</comparevalue>
-      <fieldtype>number</fieldtype>
-      <successbooleancondition>false</successbooleancondition>
-      <successcondition>equal</successcondition>
-      <successnumbercondition>equal</successnumbercondition>
-      <successwhenvarset>N</successwhenvarset>
-      <valuetype>variable</valuetype>
-      <variablename>${is_inc}</variablename>
-      <parallel>N</parallel>
       <xloc>880</xloc>
       <yloc>256</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <filename>${PROJECT_HOME}/staging_generic/staging_generic_tables_source_system/trf_staging_generic_source_system_table_id_srcsys_${par_id_srcsys}_inc.hpl</filename>
+      <params_from_previous>N</params_from_previous>
+      <exec_per_row>N</exec_per_row>
+      <clear_rows>N</clear_rows>
+      <clear_files>N</clear_files>
+      <create_parent_folder>N</create_parent_folder>
+      <set_logfile>N</set_logfile>
+      <set_append_logfile>N</set_append_logfile>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <loglevel>Basic</loglevel>
+      <wait_until_finished>Y</wait_until_finished>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <run_configuration>local</run_configuration>
       <name>staging_yes_rv</name>
       <description/>
       <type>PIPELINE</type>
       <attributes/>
-      <add_date>N</add_date>
-      <add_time>N</add_time>
-      <clear_files>N</clear_files>
-      <clear_rows>N</clear_rows>
-      <create_parent_folder>N</create_parent_folder>
-      <exec_per_row>N</exec_per_row>
-      <filename>${PROJECT_HOME}/staging_generic/staging_generic_tables_source_system/trf_staging_generic_source_system_table_id_srcsys_${par_id_srcsys}_inc.hpl</filename>
-      <loglevel>Basic</loglevel>
-      <parameters>
-        <pass_all_parameters>Y</pass_all_parameters>
-      </parameters>
-      <params_from_previous>N</params_from_previous>
-      <run_configuration>local</run_configuration>
-      <set_append_logfile>N</set_append_logfile>
-      <set_logfile>N</set_logfile>
-      <wait_until_finished>Y</wait_until_finished>
-      <parallel>N</parallel>
       <xloc>1056</xloc>
       <yloc>352</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <valuetype>variable</valuetype>
+      <fieldtype>string</fieldtype>
+      <fieldname>${rv_exists}</fieldname>
+      <variablename>${rv_exists}</variablename>
+      <comparevalue>Y</comparevalue>
+      <successcondition>equal</successcondition>
+      <successwhenvarset>N</successwhenvarset>
+      <successbooleancondition>true</successbooleancondition>
+      <successnumbercondition>equal</successnumbercondition>
       <name>check_row_version_exists</name>
       <description/>
       <type>SIMPLE_EVAL</type>
       <attributes/>
-      <comparevalue>Y</comparevalue>
-      <fieldname>${rv_exists}</fieldname>
-      <fieldtype>string</fieldtype>
-      <successbooleancondition>true</successbooleancondition>
-      <successcondition>equal</successcondition>
-      <successnumbercondition>equal</successnumbercondition>
-      <successwhenvarset>N</successwhenvarset>
-      <valuetype>variable</valuetype>
-      <variablename>${rv_exists}</variablename>
-      <parallel>N</parallel>
       <xloc>704</xloc>
       <yloc>144</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <filename>${PROJECT_HOME}/staging_generic/staging_generic_tables_source_system/check_row_version.hpl</filename>
+      <params_from_previous>N</params_from_previous>
+      <exec_per_row>N</exec_per_row>
+      <clear_rows>N</clear_rows>
+      <clear_files>N</clear_files>
+      <create_parent_folder>N</create_parent_folder>
+      <set_logfile>N</set_logfile>
+      <set_append_logfile>N</set_append_logfile>
+      <add_date>N</add_date>
+      <add_time>N</add_time>
+      <loglevel>Basic</loglevel>
+      <wait_until_finished>Y</wait_until_finished>
+      <parameters>
+        <pass_all_parameters>Y</pass_all_parameters>
+      </parameters>
+      <run_configuration>local</run_configuration>
       <name>check_row_version</name>
       <description/>
       <type>PIPELINE</type>
       <attributes/>
-      <add_date>N</add_date>
-      <add_time>N</add_time>
-      <clear_files>N</clear_files>
-      <clear_rows>N</clear_rows>
-      <create_parent_folder>N</create_parent_folder>
-      <exec_per_row>N</exec_per_row>
-      <filename>${PROJECT_HOME}/staging_generic/staging_generic_tables_source_system/check_row_version.hpl</filename>
-      <loglevel>Basic</loglevel>
-      <parameters>
-        <pass_all_parameters>Y</pass_all_parameters>
-      </parameters>
-      <params_from_previous>N</params_from_previous>
-      <run_configuration>local</run_configuration>
-      <set_append_logfile>N</set_append_logfile>
-      <set_logfile>N</set_logfile>
-      <wait_until_finished>Y</wait_until_finished>
-      <parallel>N</parallel>
       <xloc>528</xloc>
       <yloc>144</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <valuetype>variable</valuetype>
+      <fieldtype>string</fieldtype>
+      <fieldname>${SOURCE_DATABASE_TYPE}</fieldname>
+      <variablename>${SOURCE_DATABASE_TYPE}</variablename>
+      <comparevalue>SQLSERVER</comparevalue>
+      <successcondition>equal</successcondition>
+      <successwhenvarset>N</successwhenvarset>
+      <successbooleancondition>false</successbooleancondition>
+      <successnumbercondition>equal</successnumbercondition>
       <name>check_sqlserver</name>
       <description/>
       <type>SIMPLE_EVAL</type>
       <attributes/>
-      <comparevalue>SQLSERVER</comparevalue>
-      <fieldname>${SOURCE_DATABASE_TYPE}</fieldname>
-      <fieldtype>string</fieldtype>
-      <successbooleancondition>false</successbooleancondition>
-      <successcondition>equal</successcondition>
-      <successnumbercondition>equal</successnumbercondition>
-      <successwhenvarset>N</successwhenvarset>
-      <valuetype>variable</valuetype>
-      <variablename>${SOURCE_DATABASE_TYPE}</variablename>
-      <parallel>N</parallel>
       <xloc>384</xloc>
       <yloc>352</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <loglevel>Detailed</loglevel>
+      <logsubject>Find Sat</logsubject>
+      <logmessage>&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt; CANT FIND SAT TABLE &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</logmessage>
       <name>Write To Log</name>
       <description/>
       <type>WRITE_TO_LOG</type>
       <attributes/>
-      <loglevel>Detailed</loglevel>
-      <logmessage>&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt; CANT FIND SAT TABLE &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</logmessage>
-      <logsubject>Find Sat</logsubject>
-      <parallel>N</parallel>
       <xloc>384</xloc>
       <yloc>16</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <loglevel>Basic</loglevel>
+      <logsubject>GET ROW VERSION CHECK</logsubject>
+      <logmessage>&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt; FAILED TO GET ROW VERSION &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</logmessage>
       <name>Write To Log 2</name>
       <description/>
       <type>WRITE_TO_LOG</type>
       <attributes/>
-      <loglevel>Basic</loglevel>
-      <logmessage>&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt; FAILED TO GET ROW VERSION &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</logmessage>
-      <logsubject>GET ROW VERSION CHECK</logsubject>
-      <parallel>N</parallel>
       <xloc>880</xloc>
       <yloc>16</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <loglevel>Basic</loglevel>
+      <logsubject>ROW VERSION CHECK</logsubject>
+      <logmessage>&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt; FAILED TO FIND ROW VERSION &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</logmessage>
       <name>Write To Log 3</name>
       <description/>
       <type>WRITE_TO_LOG</type>
       <attributes/>
-      <loglevel>Basic</loglevel>
-      <logmessage>&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt; FAILED TO FIND ROW VERSION &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</logmessage>
-      <logsubject>ROW VERSION CHECK</logsubject>
-      <parallel>N</parallel>
       <xloc>528</xloc>
       <yloc>64</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <always_log_rows>N</always_log_rows>
       <name>Abort job 2</name>
       <description/>
       <type>ABORT</type>
       <attributes/>
-      <always_log_rows>N</always_log_rows>
-      <parallel>N</parallel>
       <xloc>688</xloc>
       <yloc>16</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
+      <sql>REINDEX TABLE ${stg_schema_name}.${par_staging_table_name}</sql>
+      <connection>staging</connection>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <sqlfromfile>N</sqlfromfile>
+      <sendOneStatement>N</sendOneStatement>
       <name>Rebuild Indexes</name>
       <description/>
       <type>SQL</type>
       <attributes/>
-      <connection>staging</connection>
-      <sendOneStatement>N</sendOneStatement>
-      <sql>REINDEX TABLE ${stg_schema_name}.${par_staging_table_name}</sql>
-      <sqlfromfile>N</sqlfromfile>
-      <useVariableSubstitution>Y</useVariableSubstitution>
-      <parallel>N</parallel>
       <xloc>1504</xloc>
       <yloc>384</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
     <action>
-      <name>Truncate tables</name>
-      <description/>
-      <type>TRUNCATE_TABLES</type>
-      <attributes/>
       <arg_from_previous>N</arg_from_previous>
       <connection>staging</connection>
       <fields>
@@ -537,27 +532,61 @@ select * from        ${staging_schema_name}.${par_staging_table_name};</sql>
           <schemaname>${staging_schema_name}</schemaname>
         </field>
       </fields>
+      <name>Truncate tables</name>
+      <description/>
+      <type>TRUNCATE_TABLES</type>
+      <attributes/>
+      <xloc>224</xloc>
+      <yloc>240</yloc>
       <parallel>N</parallel>
-      <xloc>64</xloc>
-      <yloc>352</yloc>
       <attributes_hac/>
     </action>
     <action>
+      <valuetype>variable</valuetype>
+      <fieldtype>string</fieldtype>
+      <variablename>${reindex}</variablename>
+      <comparevalue>1</comparevalue>
+      <successcondition>equal</successcondition>
+      <successwhenvarset>N</successwhenvarset>
+      <successbooleancondition>false</successbooleancondition>
+      <successnumbercondition>equal</successnumbercondition>
       <name>reindex</name>
       <description/>
       <type>SIMPLE_EVAL</type>
       <attributes/>
-      <comparevalue>1</comparevalue>
-      <fieldtype>string</fieldtype>
-      <successbooleancondition>false</successbooleancondition>
-      <successcondition>equal</successcondition>
-      <successnumbercondition>equal</successnumbercondition>
-      <successwhenvarset>N</successwhenvarset>
-      <valuetype>variable</valuetype>
-      <variablename>${reindex}</variablename>
-      <parallel>N</parallel>
       <xloc>1376</xloc>
       <yloc>480</yloc>
+      <parallel>N</parallel>
+      <attributes_hac/>
+    </action>
+    <action>
+      <sql>DELETE FROM ${staging_schema_name}.${par_staging_table_name}</sql>
+      <connection>staging</connection>
+      <useVariableSubstitution>Y</useVariableSubstitution>
+      <sqlfromfile>N</sqlfromfile>
+      <sqlfilename/>
+      <sqlfilename_encoding/>
+      <sendOneStatement>N</sendOneStatement>
+      <name>SQL</name>
+      <description/>
+      <type>SQL</type>
+      <attributes/>
+      <xloc>224</xloc>
+      <yloc>448</yloc>
+      <parallel>N</parallel>
+      <attributes_hac/>
+    </action>
+    <action>
+      <loglevel>Basic</loglevel>
+      <logsubject>TRUNCATING STAGING VIEWS</logsubject>
+      <logmessage>&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt;&gt; FAILED TO FIND ROW VERSION &lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;</logmessage>
+      <name>Write To Log 5</name>
+      <description/>
+      <type>WRITE_TO_LOG</type>
+      <attributes/>
+      <xloc>64</xloc>
+      <yloc>448</yloc>
+      <parallel>N</parallel>
       <attributes_hac/>
     </action>
   </actions>
@@ -565,304 +594,325 @@ select * from        ${staging_schema_name}.${par_staging_table_name};</sql>
     <hop>
       <from>staging_no_rv</from>
       <to>Archive the staging table?</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Archive the staging table?</from>
       <to>Database type MYSQL ?</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Database type MYSQL ?</from>
       <to>Archive the staging table MYSQL</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Database type MYSQL ?</from>
       <to>Database type POSTGRESQL ?</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Database type POSTGRESQL ?</from>
       <to>Archive the staging table POSTGRESQL</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Database type POSTGRESQL ?</from>
       <to>Abort job</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>get_row_version</from>
       <to>is_incremental</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>is_incremental</from>
       <to>staging_no_rv</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>is_incremental</from>
       <to>staging_yes_rv</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>staging_yes_rv</from>
       <to>Archive the staging table?</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>check_row_version_exists</from>
       <to>staging_no_rv</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>check_row_version_exists</from>
       <to>get_row_version</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>get_increment</from>
       <to>check_row_version</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>check_row_version</from>
       <to>check_row_version_exists</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Log start transformation</from>
       <to>check_sqlserver</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>Y</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>check_sqlserver</from>
       <to>get_increment</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>check_sqlserver</from>
       <to>staging_no_rv</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>check_row_version</from>
       <to>staging_no_rv</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>get_increment</from>
       <to>staging_no_rv</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>get_increment</from>
       <to>Write To Log</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>check_row_version</from>
       <to>Write To Log 3</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>get_row_version</from>
       <to>Write To Log 2</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Write To Log</from>
       <to>Abort job 2</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Write To Log 3</from>
       <to>Abort job 2</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Write To Log 2</from>
       <to>Abort job 2</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>START</from>
       <to>Truncate tables</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>Y</unconditional>
+      <enabled>N</enabled>
     </hop>
     <hop>
       <from>reindex</from>
       <to>Rebuild Indexes</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Truncate tables</from>
       <to>Log start transformation</to>
-      <enabled>Y</enabled>
-      <evaluation>Y</evaluation>
+      <evaluation>N</evaluation>
       <unconditional>Y</unconditional>
+      <enabled>N</enabled>
     </hop>
     <hop>
       <from>Archive the staging table?</from>
       <to>reindex</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Archive the staging table MYSQL</from>
       <to>reindex</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Archive the staging table POSTGRESQL</from>
       <to>reindex</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Rebuild Indexes</from>
       <to>Log end transformation</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>Log end transformation</from>
       <to>Success</to>
-      <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>Y</unconditional>
+      <enabled>Y</enabled>
     </hop>
     <hop>
       <from>reindex</from>
       <to>Log end transformation</to>
-      <enabled>Y</enabled>
       <evaluation>N</evaluation>
       <unconditional>N</unconditional>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>SQL</from>
+      <to>Log start transformation</to>
+      <evaluation>N</evaluation>
+      <unconditional>Y</unconditional>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>START</from>
+      <to>Write To Log 5</to>
+      <evaluation>Y</evaluation>
+      <unconditional>Y</unconditional>
+      <enabled>Y</enabled>
+    </hop>
+    <hop>
+      <from>Write To Log 5</from>
+      <to>SQL</to>
+      <evaluation>Y</evaluation>
+      <unconditional>Y</unconditional>
+      <enabled>Y</enabled>
     </hop>
   </hops>
   <notepads>
     <notepad>
-      <backgroundcolorblue>0</backgroundcolorblue>
-      <backgroundcolorgreen>255</backgroundcolorgreen>
-      <backgroundcolorred>255</backgroundcolorred>
-      <bordercolorblue>100</bordercolorblue>
-      <bordercolorgreen>100</bordercolorgreen>
-      <bordercolorred>100</bordercolorred>
-      <fontbold>N</fontbold>
-      <fontcolorblue>0</fontcolorblue>
-      <fontcolorgreen>0</fontcolorgreen>
-      <fontcolorred>0</fontcolorred>
-      <fontitalic>N</fontitalic>
+      <note>Description: see job settings</note>
       <fontname>Courier New</fontname>
       <fontsize>10</fontsize>
-      <height>21</height>
+      <fontbold>N</fontbold>
+      <fontitalic>N</fontitalic>
+      <fontcolorred>0</fontcolorred>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorblue>0</fontcolorblue>
+      <backgroundcolorred>255</backgroundcolorred>
+      <backgroundcolorgreen>255</backgroundcolorgreen>
+      <backgroundcolorblue>0</backgroundcolorblue>
+      <bordercolorred>100</bordercolorred>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorblue>100</bordercolorblue>
       <xloc>16</xloc>
       <yloc>16</yloc>
-      <note>Description: see job settings</note>
       <width>242</width>
+      <height>21</height>
     </notepad>
     <notepad>
-      <backgroundcolorblue>112</backgroundcolorblue>
-      <backgroundcolorgreen>205</backgroundcolorgreen>
-      <backgroundcolorred>255</backgroundcolorred>
-      <bordercolorblue>100</bordercolorblue>
-      <bordercolorgreen>100</bordercolorgreen>
-      <bordercolorred>100</bordercolorred>
-      <fontbold>N</fontbold>
-      <fontcolorblue>0</fontcolorblue>
-      <fontcolorgreen>0</fontcolorgreen>
-      <fontcolorred>0</fontcolorred>
-      <fontitalic>N</fontitalic>
-      <fontname>Ubuntu</fontname>
-      <fontsize>11</fontsize>
-      <height>36</height>
-      <xloc>400</xloc>
-      <yloc>304</yloc>
       <note>used to skip part of the job 
 if the source is not sqlserver</note>
+      <fontname>Ubuntu</fontname>
+      <fontsize>11</fontsize>
+      <fontbold>N</fontbold>
+      <fontitalic>N</fontitalic>
+      <fontcolorred>0</fontcolorred>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorblue>0</fontcolorblue>
+      <backgroundcolorred>255</backgroundcolorred>
+      <backgroundcolorgreen>205</backgroundcolorgreen>
+      <backgroundcolorblue>112</backgroundcolorblue>
+      <bordercolorred>100</bordercolorred>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorblue>100</bordercolorblue>
+      <xloc>400</xloc>
+      <yloc>304</yloc>
       <width>225</width>
+      <height>36</height>
     </notepad>
     <notepad>
-      <backgroundcolorblue>112</backgroundcolorblue>
-      <backgroundcolorgreen>205</backgroundcolorgreen>
-      <backgroundcolorred>255</backgroundcolorred>
-      <bordercolorblue>100</bordercolorblue>
-      <bordercolorgreen>100</bordercolorgreen>
-      <bordercolorred>100</bordercolorred>
-      <fontbold>N</fontbold>
-      <fontcolorblue>0</fontcolorblue>
-      <fontcolorgreen>0</fontcolorgreen>
-      <fontcolorred>0</fontcolorred>
-      <fontitalic>N</fontitalic>
-      <fontsize>-1</fontsize>
-      <height>58</height>
-      <xloc>912</xloc>
-      <yloc>208</yloc>
       <note>is_inc = 0 means use row version
 
 if equal to 1, revert back to using the timestamp column</note>
+      <fontsize>-1</fontsize>
+      <fontbold>N</fontbold>
+      <fontitalic>N</fontitalic>
+      <fontcolorred>0</fontcolorred>
+      <fontcolorgreen>0</fontcolorgreen>
+      <fontcolorblue>0</fontcolorblue>
+      <backgroundcolorred>255</backgroundcolorred>
+      <backgroundcolorgreen>205</backgroundcolorgreen>
+      <backgroundcolorblue>112</backgroundcolorblue>
+      <bordercolorred>100</bordercolorred>
+      <bordercolorgreen>100</bordercolorgreen>
+      <bordercolorblue>100</bordercolorblue>
+      <xloc>912</xloc>
+      <yloc>208</yloc>
       <width>407</width>
+      <height>58</height>
     </notepad>
   </notepads>
   <attributes/>

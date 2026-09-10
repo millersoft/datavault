@@ -58,11 +58,11 @@ describe('modular companion server',()=>{
     assert.doesNotMatch(assembly,/app\.(?:get|post|delete)\('\/api\//);
   });
 
-  test('all 45 API endpoints are registered exactly once through routers',()=>{
+  test('all 46 API endpoints are registered exactly once through routers',()=>{
     const routes=routeInventory(createApp());
     const apiRoutes=routes.filter(route=>route.includes(' /api/'));
-    assert.strictEqual(apiRoutes.length,45);
-    assert.strictEqual(new Set(apiRoutes).size,45);
+    assert.strictEqual(apiRoutes.length,46);
+    assert.strictEqual(new Set(apiRoutes).size,46);
   });
 
   test('route ownership is split by feature',()=>{
@@ -71,5 +71,24 @@ describe('modular companion server',()=>{
     }
     assert.ok(fs.existsSync(path.join(studioDir,'server','database','source.js')));
     assert.ok(fs.existsSync(path.join(studioDir,'server','database-packs','index.js')));
+  });
+});
+
+describe('Hop staging run lifecycle',()=>{
+  const projectRoot=path.resolve(studioDir,'..');
+  const readWorkflow=relative=>fs.readFileSync(path.join(projectRoot,relative),'utf8');
+
+  test('the full staging workflow creates one run and its child reuses it',()=>{
+    const parent=readWorkflow('staging_generic/job_complete_batch_staging.hwf');
+    const child=readWorkflow('staging_generic/staging_generic_tables_source_system/job_staging_generic_source_system_run.hwf');
+    const childActionStart=parent.indexOf('<name>job_staging_generic_source_system_run (Sakila, id_srcsys = 1)</name>');
+
+    assert.notStrictEqual(childActionStart,-1);
+    const childAction=parent.slice(childActionStart,parent.indexOf('</action>',childActionStart));
+    assert.match(childAction,/<name>par_id_rtyp<\/name>\s*<value>\$\{par_id_rtyp\}<\/value>/);
+    assert.doesNotMatch(parent,/job_stg_load_file_directory_generic/);
+    assert.doesNotMatch(child,/prc_create_new_run|prc_end_run/);
+    assert.match(child,/<from>START<\/from>\s*<to>Set var_id_rtyp and var_subruntype<\/to>/);
+    assert.match(child,/<from>job_staging_generic_source_system_tables<\/from>\s*<to>Success<\/to>/);
   });
 });

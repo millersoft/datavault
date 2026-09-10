@@ -13,12 +13,61 @@ let externalTargetConnError = '';
 let externalTargetDbExists = null;
 let externalTargetIdentity = null;
 let externalTargetDbCreating = false;
+let importedProjectConnectionsRequireConfirmation = false;
+const confirmedImportedConnectionTargets = new Set();
+
+function importedConnectionTargetDetails(body){
+  if(!body||(!body.host&&!body.manualUrl&&!body.jdbcUrl&&!body.packValues))return null;
+  const pack=databasePackForDialect(body.dialect);
+  const values=body.packValues&&typeof body.packValues==='object'?body.packValues:{};
+  const mapped=(name)=>{
+    const field=pack&&(pack.connectionFields||[]).find(item=>item.mapsTo===name||item.key===name);
+    return String((field&&values[field.key])??body[name]??'').trim();
+  };
+  const manualUrl=String(body.manualUrl||body.jdbcUrl||'').trim();
+  const publicPackValues={};
+  for(const field of (pack&&pack.connectionFields)||[]){
+    if(field.type==='password'||field.mapsTo==='password'||field.mapsTo==='user')continue;
+    if(values[field.key]!=null)publicPackValues[field.key]=String(values[field.key]);
+  }
+  let display='';
+  if(manualUrl){
+    const authority=manualUrl.match(/^jdbc:[A-Za-z0-9+._-]+(?::[A-Za-z0-9+._-]+)*:\/\/([^/;?\s]+)/i);
+    display=authority&&!authority[1].includes('@')?authority[1]:'the imported manual JDBC URL';
+  }else{
+    const endpointField=pack&&(pack.connectionFields||[]).find(field=>/host|server|endpoint/i.test(field.key)&&publicPackValues[field.key]);
+    const host=mapped('host')||(endpointField&&publicPackValues[endpointField.key])||'',port=mapped('port'),database=mapped('database')||mapped('catalog');
+    display=`${host||'the imported host'}${port?':'+port:''}${database?'/'+database:''}`;
+  }
+  const signature=JSON.stringify({dialect:body.dialect||'',manualUrl,host:mapped('host'),port:mapped('port'),database:mapped('database'),catalog:mapped('catalog'),packValues:publicPackValues});
+  return {display,signature};
+}
+function confirmImportedConnectionTarget(body){
+  if(!importedProjectConnectionsRequireConfirmation)return body;
+  const target=importedConnectionTargetDetails(body);
+  if(!target||confirmedImportedConnectionTargets.has(target.signature))return body;
+  if(!confirm(`This database destination came from an imported project file:\n\n${target.display}\n\nImported files can point Studio at loopback, private-network, or other internal services. Connect to this destination?`)) throw new Error('Connection to the imported database destination was cancelled.');
+  confirmedImportedConnectionTargets.add(target.signature);
+  return body;
+}
 
 function renderConnStatusHtml(){
   if (sourceConnStatus==='testing') return `<div class="ai-status busy mt"><span class="dot"></span>Connecting…</div>`;
   if (sourceConnStatus==='ok') return `<div class="ai-status ok mt">Connected — ready to detect source tables on Step 2.</div>`;
   if (sourceConnStatus==='error') return `<div class="ai-status err mt">${escapeHtml(sourceConnError)}</div>`;
   return '';
+}
+
+function sourceConnectionPayload(){
+  const v=state.vault;
+  if(demoSourceActive())return {credentialRef:'packaged-mysql-source',database:'sakila',dialect:'mysql'};
+  return confirmImportedConnectionTarget(databasePackConnectionBody('source') || {host:v.srcHost,port:v.srcPort,database:v.srcDatabase,user:v.srcUser,password:v.srcPassword,dialect:v.dialect});
+}
+function targetConnectionPayload(database=state.vault.dvDatabase){
+  const v=state.vault;
+  if(demoTargetActive())return {credentialRef:'internal-postgres-target',database,dialect:'postgresql'};
+  if(!v.dvPassword)return confirmImportedConnectionTarget({credentialRef:'external-postgres-target',host:v.dvHost,port:v.dvPort,database,dialect:'postgresql'});
+  return confirmImportedConnectionTarget({host:v.dvHost,port:v.dvPort,database,user:v.dvUser,password:v.dvPassword,dialect:'postgresql'});
 }
 
 async function testSourceConnection(){
@@ -30,7 +79,7 @@ async function testSourceConnection(){
     if (!health || !health.ok){
       throw new Error(`Local server not reachable at ${localServerUrl} — is it running? (cd server && npm install && npm start)`);
     }
-    const sourcePayload=databasePackConnectionBody('source') || { host: v.srcHost, port: v.srcPort, database: v.srcDatabase, user: v.srcUser, password: v.srcPassword, dialect: v.dialect };
+    const sourcePayload=sourceConnectionPayload();
     const resp = await localFetch(`/api/test-connection`, {
       method: 'POST', headers: { 'Content-Type':'application/json' },
       body: JSON.stringify(sourcePayload),
@@ -254,7 +303,9 @@ async function createAndUseFdwServiceUser(){
   const ext=state.externalTables;
   const pack=databasePackForDialect(ext.remoteDialect);
   if(!pack||!fdwServiceUserSpec(pack)){toast('This Database Pack does not provide FDW service-account provisioning.','err');return;}
-  const body=databasePackConnectionBody('target');
+  let body;
+  try{body=confirmImportedConnectionTarget(databasePackConnectionBody('target'));}
+  catch(err){toast(err.message,'err');return;}
   const selectedSchema=String(body?.schema||'').trim();
   const draft=fdwServiceUserDraftFor(pack,selectedSchema);
   const serviceUser=safeServiceUserToken(draft.username);
@@ -345,7 +396,7 @@ async function checkTargetRoles(){
     const resp = await localFetch(`/api/execute-sql`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        host: v.dvHost, port: v.dvPort, database: v.dvDatabase, user: v.dvUser, password: v.dvPassword,
+        ...targetConnectionPayload(),
         sql: 'SET ROLE staging; RESET ROLE; SET ROLE data_vault; RESET ROLE;',
       }),
     });
@@ -369,7 +420,7 @@ async function testTargetConnection(){
     }
     const resp = await localFetch(`/api/db-status`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ host: v.dvHost, port: v.dvPort, database: v.dvDatabase, user: v.dvUser, password: v.dvPassword }),
+      body: JSON.stringify(targetConnectionPayload()),
     });
     const data = await resp.json();
     if (!data.ok) throw new Error(data.error || 'Connection failed.');
@@ -397,13 +448,13 @@ async function createTargetDatabase(){
   try {
     const resp = await localFetch(`/api/create-database`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ host: v.dvHost, port: v.dvPort, database: v.dvDatabase, user: v.dvUser, password: v.dvPassword }),
+      body: JSON.stringify(targetConnectionPayload()),
     });
     const data = await resp.json();
     if (!data.ok) throw new Error(data.error || 'Could not create the database.');
     const verify = await localFetch(`/api/db-status`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ host: v.dvHost, port: v.dvPort, database: v.dvDatabase, user: v.dvUser, password: v.dvPassword }),
+      body: JSON.stringify(targetConnectionPayload()),
     }).then(r=>r.json());
     const databaseRole=state.externalTables.enabled?'gateway':'target';
     if (!verify.ok || !verify.exists) throw new Error(verify.error || `PostgreSQL ${databaseRole} database "${v.dvDatabase}" was not visible after creation.`);
@@ -436,13 +487,13 @@ async function containerProbe(kind){
   if (kind==='source'){
     const resp = await localFetch(`/api/test-connection`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ host: v.srcHost, port: v.srcPort, database: v.srcDatabase, user: v.srcUser, password: v.srcPassword, dialect: v.dialect }),
+      body: JSON.stringify(sourceConnectionPayload()),
     });
     return (await resp.json()).ok === true;
   }
   const resp = await localFetch(`/api/db-status`, {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ host: v.dvHost, port: v.dvPort, database: v.dvDatabase, user: v.dvUser, password: v.dvPassword }),
+    body: JSON.stringify(targetConnectionPayload()),
   });
   return (await resp.json()).ok === true;
 }

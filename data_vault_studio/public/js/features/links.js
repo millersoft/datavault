@@ -31,6 +31,11 @@ function renderLinksSub(el){
   `;
   renderLinkHubRows(el);
   el.querySelector('#btn-add-link-hub-row').addEventListener('click', ()=>{
+    const maxHubs=pdiMetaMaxItems('linkHubs');
+    if(linkDraftHubs.length>=maxHubs){
+      toast(`A Link can contain a maximum of ${maxHubs} Hubs because the PDI metadata model only supports hub positions 1-${maxHubs}.`,'err');
+      return;
+    }
     linkDraftHubs.push(linkDraftRow());
     renderLinkHubRows(el);
   });
@@ -151,7 +156,15 @@ function renderLinkEditForm(el,l){
       <button class="btn primary small" id="edit-link-save">Save changes</button>
     </div>`;
   renderEditLinkHubRows(el,l);
-  el.querySelector('#btn-edit-add-link-hub-row').addEventListener('click',()=>{ editLinkDraftHubs.push(linkDraftRow()); renderEditLinkHubRows(el,l); });
+  el.querySelector('#btn-edit-add-link-hub-row').addEventListener('click',()=>{
+    const maxHubs=pdiMetaMaxItems('linkHubs');
+    if(editLinkDraftHubs.length>=maxHubs){
+      toast(`A Link can contain a maximum of ${maxHubs} Hubs because the PDI metadata model only supports hub positions 1-${maxHubs}.`,'err');
+      return;
+    }
+    editLinkDraftHubs.push(linkDraftRow());
+    renderEditLinkHubRows(el,l);
+  });
   el.querySelector('#edit-link-table').addEventListener('change',()=>{ editLinkDraftHubs.forEach(r=>{r.colId='';r.colIds=[];}); renderEditLinkHubRows(el,l); });
   el.querySelector('#edit-link-cancel').addEventListener('click',()=>{ expandedLinkId=null; renderAll(); setActiveTabViewOnly('vault'); modelSub='links'; });
   el.querySelector('#edit-link-save').addEventListener('click',()=>{

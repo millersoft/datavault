@@ -52,13 +52,24 @@ Demo mode reads its locked container credentials from the project-root
 - `DB_USER` — packaged PostgreSQL target username;
 - `VAULT_PASSWORD` — packaged PostgreSQL target and service-role password.
 
-Studio masks passwords. **Apply All** synchronises `SOURCE_PASSWORD` from the
-source connection. When the selected deployment target is native PostgreSQL,
-it also synchronises the existing `POSTGRES_BOOTSTRAP_USER`,
-`POSTGRES_BOOTSTRAP_PASSWORD`, and `VAULT_PASSWORD` values from the target
-connection. Internal `DB_*` settings remain administrator-controlled and are
-never changed by Studio. Restart or recreate affected containers after changing
-runtime credentials.
+Studio never returns passwords already stored in `.env` to the browser. Packaged
+MySQL and internal PostgreSQL operations use fixed server-side credential
+references; the browser receives only usernames and configured/missing status.
+**Apply All** preserves packaged credentials, synchronises a manually entered
+`SOURCE_PASSWORD`, and, for native external PostgreSQL, synchronises
+`POSTGRES_BOOTSTRAP_USER`, `POSTGRES_BOOTSTRAP_PASSWORD`, and `VAULT_PASSWORD`
+from the target connection. Internal `DB_*` settings remain administrator-controlled
+and are never changed by Studio. Restart or recreate affected containers after
+changing runtime credentials.
+
+The companion API also accepts optional resource-control environment variables:
+
+- `DVS_API_RATE_LIMIT_REQUESTS` (`120`) and `DVS_API_RATE_LIMIT_WINDOW_MS` (`60000`);
+- `DVS_CONNECTION_TEST_CONCURRENCY` (`3`), `DVS_INTROSPECTION_CONCURRENCY` (`2`), and `DVS_DRIVER_DOWNLOAD_CONCURRENCY` (`2`);
+- `DVS_MAX_JDBC_DRIVER_BYTES` (`104857600`), `DVS_JDBC_DOWNLOAD_TIMEOUT_MS` (`120000`), and `DVS_JDBC_CONNECT_TIMEOUT_MS` (`8000`, accepted range `1000–30000`);
+- `DVS_API_BODY_LIMIT` (`1mb`), `DVS_DEPLOY_BODY_LIMIT` (`25mb`), and `DVS_WORKBOOK_BODY_LIMIT` (`25mb`).
+
+Duplicate exclusive operations return `409 Conflict`; exhausted request or concurrency limits return `429 Too Many Requests` with `Retry-After` metadata.
 
 ---
 
@@ -99,6 +110,13 @@ Then open:
 ```text
 http://127.0.0.1:8420/
 ```
+
+Studio must be opened through this local HTTP server; opening `public/index.html`
+directly with `file://` is intentionally unsupported. The server binds to
+loopback, validates the local Host and browser Origin, and injects a random
+per-process token that the browser sends on every `/api/*` request. If the Node
+server restarts while a Studio tab is open, refresh that tab to receive the new
+token. Cross-origin API access is not enabled.
 
 ---
 
@@ -149,6 +167,21 @@ Work through the five numbered tabs from left to right:
 4. **Vault model** — review and edit the Hubs, Links, and Satellites.
 5. **Export & Deploy** — validate, download, and deploy. When deployment is current, continue to **Data Vault Hub** to start and monitor the engine.
 
+### Hopper EDW model export (preview)
+
+The Export page can also download a Hopper EDW source model (`.hsm`), raw
+Data Vault model (`.hdv`), and a no-credentials sidecar manifest. The Studio
+model is the export source: tables and foreign keys become the `.hsm`; hubs,
+links, and satellites become the `.hdv`. Link-satellite source and attribute
+mappings are nested under their parent Link in the Hopper model.
+
+Before opening the exported files in Apache Hop, create or select the Hop
+metadata named in the manifest: the `local-catalog` catalog connection, the
+generated source connection name, and the `data-vault` configuration. Studio
+staging SQL overrides, incremental schedules, status satellites, and JDBC-FDW
+target settings are intentionally reported as conversion notes rather than
+silently represented as Hopper model settings.
+
 You can go back to an earlier tab at any time. Step navigation always opens the
 destination at the top of the page, including the Back and Next buttons at the
 bottom of long Tables and Staging pages. Changes made to selected tables or
@@ -185,12 +218,9 @@ and password. SQL Server is always external and is never started or packaged by
 Studio. The source credential is independent of any physical FDW target
 credential.
 
-MySQL and SQL Server sources show a JDBC-driver check and fetch action because
-the Hop engine requires the corresponding jar in `jdbc-drivers/`. SQL Server
-source introspection also requires the Node `mssql` package installed by
-`npm install`. The SQL Server path currently uses SQL authentication and
-encrypted connections with trusted server certificates; Windows integrated
-authentication is not configured by this release.
+MySQL and PostgreSQL source connections now use their generated Database Packs for configurable JDBC fields, Options, and Manual connection URLs while keeping their stable `mysql` / `postgresql` dialect ids and the existing demo/runtime topology rules. The trusted bundled-driver actions install the corresponding JDBC JAR into `jdbc-drivers/`; other Database Packs continue to use the shared project driver directory.
+
+For customer-managed TLS material, place certificate/key/keystore files under project-root `dv-certs/` and reference them from a JDBC Option or Manual URL as `dv-certs/<relative-file>`. Studio resolves that portable reference to the local project path only at the server-side JDBC boundary; generated Hop metadata rewrites it to `/app/dv-certs/<relative-file>`, matching the read-only Docker mount. Studio does not upload, read, or validate certificate contents. It rejects traversal/symlink escapes, while missing/invalid certificates are reported through the normal JDBC driver error path and existing API response sanitisation.
 
 ## Deployment target
 

@@ -29,7 +29,7 @@ function applyFeatureGates(){
     enabled:false, serverName:'', drivername:'', url:'', jarfile:'', querytimeout:'30', maxheapsize:'',
     username:'', password:'', remoteDialect:'postgresql', remoteDatabase:'', remoteSchema:'',
     studioHost:'', studioPort:'', studioDatabase:'', studioSchema:'', studioUser:'', studioPassword:'',
-    studioConnectionOverridden:false, deploymentAcknowledged:false, targetProfile:null,
+    studioConnectionOverridden:false, fdwUrlOverridden:false, deploymentAcknowledged:false, targetProfile:null,
   }, existingExternalTables);
   state.externalTables.deploymentAcknowledged = false;
   if (state.externalTables.targetProfile && state.externalTables.targetProfile.dialect !== state.externalTables.remoteDialect) state.externalTables.targetProfile=null;
@@ -147,9 +147,9 @@ function applyFeatureGates(){
 // reads them for packaged presets and Apply All synchronises the selected
 // source password plus native external-PostgreSQL credentials through a
 // narrow allowlisted server endpoint. Internal DB_* values remain untouched.
-const DEMO_SOURCE = { dialect:'mysql', srcHost:'localhost', srcPort:'3306', srcDatabase:'sakila', srcUser:'sakila', srcPassword:'sourcesecret' };
-const DEMO_TARGET = { dvHost:'localhost', dvPort:'5433', dvUser:'dvuser', dvPassword:'secret' };
-let envDefaults = null; // { found, mysql:{user,password}, target:{user,password} } | null
+const DEMO_SOURCE = { dialect:'mysql', srcHost:'localhost', srcPort:'3306', srcDatabase:'sakila', srcUser:'sakila', srcPassword:'' };
+const DEMO_TARGET = { dvHost:'localhost', dvPort:'5433', dvUser:'dvuser', dvPassword:'' };
+let envDefaults = null; // Non-secret users and passwordConfigured flags only.
 let envFileStatus = null; // null = server unavailable/not checked | { ok, found, error? }
 async function refreshEnvDefaults(){
   try {
@@ -170,7 +170,8 @@ async function refreshEnvDefaults(){
 function runtimeCredentialPayload(){
   const externalPostgres = state.vault.targetPreset !== 'internal';
   return {
-    sourcePassword: String(state.vault.srcPassword || ''),
+    sourceCredentialMode: demoSourceActive() ? 'preserve' : 'replace',
+    sourcePassword: demoSourceActive() ? '' : String(state.vault.srcPassword || ''),
     targetPassword: externalPostgres ? String(state.vault.dvPassword || '') : '',
     targetUser: externalPostgres ? String(state.vault.dvUser || '') : '',
     externalPostgres,
@@ -178,7 +179,9 @@ function runtimeCredentialPayload(){
 }
 function runtimeCredentialValidationMessage(){
   const missing = [];
-  if (!String(state.vault.srcPassword || '')) missing.push('source password');
+  if (demoSourceActive()){
+    if (!(envDefaults && envDefaults.mysql && envDefaults.mysql.passwordConfigured)) missing.push('SOURCE_PASSWORD in .env');
+  } else if (!String(state.vault.srcPassword || '')) missing.push('source password');
   if (state.vault.targetPreset !== 'internal'){
     if (!String(state.vault.dvUser || '')) missing.push('external PostgreSQL username');
     if (!String(state.vault.dvPassword || '')) missing.push('external PostgreSQL password');
@@ -231,12 +234,14 @@ function applyDeploymentTarget(target){
           drivername:d.drivername, jarfile:d.jarfile,
           url:defaultExternalJdbcUrl(target, state.externalTables.studioHost||'external-db', d.port,
             state.externalTables.studioDatabase||state.externalTables.remoteDatabase||'datavault'),
-          packValues:isDatabasePackDialect(target)?{}:state.externalTables.packValues,
+          packValues:databasePackForDialect(target)?{}:state.externalTables.packValues,
+          packOptions:databasePackForDialect(target)?[]:state.externalTables.packOptions,
+          manualUrl:databasePackForDialect(target)?'':state.externalTables.manualUrl,
+          fdwUrlOverridden:false,
         });
-        if(isDatabasePackDialect(target)){
-          const pack=databasePackForDialect(target);
-          (pack&&pack.connectionFields||[]).forEach(f=>{ state.externalTables.packValues[f.key]=f.default!=null?f.default:''; });
-          syncPackMappedValues(pack,'target');
+        const pack=databasePackForDialect(target);
+        if(pack){
+          seedPackConnectionValues(pack,'target',{reset:true});
           // Rebuild after Pack defaults have been applied so vendor-specific
           // URL tokens (account, warehouse, service, etc.) are immediately
           // reflected in the FDW configuration rather than waiting for edit.
@@ -310,8 +315,15 @@ function applyDemoSource(on){
     Object.assign(state.vault, DEMO_SOURCE);
     if (envDefaults && envDefaults.mysql){
       if (envDefaults.mysql.user) state.vault.srcUser = envDefaults.mysql.user;
-      if (envDefaults.mysql.password) state.vault.srcPassword = envDefaults.mysql.password;
+      state.vault.srcPassword = '';
     }
+    // Demo credentials are resolved server-side. Clear any Pack-backed source
+    // connection details left in memory by a previously loaded production
+    // project so the demo path cannot retain or submit a user-entered secret.
+    state.vault.sourcePackValues = {};
+    state.vault.sourcePackOptions = [];
+    state.vault.sourceManualUrl = '';
+    state.vault.sourceCatalog = '';
     state.vault.sourcePreset = 'demo';
     state.vault.sourceSchema = 'sakila'; // MySQL: schema = database
     // The bundled demo only runs with the internal Postgres (start.sh
@@ -335,13 +347,9 @@ function applyDemoTarget(on){
     const targetDefaults = envDefaults && envDefaults.target;
     if (targetDefaults){
       if (targetDefaults.user) state.vault.dvUser = targetDefaults.user;
-      if (targetDefaults.password) state.vault.dvPassword = targetDefaults.password;
+      state.vault.dvPassword = '';
     }
-    // Backward compatibility for servers from the two-password build.
-    if (!state.vault.dvPassword && envDefaults && envDefaults.vault && envDefaults.vault.password){
-      state.vault.dvPassword = envDefaults.vault.password;
-    }
-    state.vault.vaultPassword = state.vault.dvPassword;
+    state.vault.vaultPassword = '';
     state.vault.targetPreset = 'internal';
     if (!state.vault.dvDatabase) state.vault.dvDatabase = 'datavault';
   } else {
@@ -365,11 +373,21 @@ const JDBC_DRIVER_SPECS = {
     statusField:'mysqlDriver',
     drivername:'com.mysql.cj.jdbc.Driver',
   },
+  postgresql: {
+    label:'PostgreSQL JDBC driver',
+    version:'42.7.7',
+    filename:'postgresql-42.7.7.jar',
+    url:'https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.7/postgresql-42.7.7.jar',
+    otherUrl:'https://jdbc.postgresql.org/download/',
+    statusField:'postgresDriver',
+    drivername:'org.postgresql.Driver',
+  },
 };
 function jdbcDriverSpec(dialect){
+  if(JDBC_DRIVER_SPECS[dialect]) return JDBC_DRIVER_SPECS[dialect];
   const pack=databasePackForDialect(dialect);
   if(pack) return {label:`${pack.label} JDBC driver`,version:pack.version,filename:packDriverDisplay(pack),statusField:'packDriver',drivername:pack.jdbc.driverClass,otherUrl:pack.jdbc.driverDownloadUrl||''};
-  return JDBC_DRIVER_SPECS[dialect] || null;
+  return null;
 }
 function defaultExternalJdbcUrl(dialect, host, port, database){
   const pack=databasePackForDialect(dialect);
@@ -399,7 +417,6 @@ function externalTargetDefaults(){
   const v = state.vault;
   const demoPhysicalTarget = isDemoRuntime();
   const name = sqlNamePart(v.name || 'vault') || 'vault';
-  const sourcePassword = String(v.srcPassword || (envDefaults && envDefaults.mysql && envDefaults.mysql.password) || '');
   if (demoPhysicalTarget){
     return {
       serverName: `${name}_external_srv`,
@@ -409,7 +426,7 @@ function externalTargetDefaults(){
       querytimeout: '30',
       maxheapsize: '512m',
       username: v.srcUser || 'sakila',
-      password: sourcePassword,
+      password: '',
       remoteDialect: 'mysql',
       remoteDatabase: 'datavault',
       remoteSchema: '',
@@ -418,7 +435,7 @@ function externalTargetDefaults(){
       studioDatabase: 'datavault',
       studioSchema: '',
       studioUser: v.srcUser || 'sakila',
-      studioPassword: sourcePassword,
+      studioPassword: '',
     };
   }
   return {
@@ -446,11 +463,10 @@ function applyExternalTargetDefaults(force=false){
   }
   if (isDemoRuntime()){
     const sharedUser = String(state.vault.srcUser || defaults.studioUser || '');
-    const sharedPassword = String(state.vault.srcPassword || defaults.studioPassword || '');
     ext.studioUser = sharedUser;
-    ext.studioPassword = sharedPassword;
+    ext.studioPassword = '';
     ext.username = sharedUser;
-    ext.password = sharedPassword;
+    ext.password = '';
   } else {
     ext.studioUser = String(ext.studioUser || ext.username || '');
     ext.studioPassword = String(ext.studioPassword || ext.password || '');

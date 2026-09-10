@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="dvs-api-token" content="__DVS_API_TOKEN__">
 <title>Millersoft — Data Vault Studio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -61,6 +62,8 @@ const STUDIO_RUNTIME_MODE = '__STUDIO_RUNTIME_MODE__' === 'demo' ? 'demo' : 'pro
 </script>
 <script src="js/core/feature-gates-runtime.js"></script>
 <script src="js/database-packs/registry.js"></script>
+<script src="js/domain/pdi-meta-limits.js"></script>
+<script src="js/domain/studio-limits.js"></script>
 <script src="js/core/state.js"></script>
 <script src="js/core/undo-and-guards.js"></script>
 <script src="js/domain/derivations.js"></script>
@@ -100,6 +103,7 @@ const STUDIO_RUNTIME_MODE = '__STUDIO_RUNTIME_MODE__' === 'demo' ? 'demo' : 'pro
 <script src="js/generators/hop-config.js"></script>
 <script src="js/generators/pdi-metadata.js"></script>
 <script src="js/generators/workbook.js"></script>
+<script src="js/generators/hopper-models.js"></script>
 <script src="js/domain/validation.js"></script>
 
 <script src="js/features/export-state.js"></script>

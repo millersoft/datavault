@@ -53,6 +53,17 @@ function makeElement(tag){
   return el;
 }
 
+class TestHeaders {
+  constructor(initial = {}){
+    this.values = new Map();
+    if (initial && typeof initial.forEach === 'function') initial.forEach((value,key)=>this.set(key,value));
+    else Object.entries(initial || {}).forEach(([key,value])=>this.set(key,value));
+  }
+  set(name,value){ this.values.set(String(name).toLowerCase(),String(value)); }
+  get(name){ return this.values.get(String(name).toLowerCase()) || null; }
+  forEach(callback){ this.values.forEach((value,key)=>callback(value,key,this)); }
+}
+
 function makeLocalStorage(){
   const store = new Map();
   return {
@@ -120,12 +131,13 @@ function loadApp(options = {}){
   const htmlPath = options.htmlPath
     || path.join(__dirname, '..', '..', 'public', 'index.html');
   const runtimeMode = options.runtimeMode === 'production' ? 'production' : 'demo';
+  const apiToken = options.apiToken || 'dvs-gui-test-token';
 
   const localStorage = makeLocalStorage();
   const documentStub = {
     getElementById(){ return makeElement(); },
     createElement(tag){ return makeElement(tag); },
-    querySelector(){ return makeElement(); },
+    querySelector(selector){ return selector === 'meta[name="dvs-api-token"]' ? { content:apiToken } : makeElement(); },
     querySelectorAll(){ return []; },
     addEventListener(){},
     removeEventListener(){},
@@ -139,10 +151,11 @@ function loadApp(options = {}){
     console,
     document: documentStub,
     localStorage,
-    location: { origin: 'file://', protocol: 'file:', href: 'file:///app.html', port: '' },
+    location: options.location || { origin: 'file://', protocol: 'file:', href: 'file:///app.html', port: '' },
     navigator: { userAgent: 'node-test' },
-    fetch(){ return Promise.reject(new Error('fetch disabled in tests')); },
-    confirm(){ return false; },   // never auto-restore/consent in tests
+    Headers: TestHeaders,
+    fetch: options.fetch || function(){ return Promise.reject(new Error('fetch disabled in tests')); },
+    confirm: options.confirm || function(){ return false; },   // never auto-restore/consent in tests
     alert(){},
     setTimeout(){ return 1; },    // fire-and-forget UI timers are inert in tests
     clearTimeout(){},

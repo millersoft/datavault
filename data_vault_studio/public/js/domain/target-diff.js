@@ -325,4 +325,3 @@ function renderTargetDiffResult(el){
     runTargetDiff(); // re-diff so the panel reflects the now-updated target
   });
 }
-

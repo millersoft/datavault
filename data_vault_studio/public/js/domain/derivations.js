@@ -370,6 +370,8 @@ function linkHubKeyColumnName(link, linkHub){
   return targetIdentifierBase(`hub_${state.vault.name}_${role}_id`,'hub_role_id');
 }
 function linkHubRowsIssue(entity, table, rows){
+  const countIssue = pdiMetaItemCountIssue('linkHubs', rows, `Link "${entity}"`);
+  if (countIssue) return countIssue;
   const seenPairs = new Set();
   for (const r of rows){
     const ids = Array.isArray(r.colIds) && r.colIds.length ? r.colIds : [r.colId];

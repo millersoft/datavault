@@ -1,5 +1,6 @@
 function renderExport(el){
   const { errors, warnings } = validateModel();
+  const hopperExport = buildHopperExport();
   const v = state.vault;
   const deploymentCurrent = !!(deployStatus && !deployStatus.error && !deployBoardIsStale()
     && deployStatus.rows.length && deployStatus.rows.every(r=>r.state==='current'));
@@ -43,6 +44,17 @@ function renderExport(el){
         <span></span>
         <span></span>
       </div>
+      <div class="panel" style="margin:18px 0 0;padding:16px;">
+        <div class="panel-head" style="margin:-16px -16px 14px;"><h3>Hopper EDW models <span class="badge-count">export preview</span></h3></div>
+        <p class="hint">Creates a source model (<span class="mono">.hsm</span>), a raw Data Vault model (<span class="mono">.hdv</span>), and a no-credentials manifest. Hopper's <span class="mono">local-catalog</span>, <span class="mono">${escapeHtml(hopperSourceConnectionName())}</span>, and <span class="mono">data-vault</span> metadata must be configured in the Hop project.</p>
+        ${hopperExport.issues.errors.length ? hopperExport.issues.errors.map(error=>`<div class="ai-status err" style="margin-top:6px;">${escapeHtml(error)}</div>`).join('') : '<div class="ai-status ok" style="margin-top:6px;">Ready to export for Hopper model review.</div>'}
+        ${hopperExport.issues.warnings.length ? `<details class="mt"><summary class="hint">${hopperExport.issues.warnings.length} conversion note(s)</summary><ul class="hint">${hopperExport.issues.warnings.map(warning=>`<li>${escapeHtml(warning)}</li>`).join('')}</ul></details>` : ''}
+        <div class="grid cols-3 mt">
+          <button class="btn ghost" id="btn-dl-hsm" ${hopperExport.issues.errors.length?'disabled':''}>⬇ ${escapeHtml(hopperExport.stem)}.hsm</button>
+          <button class="btn ghost" id="btn-dl-hdv" ${hopperExport.issues.errors.length?'disabled':''}>⬇ ${escapeHtml(hopperExport.stem)}.hdv</button>
+          <button class="btn ghost" id="btn-dl-hopper-manifest" ${hopperExport.issues.errors.length?'disabled':''}>⬇ Hopper manifest</button>
+        </div>
+      </div>
       <div class="export-file-list mt">
         ${exportFileRowHtml('staging', 'Staging DDL', '<span class="mono">staging</span> schema, this Postgres', true)}
         ${exportFileRowHtml('datavault', 'Data vault DDL', 'vault schema, this Postgres', true)}
@@ -57,10 +69,6 @@ function renderExport(el){
       <div class="panel-head" style="margin:-18px -20px 16px;"><h3>Deploy files locally <span class="badge-count">&nbsp;·&nbsp;internal Postgres only</span></h3></div>
       <p class="hint">Writes a combined <span class="mono">ddls.sql</span> (staging + vault) and a metadata SQL file into the internal container's init folder, alongside the existing numbered scripts. With an external Postgres target, DDL is applied with "Execute" above or downloaded to run yourself — this panel doesn't apply.</p>
       <div class="grid cols-3 mt">
-        <div class="field" style="grid-column:span 2;">
-          <label>Target folder <span class="hint">(auto-detected — override only if this project's layout differs)</span></label>
-          <input type="text" id="f-deploy-folder" value="${deployFolder}" placeholder="${deployFolderDetected || 'detecting… (needs the local server running)'}">
-        </div>
         <div class="field"><label>Start numbering at</label><input type="number" id="f-deploy-startnum" value="${deployStartNum}" min="1"></div>
       </div>
       <p class="hint" id="deploy-numbering-hint">Will write <span class="mono">${String(deployStartNum).padStart(2,'0')}-ddls.sql</span> and <span class="mono">${String(deployStartNum+1).padStart(2,'0')}-pdi-meta.sql</span> — pick a number after whatever's already in that folder.</p>
@@ -70,11 +78,7 @@ function renderExport(el){
 
     <div class="panel">
       <div class="panel-head" style="margin:-18px -20px 16px;"><h3>Deploy metadata spreadsheet locally</h3></div>
-      <p class="hint">Writes <span class="mono mapping-filename-preview">${escapeHtml(mappingWorkbookFilename())}</span> into the mappings folder.</p>
-      <div class="field mt">
-        <label>Target folder <span class="hint">(auto-detected — override only if this project's layout differs)</span></label>
-        <input type="text" id="f-mappings-folder" value="${mappingsFolder}" placeholder="${mappingsFolderDetected || 'detecting… (needs the local server running)'}">
-      </div>
+      <p class="hint">Writes <span class="mono mapping-filename-preview">${escapeHtml(mappingWorkbookFilename())}</span> into this project's <span class="mono">mappings/</span> folder.</p>
       <button class="btn primary mt" id="btn-deploy-mapping">⬆ Deploy metadata spreadsheet</button>
       <div id="mapping-deploy-status"></div>
     </div>
@@ -82,10 +86,7 @@ function renderExport(el){
     <div class="panel">
       <div class="panel-head" style="margin:-18px -20px 16px;"><h3>Save engine settings</h3></div>
       <p class="hint">Writes <span class="mono">hop/postgres-environment.json</span>. Apply All also synchronises <span class="mono">SOURCE_PASSWORD</span> and, for native PostgreSQL, the existing bootstrap/runtime password variables in the root <span class="mono">.env</span>; internal <span class="mono">DB_*</span> values are never changed. Generated JSON refers to credentials by variable name. Packaged containers use their Docker hostnames here (<span class="mono">postgres:5432</span> / <span class="mono">mysql:3306</span>).</p>
-      <div class="field mt">
-        <label>Target folder <span class="hint">(auto-detected — override only if this project's layout differs)</span></label>
-        <input type="text" id="f-hop-folder" value="${hopConfigFolder}" placeholder="${hopConfigFolderDetected || 'detecting… (needs the local server running)'}">
-      </div>
+
       <div class="grid cols-2 mt">
         <button class="btn ghost" id="btn-dl-hopconfig">⬇ Download postgres-environment.json</button>
         <button class="btn primary" id="btn-deploy-hopconfig">⬆ Save engine settings</button>
@@ -94,10 +95,7 @@ function renderExport(el){
 
       <div class="panel-head" style="margin:16px -20px 16px;"><h3>Source connection metadata <span class="badge-count">&nbsp;·&nbsp;metadata/rdbms/source.json — ${DIALECTS[v.dialect].label}</span></h3></div>
       <p class="hint">The engine connection is generated for the selected source. This writes a <b>${DIALECTS[v.dialect].label}</b> <span class="mono">source.json</span> to <span class="mono">metadata/rdbms/</span>, using <span class="mono">${'$'}{source_*}</span> variables — no real credentials.</p>
-      <div class="field mt">
-        <label>Target folder <span class="hint">(auto-detected — override only if this project's layout differs)</span></label>
-        <input type="text" id="f-rdbms-folder" value="${rdbmsFolder}" placeholder="${rdbmsFolderDetected || 'detecting… (needs the local server running)'}">
-      </div>
+
       <div class="grid cols-2 mt">
         <button class="btn ghost" id="btn-dl-sourceconn">⬇ Download source.json</button>
         <button class="btn primary" id="btn-deploy-sourceconn">⬆ Deploy source connection</button>
@@ -136,9 +134,26 @@ function renderExport(el){
   });
   document.getElementById('btn-target-diff').addEventListener('click', runTargetDiff);
   if (targetDelta) renderTargetDiffResult(document.getElementById('target-diff-result'));
-  document.getElementById('btn-dl-xlsx').addEventListener('click', ()=>{
+  document.getElementById('btn-dl-xlsx').addEventListener('click', async ()=>{
     if (errors.length){ toast('Resolve validation errors before exporting the workbook.','err'); return; }
-    downloadWorkbook(); toast('Workbook downloaded.','ok');
+    const result=await downloadWorkbook();
+    if(!result.ok){ toast(`Workbook preflight failed: ${result.error}`,'err'); return; }
+    toast('Workbook downloaded.','ok');
+  });
+  document.getElementById('btn-dl-hsm').addEventListener('click', ()=>{
+    const output=buildHopperExport();
+    if (output.issues.errors.length){ toast('Resolve Hopper export errors before downloading.', 'err'); return; }
+    downloadBlob(output.hsm, `${output.stem}.hsm`, 'application/xml');
+  });
+  document.getElementById('btn-dl-hdv').addEventListener('click', ()=>{
+    const output=buildHopperExport();
+    if (output.issues.errors.length){ toast('Resolve Hopper export errors before downloading.', 'err'); return; }
+    downloadBlob(output.hdv, `${output.stem}.hdv`, 'application/xml');
+  });
+  document.getElementById('btn-dl-hopper-manifest').addEventListener('click', ()=>{
+    const output=buildHopperExport();
+    if (output.issues.errors.length){ toast('Resolve Hopper export errors before downloading.', 'err'); return; }
+    downloadBlob(output.manifest, `${output.stem}-hopper-export.json`, 'application/json');
   });
   el.querySelectorAll('[data-dl]').forEach(b=>{
     b.addEventListener('click', ()=> downloadBlob(getExportSql(b.dataset.dl), EXPORT_FILENAMES[b.dataset.dl](), 'text/plain'));
@@ -148,9 +163,7 @@ function renderExport(el){
     b.addEventListener('click', ()=> runSqlAgainstTarget(getExportSql(b.dataset.run), labels[b.dataset.run]));
   });
 
-  const deployFolderInput = document.getElementById('f-deploy-folder');
-  if (deployFolderInput) deployFolderInput.addEventListener('input', e=> deployFolder = e.target.value);
-  detectDbInitPath();
+
   document.getElementById('btn-open-data-vault-hub').addEventListener('click', ()=>{
     appMode = 'dashboard';
     renderAll();
@@ -172,12 +185,9 @@ function renderExport(el){
     // db-init numbering field.
     document.querySelectorAll('.mapping-filename-preview').forEach(elm=>{ elm.textContent = mappingWorkbookFilename(); });
   });
-  document.getElementById('f-mappings-folder').addEventListener('input', e=> mappingsFolder = e.target.value);
   document.getElementById('btn-deploy-mapping').addEventListener('click', deployMappingWorkbook);
-  document.getElementById('f-hop-folder').addEventListener('input', e=> hopConfigFolder = e.target.value);
   document.getElementById('btn-dl-hopconfig').addEventListener('click', ()=> downloadBlob(buildHopEnvironmentJson(), 'postgres-environment.json', 'application/json'));
   document.getElementById('btn-deploy-hopconfig').addEventListener('click', deployHopConfig);
-  document.getElementById('f-rdbms-folder').addEventListener('input', e=> rdbmsFolder = e.target.value);
   document.getElementById('btn-dl-sourceconn').addEventListener('click', ()=> downloadBlob(buildHopSourceConnectionJson(), 'source.json', 'application/json'));
   document.getElementById('btn-deploy-sourceconn').addEventListener('click', deployHopSourceConnection);
 
@@ -203,4 +213,3 @@ function renderExport(el){
     });
   });
 }
-

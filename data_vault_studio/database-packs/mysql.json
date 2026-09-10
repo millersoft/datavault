@@ -154,7 +154,9 @@
       "QUOTE_ALL_FIELDS": "N",
       "FORCE_IDENTIFIERS_TO_LOWERCASE": "N",
       "PRESERVE_RESERVED_WORD_CASE": "Y",
-      "FORCE_IDENTIFIERS_TO_UPPERCASE": "N"
+      "FORCE_IDENTIFIERS_TO_UPPERCASE": "N",
+      "EXTRA_OPTION_MYSQL.tinyInt1isBit": "false",
+      "EXTRA_OPTION_MYSQL.yearIsDateType": "false"
     },
     "connectionModel": {
       "requiresDatabaseName": true,
@@ -347,7 +349,10 @@
     }
   },
   "source": {
-    "enabled": true
+    "enabled": true,
+    "nativeTypeOverrides": {
+      "YEAR": "SMALL_INTEGER"
+    }
   },
   "capabilities": {
     "tableInput": true,

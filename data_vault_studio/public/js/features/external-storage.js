@@ -59,7 +59,7 @@ function syncExternalStudioConnection(force=false){
   }
   if (isDemoRuntime()){
     ext.studioUser=String(state.vault.srcUser||'');
-    ext.studioPassword=String(state.vault.srcPassword||'');
+    ext.studioPassword='';
   } else {
     ext.studioUser=String(ext.studioUser||ext.username||'');
     ext.studioPassword=String(ext.studioPassword||ext.password||'');
@@ -111,13 +111,14 @@ async function discoverDatabasePackTargetProfile(options={}){
 
 function externalConnectionPayload(databaseOverride){
   const ext=state.externalTables;
+  if(isDemoRuntime())return {credentialRef:'demo-fdw-physical-mysql',dialect:'mysql',database:databaseOverride===undefined?ext.studioDatabase:databaseOverride,schema:''};
   const packPayload=databasePackConnectionBody('target');
-  if(packPayload){ if(databaseOverride!==undefined){packPayload.database=databaseOverride;packPayload.catalog=databaseOverride;} return packPayload; }
+  if(packPayload){ if(databaseOverride!==undefined){packPayload.database=databaseOverride;packPayload.catalog=databaseOverride;} return confirmImportedConnectionTarget(packPayload); }
   const targetUser=String(ext.studioUser||ext.username||'');
   const targetPassword=String(ext.studioPassword||ext.password||'');
   ext.studioUser=targetUser; ext.username=targetUser;
   ext.studioPassword=targetPassword; ext.password=targetPassword;
-  return {
+  return confirmImportedConnectionTarget({
     dialect:ext.remoteDialect,
     host:ext.studioHost,
     port:ext.studioPort||externalDefaultPort(ext.remoteDialect),
@@ -125,7 +126,7 @@ function externalConnectionPayload(databaseOverride){
     schema:ext.studioSchema||ext.remoteSchema,
     user:targetUser,
     password:targetPassword,
-  };
+  });
 }
 
 async function verifyExternalTargetUserAccess(checks){
@@ -180,7 +181,7 @@ function renderExternalSub(el){
         </div>
         <span class="tag sat">FDW enabled</span>
       </div>
-      <p class="hint mt">${demo?'Demo mode fixes these values to the packaged MySQL service.':'These values describe the JDBC connection seen from inside the internal PostgreSQL container. The container-side hostname may differ from the hostname Studio uses above.'}</p>
+      <p class="hint mt">${demo?'Demo mode fixes these values to the packaged MySQL service.':'These values describe the JDBC connection seen from inside the internal PostgreSQL container. The container-side hostname may differ from the hostname Studio uses above. Project certificate references such as dv-certs/ca.pem resolve to /app/dv-certs/ca.pem in this container.'}</p>
       <div class="grid cols-2">
         <div class="field"><label>Foreign server name</label><input type="text" id="ext-servername" value="${escapeHtml(ext.serverName)}" placeholder="${escapeHtml((state.vault.name||'vault')+'_external_srv')}" ${configLock}></div>
         <div class="field"><label>JDBC driver class</label><input type="text" id="ext-drivername" value="${escapeHtml(ext.drivername)}" placeholder="${escapeHtml(externalDialectDefaults(ext.remoteDialect).drivername)}" ${configLock}></div>
@@ -220,6 +221,7 @@ function renderExternalSub(el){
         externalPreflightResult=null;
         externalDeployResult=null;
         if(id==='ext-url'){
+          ext.fdwUrlOverridden=true;
           const parsed=parseJdbcUrlDefaults(ext.url);
           if(parsed){
             // Preserve pack:<id> when editing the JDBC URL. URL parsing only
@@ -254,7 +256,7 @@ async function localGatewayDatabaseStatus(){
   const v=state.vault;
   const r=await localFetch('/api/db-status',{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({host:v.dvHost,port:v.dvPort,database:v.dvDatabase,user:v.dvUser,password:v.dvPassword})
+    body:JSON.stringify(targetConnectionPayload())
   });
   const data=await r.json();
   if(!data.ok)throw new Error(data.error||'Could not reach the packaged PostgreSQL gateway.');
@@ -268,7 +270,7 @@ async function ensureLocalGatewayDatabase(checks){
   if(!status.exists){
     const r=await localFetch('/api/create-database',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({host:v.dvHost,port:v.dvPort,database:v.dvDatabase,user:v.dvUser,password:v.dvPassword})
+      body:JSON.stringify(targetConnectionPayload())
     });
     const data=await r.json();
     if(!data.ok)throw new Error(data.error||`Could not create PostgreSQL gateway database ${v.dvDatabase}.`);
@@ -403,7 +405,10 @@ async function runExternalStoragePreflight(options={}){
       syncPackMappedValues(targetPack,'target');
       ext.drivername=targetPack.jdbc.driverClass;
       ext.jarfile=targetPack.driverFile?`/opt/jdbc-drivers/${targetPack.driverFile}`:'';
-      ext.url=defaultExternalJdbcUrl(ext.remoteDialect,ext.studioHost||'',ext.studioPort||'',ext.studioDatabase||ext.remoteDatabase||'');
+      if(!ext.fdwUrlOverridden) ext.url=defaultExternalJdbcUrl(ext.remoteDialect,ext.studioHost||'',ext.studioPort||'',ext.studioDatabase||ext.remoteDatabase||'');
+      // Validate/translate only for the runtime check; keep the saved FDW URL
+      // portable (dv-certs/...) rather than persisting a container path.
+      resolveProjectCertificateReferences(ext.url);
     }
     if(!ext.enabled)checks.push({level:'fatal',label:'Feature',detail:'External storage is not enabled.'});
     if(!externalCoreTableCount())checks.push({level:'fatal',label:'Core table set',detail:'No hubs, links, satellites or link satellites exist in the model.'});
@@ -555,7 +560,7 @@ async function smokeTestFdwForeignTable(role,smoke){
   const v=state.vault;
   const response=await localFetch('/api/fdw-smoke',{
     method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({host:v.dvHost,port:v.dvPort,database:v.dvDatabase,user:v.dvUser,password:v.dvPassword,role,schema:'data_vault',table:smoke})
+    body:JSON.stringify({...targetConnectionPayload(),role,schema:'data_vault',table:smoke})
   });
   const data=await response.json();
   if(!data.ok){
@@ -668,7 +673,13 @@ async function deployExternalStorage(options={}){
     await executeSqlAgainstTarget(buildDataVaultLocalSupportDdl(),{allowExternalLocalDdl:true});
     checks.push({level:'ok',label:'7 · Local support objects',detail:'data_vault schema, *_err tables and verification view applied in PostgreSQL'});
 
-    await executeSqlAgainstTarget(buildFdwInfrastructureDdl(),{allowExternalLocalDdl:true});
+    if(isDemoRuntime()){
+      const fdwResponse=await localFetch('/api/demo-fdw/infrastructure',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        gatewayCredentialRef:'internal-postgres-target',physicalCredentialRef:'demo-fdw-physical-mysql',gatewayDatabase:state.vault.dvDatabase,serverName:ext.serverName,
+      })});
+      const fdwResult=await fdwResponse.json();
+      if(!fdwResult.ok)throw new Error(fdwResult.error||'Demo FDW infrastructure deployment failed.');
+    } else await executeSqlAgainstTarget(buildFdwInfrastructureDdl(),{allowExternalLocalDdl:true});
     const infrastructure=await localFdwInfrastructureStatus();
     const infrastructureMissing=fdwInfrastructureMissing(infrastructure);
     if(infrastructureMissing.length)throw new Error(`FDW infrastructure verification failed; missing: ${infrastructureMissing.join(', ')}`);

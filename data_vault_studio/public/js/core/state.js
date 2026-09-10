@@ -18,8 +18,9 @@ const state = {
     mappingBaseName: 'metadata_spreadsheet', // final filename is always <this>_1.xls — see mappingWorkbookFilename()
     stagingDaysToLoadDefault: 30, // source_systems.staging_days_to_load_default — shared by all incremental source tables
     incrementalSettingsDeploymentPending: false,
-    // connection details — documentation only, used for the ref_connections SQL export.
-    // Never sent to the AI assistant.
+    // Connection details are used for live Studio/runtime connectivity. Non-secret
+    // connection metadata is also used for ref_connections SQL export, but real
+    // passwords are never written to ref_connections. Never sent to the AI assistant.
     srcHost: '', srcPort: '', srcDatabase: '', srcUser: '', srcPassword: '', srcRuntimeHost: '', srcRuntimePort: '',
     dvHost: 'localhost', dvPort: '5432', dvDatabase: '', dvUser: '', dvPassword: '', vaultPassword: '',
   },
@@ -50,6 +51,7 @@ const state = {
     studioUser: '',
     studioPassword: '',
     studioConnectionOverridden: false,
+    fdwUrlOverridden: false,
     deploymentAcknowledged: false,
     // JDBC-discovered physical target capabilities. Saved with the project so
     // DDL stays reproducible; cleared whenever the target connection changes.

@@ -37,10 +37,24 @@ function ddlForeignTable(tableName, cols, keyColumnName){
 function buildFdwPreamble(){
   const ext = state.externalTables;
   const pack=databasePackForDialect(ext.remoteDialect);
-  if(pack){ syncPackMappedValues(pack,'target'); ext.drivername=pack.jdbc.driverClass; ext.jarfile=pack.driverFile?`/opt/jdbc-drivers/${pack.driverFile}`:''; ext.url=defaultExternalJdbcUrl(ext.remoteDialect,ext.studioHost,ext.studioPort,ext.studioDatabase||ext.remoteDatabase); }
+  if(pack){
+    syncPackMappedValues(pack,'target');
+    ext.drivername=pack.jdbc.driverClass;
+    ext.jarfile=pack.driverFile?`/opt/jdbc-drivers/${pack.driverFile}`:'';
+    if(!ext.fdwUrlOverridden) ext.url=defaultExternalJdbcUrl(ext.remoteDialect,ext.studioHost,ext.studioPort,ext.studioDatabase||ext.remoteDatabase);
+  }
+  const runtimeUrl=resolveProjectCertificateReferences(ext.url||defaultExternalJdbcUrl(ext.remoteDialect,ext.studioHost,ext.studioPort,ext.studioDatabase||ext.remoteDatabase));
   const server = ext.serverName || '<server_name>';
   const sharedUser = String(ext.studioUser || ext.username || '');
   const sharedPassword = String(ext.studioPassword || ext.password || '');
+  if(isDemoRuntime())return [
+    '-- jdbc_fdw demo setup — credentials and user mappings are installed server-side.',
+    'CREATE EXTENSION IF NOT EXISTS jdbc_fdw;',
+    `DROP SERVER IF EXISTS ${server} CASCADE;`,
+    `CREATE SERVER ${server} FOREIGN DATA WRAPPER jdbc_fdw`,
+    `  OPTIONS (drivername 'com.mysql.cj.jdbc.Driver', url 'jdbc:mysql://mysql:3306/datavault', querytimeout '30', jarfile '/opt/jdbc-drivers/mysql-connector-j-9.7.0.jar');`,
+    '-- data_vault and pdi_meta user mappings are intentionally omitted from browser-generated SQL.',
+  ].join('\n');
   // The local data_vault and pdi_meta roles both map to the same account
   // used by the physical-target deployment. data_vault
   // reads and writes the core foreign tables; pdi_meta reads them from the
@@ -59,7 +73,7 @@ function buildFdwPreamble(){
     `CREATE SERVER IF NOT EXISTS ${server} FOREIGN DATA WRAPPER jdbc_fdw`,
     `  OPTIONS (`,
     `    drivername '${sqlLiteral(ext.drivername || '<jdbc_driver_class>')}',`,
-    `    url '${sqlLiteral(ext.url || '<jdbc_url>')}',`,
+    `    url '${sqlLiteral(runtimeUrl || '<jdbc_url>')}',`,
     `    querytimeout '${sqlLiteral(ext.querytimeout || '30')}',`,
     `    jarfile '${sqlLiteral(ext.jarfile || '<path_to_driver_jar>')}'${ext.maxheapsize ? `,\n    maxheapsize '${sqlLiteral(ext.maxheapsize)}'` : ''}`,
     `  );`,
@@ -146,21 +160,18 @@ function expectedStagingObjects(){
   return objects;
 }
 
-// The engine uses several logins (source/staging/datavault connections) and
-// its instrumentation reads across schemas (e.g. row counts on vault tables
-// over the staging/pdi_meta connection). The target setup process's ALTER DEFAULT
-// PRIVILEGES only covers objects the ADMIN creates — these tables are
-// created under SET ROLE, so the generated DDL must cross-grant its own
-// objects and register defaults FOR the creating role. Without this,
-// everything works internally (dvuser is superuser) and fails on the first
-// real external target with "permission denied for table ...".
-function crossRoleGrantsSql(schema, ownerRole, peers){
-  const to = peers.join(', ');
+// The engine uses distinct logins, but cross-schema access is directional:
+// data_vault and pdi_meta read staging; pdi_meta and staging read Vault
+// objects. Generated DDL must retain the read path for future objects created
+// under SET ROLE.
+function crossRoleGrantsSql(schema, ownerRole, readers){
+  const readerList = readers.join(', ');
   return [
-    `-- Cross-role access — engine connections other than ${ownerRole} must read these`,
-    `GRANT USAGE ON SCHEMA ${schema} TO ${to};`,
-    `GRANT ALL ON ALL TABLES IN SCHEMA ${schema} TO ${to};`,
-    `ALTER DEFAULT PRIVILEGES FOR ROLE ${ownerRole} IN SCHEMA ${schema} GRANT ALL ON TABLES TO ${to};`,
+    `-- Least-privilege cross-schema reads; ${ownerRole} alone administers ${schema}.`,
+    `ALTER DEFAULT PRIVILEGES FOR ROLE ${ownerRole} IN SCHEMA ${schema} REVOKE EXECUTE ON ROUTINES FROM PUBLIC;`,
+    `GRANT USAGE ON SCHEMA ${schema} TO ${readerList};`,
+    `GRANT SELECT ON ALL TABLES IN SCHEMA ${schema} TO ${readerList};`,
+    `ALTER DEFAULT PRIVILEGES FOR ROLE ${ownerRole} IN SCHEMA ${schema} GRANT SELECT ON TABLES TO ${readerList};`,
     '',
   ].join('\n');
 }

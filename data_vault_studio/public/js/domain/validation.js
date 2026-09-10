@@ -9,11 +9,41 @@ function validateModel(){
   const v = state.vault;
   const tables = includedTables();
   if (!v.name) errors.push('Vault short name (NAME) is not set.');
-  else if (identifierIssue(v.name)) errors.push('Vault short name: ' + identifierIssue(v.name));
+  else {
+    const inputIssue=studioInputIssue('vaultShortName',v.name,'Vault short name');
+    if(inputIssue) errors.push(inputIssue);
+    else if (identifierIssue(v.name)) errors.push('Vault short name: ' + identifierIssue(v.name));
+  }
   if (!v.prefix) errors.push('Staging prefix is not set.');
-  else if (identifierIssue(v.prefix)) errors.push('Staging prefix: ' + identifierIssue(v.prefix));
+  else {
+    const inputIssue=studioInputIssue('stagingPrefix',v.prefix,'Staging prefix');
+    if(inputIssue) errors.push(inputIssue);
+    else if (identifierIssue(v.prefix)) errors.push('Staging prefix: ' + identifierIssue(v.prefix));
+  }
   if (!v.tenantId) errors.push('Tenant ID literal is not set.');
+  else { const inputIssue=studioInputIssue('tenantId',v.tenantId,'Tenant ID literal'); if(inputIssue) errors.push(inputIssue); }
+  if (v.srcCod) { const inputIssue=studioInputIssue('sourceSystemCode',v.srcCod,'Source system code'); if(inputIssue) errors.push(inputIssue); }
+  const prefixLengthIssue=studioLengthIssue('stagingPrefix',v.prefix,'Staging prefix');
+  if(prefixLengthIssue) errors.push(prefixLengthIssue);
+  const tenantLengthIssue=studioLengthIssue('tenantId',v.tenantId,'Tenant ID literal');
+  if(tenantLengthIssue) errors.push(tenantLengthIssue);
   if (!v.srcDescription) errors.push('Source system description is not set — this is the critical join key.');
+  else { const inputIssue=studioInputIssue('sourceSystemDescription',v.srcDescription,'Source system description'); if(inputIssue) errors.push(inputIssue); }
+  [
+    ['vaultShortName', v.name, 'Vault short name'],
+    ['dataVaultName', v.vaultDbName, 'Target data vault database name'],
+    ['dataVaultDescription', v.vaultDescription, 'Data vault description'],
+    ['sourceSystemCode', v.srcCod, 'Source system code'],
+    ['sourceSystemDescription', v.srcDescription, 'Source system description'],
+    ['connectionHost', v.srcHost, 'Source connection host'],
+    ['connectionDatabase', v.srcDatabase, 'Source connection database'],
+    ['connectionUser', v.srcUser, 'Source connection username'],
+    ['connectionHost', v.dvHost, 'Data Vault connection host'],
+    ['connectionDatabase', v.dvDatabase, 'Data Vault connection database'],
+    ['connectionUser', v.dvUser, 'Data Vault connection username'],
+  ].forEach(([fieldKey,value,label])=>{ const issue=pdiMetaLengthIssue(fieldKey,value,label); if(issue) errors.push(issue); });
+  const connectionNames=[`${v.name}_source`,`${v.name}_staging`,`${v.name}_datavault`];
+  connectionNames.forEach(name=>{ const issue=pdiMetaLengthIssue('connectionName',name,`Generated connection name "${name}"`); if(issue) errors.push(issue); });
   if (!v.vaultDbName) warnings.push('Target data vault database name is blank.');
   if (tables.length===0) errors.push('No included source tables defined.');
   if (v.dialect==='sqlserver') errors.push('This project still uses the legacy built-in SQL Server source. Install the SQL Server database type with + Add database type; Studio will migrate the connection values automatically.');
@@ -28,6 +58,14 @@ function validateModel(){
     errors.push(`${group.length} duplicate satellites for the same ${kind} source/attribute set (${label}) — this would generate duplicate spreadsheet metadata and may leave the sheet out of sync with DDL. Go to Vault → Satellites and use "Remove duplicates".`);
   });
   tables.forEach(t=>{
+    [
+      ['sourceTableName', t.name, `Source table "${t.name}" name`],
+      ['sourceTableDescription', t.description || '', `Source table "${t.name}" description`],
+      ['stagingTableName', stagingViewName(t.name), `Generated staging table name for "${t.name}"`],
+      ['sourceConcat', sourceConcat(t.name), `Generated source_concat for "${t.name}"`],
+      ['incrementDateColumn', t.incrementCol || '', `Increment date column for "${t.name}"`],
+      ['stagingSqlOverride', effectiveOverride(t), `Staging SQL override for "${t.name}"`],
+    ].forEach(([fieldKey,value,label])=>{ const issue=pdiMetaLengthIssue(fieldKey,value,label); if(issue) errors.push(issue); });
     if (t.columns.length===0) warnings.push(`Table "${t.name}" has no columns.`);
     if (t.columns.length>0 && stagedColumns(t).length===0) errors.push(`Table "${t.name}" is included but has no columns selected for staging. Select at least one column or exclude the table on the Tables page.`);
     const legacyOverrideOutputs=customOverrideDerivedOutputColumns(t);
@@ -67,6 +105,8 @@ function validateModel(){
     });
   });
   state.hubs.forEach(h=>{
+    const descriptionIssue=pdiMetaLengthIssue('hubDescription',h.description || '',`Hub "${h.entity}" description`);
+    if(descriptionIssue) errors.push(descriptionIssue);
     const table=findTable(h.tableId);
     if(!table){errors.push(`Hub "${h.entity}" references a missing table.`);return;}
     const keys=hubKeyCols(h);
@@ -74,7 +114,11 @@ function validateModel(){
     else if(!tableHasHashForColumns(table,h.entity,keys.map(c=>c.name),h.entity)) errors.push(`Hub "${h.entity}" has no complete hash/business-key derivation for "${keys.map(c=>c.name).join(' + ')}" on "${table.name}".`);
   });
   state.links.forEach(l=>{
+    const descriptionIssue=pdiMetaLengthIssue('linkDescription',l.description || '',`Link "${l.entity}" description`);
+    if(descriptionIssue) errors.push(descriptionIssue);
     if (l.hubs.length<2) errors.push(`Link "${l.entity}" has fewer than 2 hubs.`);
+    const hubCountIssue=pdiMetaItemCountIssue('linkHubs',l.hubs,`Link "${l.entity}"`);
+    if(hubCountIssue) errors.push(hubCountIssue);
     const table = findTable(l.tableId);
     const physicalCols = linkColumns(l).map(c=>c.name);
     const duplicatePhysical = physicalCols.find((name,i)=>physicalCols.indexOf(name)!==i);
@@ -87,7 +131,10 @@ function validateModel(){
     });
   });
   state.hubSats.concat(state.linkSats).forEach(s=>{
-    if(s.attrs.length===0) warnings.push(`Satellite "${s.entity}${s.concern?'_'+s.concern:''}" has no attributes.`);
+    const satLabel=`Satellite "${s.entity}${s.concern?'_'+s.concern:''}"`;
+    const descriptionIssue=pdiMetaLengthIssue('satelliteDescription',s.description || '',`${satLabel} description`);
+    if(descriptionIssue) errors.push(descriptionIssue);
+    if(s.attrs.length===0) warnings.push(`${satLabel} has no attributes.`);
     const physical=state.hubSats.includes(s)?hubSatColumns(s):linkSatColumns(s);
     const duplicate=duplicatePhysicalColumn(physical);
     if(duplicate) errors.push(`Satellite "${s.entity}${s.concern?'_'+s.concern:''}" generates duplicate physical column "${duplicate}".`);

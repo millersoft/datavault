@@ -5,6 +5,8 @@ function registerEnvironmentRoutes(parentApp, dependencies){
     express,
     fs,
     ENV_FILE_PATH,
+    packagedCredentialService,
+    audit,
   } = dependencies;
   const app = express.Router();
 
@@ -16,16 +18,7 @@ function registerEnvironmentRoutes(parentApp, dependencies){
      VAULT_PASSWORD are synchronised through one narrow, allowlisted endpoint.
      Generic file deployment is still forbidden from writing .env. */
   
-  function decodeSingleQuotedEnvValue(value){
-    let out = '';
-    for (let i = 0; i < value.length; i++){
-      if (value[i] === '\\' && i + 1 < value.length && (value[i + 1] === '\\' || value[i + 1] === "'")){
-        out += value[++i];
-      } else out += value[i];
-    }
-    return out;
-  }
-  
+
   function validateEnvCredential(name, value, { allowEmpty = false } = {}){
     if (typeof value !== 'string') throw new Error(`${name} must be a string.`);
     if (!allowEmpty && value.length === 0) throw new Error(`${name} is required.`);
@@ -74,91 +67,30 @@ function registerEnvironmentRoutes(parentApp, dependencies){
     return updated;
   }
   
-  function parseEnvFile(){
-    try {
-      const entries = {};
-      fs.readFileSync(ENV_FILE_PATH, 'utf8').split(/\r?\n/).forEach(line => {
-        if (/^\s*#/.test(line) || !line.trim()) return;
-        const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
-        if (!m) return;
-        let raw = m[2];
-        let literal = false;
-        if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'")){
-          raw = decodeSingleQuotedEnvValue(raw.slice(1, -1));
-          literal = true;
-        } else if (raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"')){
-          raw = raw.slice(1, -1)
-            .replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t')
-            .replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-        } else {
-          raw = raw.replace(/\s+#.*$/, '').trim();
-        }
-        entries[m[1]] = { value: raw, literal };
-      });
-  
-      const memo = {};
-      function resolveValue(key, stack = new Set()){
-        if (Object.prototype.hasOwnProperty.call(memo, key)) return memo[key];
-        const entry = entries[key];
-        if (!entry) return '';
-        if (entry.literal) return (memo[key] = entry.value);
-        if (stack.has(key)) return entry.value;
-        const nextStack = new Set(stack); nextStack.add(key);
-        const resolved = entry.value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
-          (_, v) => resolveValue(v, nextStack));
-        memo[key] = resolved;
-        return resolved;
-      }
-      const out = {};
-      Object.keys(entries).forEach(k => { out[k] = resolveValue(k); });
-      return out;
-    } catch (_) { return null; }
-  }
-  
-  app.get('/api/env-defaults', (req, res) => {
-    if (!fs.existsSync(ENV_FILE_PATH)) return res.json({ ok: true, found: false });
-    const env = parseEnvFile();
-    if (!env) return res.status(500).json({ ok: false, found: true, error: 'Could not read the root .env file.' });
-    res.json({ ok: true, found: true,
-      mysql:    { user: env.MYSQL_USER || '', password: env.MYSQL_PASSWORD || env.SOURCE_PASSWORD || '' },
-      target:   { user: env.DB_USER || '', password: env.VAULT_PASSWORD || env.DB_PASSWORD || '' },
-      // Legacy keys are retained for older GUI builds that still expect them.
-      bootstrap:{ user: env.POSTGRES_BOOTSTRAP_USER || '', password: env.POSTGRES_BOOTSTRAP_PASSWORD || '' },
-      vault:    { password: env.VAULT_PASSWORD || env.DB_PASSWORD || '' },
-    });
+
+  app.get('/api/env-defaults', (_req, res) => {
+    const defaults=packagedCredentialService.publicDefaults();
+    res.json({ok:true,...defaults});
   });
   
   app.post('/api/env-credentials/status', (req, res) => {
-    const sourcePassword = typeof req.body?.sourcePassword === 'string' ? req.body.sourcePassword : '';
-    const targetPassword = typeof req.body?.targetPassword === 'string' ? req.body.targetPassword : '';
-    const targetUser = typeof req.body?.targetUser === 'string' ? req.body.targetUser : '';
     const externalPostgres = req.body?.externalPostgres === true;
-    const env = parseEnvFile();
-    if (!env) return res.json({ ok: true, found: false, sourceConfigured: false, targetConfigured: false,
-      targetUserConfigured: false, sourceMatches: false, targetMatches: false, targetUserMatches: false });
-    const sourceConfigured = typeof env.SOURCE_PASSWORD === 'string' && env.SOURCE_PASSWORD.length > 0;
-    const targetConfigured = externalPostgres
-      ? typeof env.POSTGRES_BOOTSTRAP_PASSWORD === 'string' && env.POSTGRES_BOOTSTRAP_PASSWORD.length > 0
-        && typeof env.VAULT_PASSWORD === 'string' && env.VAULT_PASSWORD.length > 0
-      : typeof env.VAULT_PASSWORD === 'string' && env.VAULT_PASSWORD.length > 0;
-    const targetUserConfigured = externalPostgres
-      ? typeof env.POSTGRES_BOOTSTRAP_USER === 'string' && env.POSTGRES_BOOTSTRAP_USER.length > 0
-      : typeof env.DB_USER === 'string' && env.DB_USER.length > 0;
-    res.json({ ok: true, found: true, sourceConfigured, targetConfigured, targetUserConfigured,
-      sourceMatches: sourcePassword.length > 0 && env.SOURCE_PASSWORD === sourcePassword,
-      targetMatches: targetPassword.length > 0 && (externalPostgres
-        ? env.POSTGRES_BOOTSTRAP_PASSWORD === targetPassword && env.VAULT_PASSWORD === targetPassword
-        : env.VAULT_PASSWORD === targetPassword),
-      targetUserMatches: targetUser.length > 0 && (externalPostgres
-        ? env.POSTGRES_BOOTSTRAP_USER === targetUser
-        : env.DB_USER === targetUser) });
+    const defaults=packagedCredentialService.publicDefaults();
+    if(!defaults.found)return res.json({ok:true,found:false,sourceConfigured:false,targetConfigured:false,targetUserConfigured:false});
+    res.json({ok:true,found:true,
+      sourceConfigured:!!defaults.mysql.passwordConfigured,
+      targetConfigured:externalPostgres?!!defaults.bootstrap.passwordConfigured:!!defaults.target.passwordConfigured,
+      targetUserConfigured:externalPostgres?!!defaults.bootstrap.user:!!defaults.target.user,
+    });
   });
   
   app.post('/api/env-credentials', (req, res) => {
     try {
-      const sourcePassword = validateEnvCredential('Source password', req.body?.sourcePassword);
       const externalPostgres = req.body?.externalPostgres === true;
-      const updates = { SOURCE_PASSWORD: sourcePassword };
+      const sourceCredentialMode = req.body?.sourceCredentialMode === 'preserve' ? 'preserve' : 'replace';
+      const updates = {};
+      if(sourceCredentialMode==='replace') updates.SOURCE_PASSWORD=validateEnvCredential('Source password', req.body?.sourcePassword);
+      else if(!packagedCredentialService.publicDefaults().mysql?.passwordConfigured) throw new Error('Packaged MySQL credentials are not configured.');
       if (externalPostgres){
         const targetUser = validateEnvCredential('External PostgreSQL username', req.body?.targetUser);
         const targetPassword = validateEnvCredential('External PostgreSQL password', req.body?.targetPassword);
@@ -169,8 +101,10 @@ function registerEnvironmentRoutes(parentApp, dependencies){
         updates.VAULT_PASSWORD = targetPassword;
       }
       const updated = patchEnvCredentials(updates);
+      audit('credentials.configured', { externalPostgres, updated, sourceCredentialMode, success:true });
       res.json({ ok:true, updated });
     } catch (err) {
+      audit('credentials.configured', { externalPostgres:req.body?.externalPostgres === true, success:false });
       res.status(400).json({ ok:false, error:err.message });
     }
   });

@@ -40,6 +40,7 @@ function createProjectPaths({ studioDir, env = process.env, cwd = process.cwd() 
     MAPPINGS_PATH: path.join(projectRoot, 'mappings'),
     HOP_CONFIG_PATH: path.join(projectRoot, 'hop'),
     JDBC_DRIVER_PATH: path.join(projectRoot, 'jdbc-drivers'),
+    DV_CERTS_PATH: path.join(projectRoot, 'dv-certs'),
     ENV_FILE_PATH: path.join(projectRoot, '.env'),
     METADATA_RDBMS_PATH: path.join(projectRoot, 'metadata', 'rdbms'),
     DATABASE_PACK_HOME: path.resolve(env.DVS_DATABASE_PACK_HOME || bundledDatabasePackDir),

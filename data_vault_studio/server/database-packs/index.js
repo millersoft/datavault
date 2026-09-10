@@ -2,17 +2,19 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawn } = require('node:child_process');
+const { resolveHostCertificateReferences } = require('../project-file-references');
+const { effectiveJdbcDestination, structuredJdbcDestination } = require('../outbound-connections');
 
-function createDatabasePackService({ projectRoot, jdbcDriverPath, studioDir, env = process.env }){
+function createDatabasePackService({ projectRoot, jdbcDriverPath, studioDir, outboundConnectionPolicy, env = process.env }){
 const PROJECT_ROOT = projectRoot;
 const JDBC_DRIVER_PATH = jdbcDriverPath;
 const STUDIO_DIR = studioDir;
 // ---------------------------------------------------------------------------
 // DATABASE PACKS v0.1.4
-// Declarative, versioned JDBC adapters. Core Studio keeps its built-in
-// PostgreSQL/MySQL remain the only built-in database paths. Every other
-// database, including the bundled SQL Server reference adapter, uses a
-// Database Pack plus the shared JDBC bridge/JAR for discovery and execution.
+// Declarative, versioned JDBC adapters. PostgreSQL/MySQL retain their stable
+// Studio dialect ids for project compatibility and runtime topology rules, but
+// their user-configurable source/physical-target connections resolve through
+// the same generated Database Packs and shared JDBC bridge as other databases.
 // ---------------------------------------------------------------------------
 const DATABASE_PACK_FEATURE_VERSION = '0.2.2';
 const DATABASE_PACK_SCHEMA_VERSION = 1;
@@ -242,6 +244,13 @@ function getDatabasePack(idOrDialect){
   const file=findDatabasePackFile(id);
   if(!fs.existsSync(file)) throw new Error(`Database Pack "${id}" is not installed.`);
   return validateDatabasePackManifest(JSON.parse(fs.readFileSync(file,'utf8')));
+}
+function getDatabasePackForDialect(value){
+  const dialect=String(value||'').toLowerCase();
+  if(isPackDialect(dialect)) return getDatabasePack(dialect);
+  const bundledId=dialect==='mysql'?'mysql':((dialect==='postgresql'||dialect==='postgres')?'postgresql':'');
+  if(!bundledId) return null;
+  try{return getDatabasePack(bundledId);}catch(_){return null;}
 }
 function databasePackManifestForStorage(input,pack){
   // Keep the on-disk authoring format small. validateDatabasePackManifest()
@@ -558,10 +567,19 @@ function resolveJdbcTargetProfile(pack,analysis){
 }
 function spawnCapture(command,args,options={}){
   return new Promise((resolve,reject)=>{
-    const child=spawn(command,args,{cwd:options.cwd||PROJECT_ROOT,stdio:['ignore','pipe','pipe'],env:{...process.env,...(options.env||{})}});
-    let stdout='',stderr='';
-    child.stdout.on('data',d=>stdout+=d.toString()); child.stderr.on('data',d=>stderr+=d.toString());
-    child.on('error',reject); child.on('close',code=>code===0?resolve({stdout,stderr}):reject(new Error((stderr||stdout||`${command} exited ${code}`).trim())));
+    const child=spawn(command,args,{cwd:options.cwd||PROJECT_ROOT,stdio:['pipe','pipe','pipe'],env:{...process.env,...(options.env||{})}});
+    const maxOutput=Number(options.maxOutputBytes||1048576);
+    let stdout='',stderr='',settled=false,timer=null;
+    const append=(current,data)=>{const next=current+data.toString();if(Buffer.byteLength(next)>maxOutput)throw new Error(`${command} produced too much output.`);return next;};
+    const finish=(error,result)=>{if(settled)return;settled=true;if(timer)clearTimeout(timer);error?reject(error):resolve(result);};
+    child.stdout.on('data',d=>{try{stdout=append(stdout,d);}catch(err){child.kill('SIGKILL');finish(err);}});
+    child.stderr.on('data',d=>{try{stderr=append(stderr,d);}catch(err){child.kill('SIGKILL');finish(err);}});
+    child.on('error',err=>finish(err));
+    child.on('close',code=>code===0?finish(null,{stdout,stderr}):finish(new Error((stderr||stdout||`${command} exited ${code}`).trim())));
+    child.stdin.on('error',err=>{if(err.code!=='EPIPE')finish(err);});
+    const timeoutMs=Number(options.timeoutMs||0);
+    timer=timeoutMs>0?setTimeout(()=>{child.kill('SIGKILL');finish(new Error(`${command} operation timed out.`));},timeoutMs):null;
+    if(options.input!=null)child.stdin.end(String(options.input));else child.stdin.end();
   });
 }
 async function jdbcBridgeClassPath(){
@@ -574,7 +592,7 @@ async function jdbcBridgeClassPath(){
   const classFile=path.join(JDBC_BRIDGE_CLASS_DIR,'JdbcBridge.class');
   if(!fs.existsSync(classFile)||jdbcBridgeCompiledMtime!==mtime){
     fs.rmSync(JDBC_BRIDGE_CLASS_DIR,{recursive:true,force:true}); fs.mkdirSync(JDBC_BRIDGE_CLASS_DIR,{recursive:true});
-    await spawnCapture('javac',['--release','11','-d',JDBC_BRIDGE_CLASS_DIR,JDBC_BRIDGE_SOURCE],{cwd:STUDIO_DIR}); jdbcBridgeCompiledMtime=mtime;
+    await spawnCapture('javac',['--release','11','-d',JDBC_BRIDGE_CLASS_DIR,JDBC_BRIDGE_SOURCE],{cwd:STUDIO_DIR,timeoutMs:30000}); jdbcBridgeCompiledMtime=mtime;
   }
   return JDBC_BRIDGE_CLASS_DIR;
 }
@@ -583,10 +601,37 @@ async function runJdbcBridge(pack,body,mode,payload=''){
   const driver=findPackJdbcDriver(pack);
   if(!driver.exists) throw new Error(`JDBC driver ${pack.jdbc.jarfile||pack.jdbc.jarPattern||''} is not present in ${JDBC_DRIVER_PATH}.`);
   const jar=driver.path;
-  const url=renderDatabasePackJdbcUrl(pack,body); const creds=databasePackCredentials(pack,body);
-  const encoded=Buffer.from(String(payload||''),'utf8').toString('base64');
-  const optionsEncoded=Buffer.from(JSON.stringify(packJdbcOptions(body)),'utf8').toString('base64');
-  const out=await spawnCapture('java',['-cp',bridgeClassPath,'JdbcBridge',mode,jar,String(pack.jdbc.driverClass),url,creds.user,creds.password,encoded,optionsEncoded],{cwd:STUDIO_DIR});
+  // JDBC drivers run on the Studio host for connection tests/introspection,
+  // while Hop later runs inside Docker. Persist only portable dv-certs/...
+  // references in project state and resolve them to host paths here. This is
+  // generic: Studio does not need to know which JDBC option represents a CA,
+  // key, wallet or keystore. The JDBC driver still owns existence/validity.
+  const url=resolveHostCertificateReferences(renderDatabasePackJdbcUrl(pack,body),PROJECT_ROOT);
+  const destination=effectiveJdbcDestination(pack,body,url);
+  let validatedDestination=null;
+  if(destination){
+    const port=destination.port==null||destination.port===''?pack.jdbc.defaultPort:destination.port;
+    validatedDestination=port==null
+      ? await outboundConnectionPolicy.inspectHost(destination.host)
+      : await outboundConnectionPolicy.validateNetworkDestination({host:destination.host,port,defaultPort:pack.jdbc.defaultPort});
+  }
+  const structuredDestination=structuredJdbcDestination(pack,body);
+  if(structuredDestination){
+    const port=structuredDestination.port==null||structuredDestination.port===''?pack.jdbc.defaultPort:structuredDestination.port;
+    if(port==null)await outboundConnectionPolicy.inspectHost(structuredDestination.host);
+    else await outboundConnectionPolicy.validateNetworkDestination({host:structuredDestination.host,port,defaultPort:pack.jdbc.defaultPort});
+  }
+  const creds=databasePackCredentials(pack,body);
+  const jdbcOptions=packJdbcOptions(body);
+  for(const key of Object.keys(jdbcOptions)) jdbcOptions[key]=resolveHostCertificateReferences(jdbcOptions[key],PROJECT_ROOT);
+  const encode=value=>Buffer.from(String(value==null?'':value),'utf8').toString('base64');
+  const connectTimeoutMs=Number(env.DVS_JDBC_CONNECT_TIMEOUT_MS||8000);
+  if(!Number.isInteger(connectTimeoutMs)||connectTimeoutMs<1000||connectTimeoutMs>30000) throw new Error('DVS_JDBC_CONNECT_TIMEOUT_MS must be an integer from 1000 to 30000.');
+  const bridgeHost=validatedDestination?validatedDestination.host:'';
+  const bridgeAddresses=validatedDestination?validatedDestination.addresses.join(','):'';
+  const bridgeInput=[url,creds.user,creds.password,String(payload||''),JSON.stringify(jdbcOptions),bridgeHost,bridgeAddresses].map(encode).join('\n')+'\n';
+  const operationTimeoutMs=mode==='execute'?135000:(mode==='query'||mode==='batch-query')?45000:30000;
+  const out=await spawnCapture('java',['-cp',bridgeClassPath,'JdbcBridge',mode,jar,String(pack.jdbc.driverClass),String(connectTimeoutMs)],{cwd:STUDIO_DIR,input:bridgeInput,timeoutMs:operationTimeoutMs});
   const line=out.stdout.trim().split(/\r?\n/).filter(Boolean).pop()||'';
   let data; try{data=JSON.parse(line);}catch(_){throw new Error(`JDBC bridge returned invalid JSON: ${line.slice(0,500)}`);}
   if(!data.ok) throw new Error(data.error||'JDBC bridge operation failed.'); return data;
@@ -610,7 +655,7 @@ function packNamespaceFromBody(pack,body){
 }
 
 
-return { DATABASE_PACK_FEATURE_VERSION, DATABASE_PACK_SCHEMA_VERSION, DATABASE_PACK_DIR, HOP_DATABASE_TYPES_PATH, isPackDialect, validateDatabasePackManifest, findPackJdbcDriver, loadHopDatabaseTypes, listDatabasePacks, getDatabasePack, writeDatabasePack, removeDatabasePack, semanticTypeForJdbc, applyPackSemanticTypes, sourceHopCapabilitiesFromJdbcAnalysis, sourceHopCapabilitiesFromTables, sourceHopCapabilitiesFromHopCatalog, analysisValue, resolveJdbcTargetProfile, runJdbcBridge, firstNonBlank, packNamespaceFromBody };
+return { DATABASE_PACK_FEATURE_VERSION, DATABASE_PACK_SCHEMA_VERSION, DATABASE_PACK_DIR, HOP_DATABASE_TYPES_PATH, isPackDialect, validateDatabasePackManifest, findPackJdbcDriver, loadHopDatabaseTypes, listDatabasePacks, getDatabasePack, getDatabasePackForDialect, writeDatabasePack, removeDatabasePack, semanticTypeForJdbc, applyPackSemanticTypes, sourceHopCapabilitiesFromJdbcAnalysis, sourceHopCapabilitiesFromTables, sourceHopCapabilitiesFromHopCatalog, analysisValue, resolveJdbcTargetProfile, runJdbcBridge, firstNonBlank, packNamespaceFromBody };
 }
 
 module.exports = { createDatabasePackService };

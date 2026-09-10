@@ -1,5 +1,5 @@
 const fs = require('node:fs');
-const { createApp, PORT, STUDIO_MODE } = require('./server/app');
+const { createApp } = require('./server/app');
 const { createProjectPaths } = require('./server/config/project-paths');
 
 if (require.main === module){
@@ -13,12 +13,14 @@ if (require.main === module){
   }
 
   const app = createApp();
-  app.listen(PORT, '127.0.0.1', () => {
-    console.log(`Data Vault Studio introspection server listening on http://127.0.0.1:${PORT}`);
-    console.log(`Studio mode: ${STUDIO_MODE}`);
+  const port = app.locals.port;
+  const studioMode = app.locals.studioMode;
+  app.listen(port, '127.0.0.1', () => {
+    console.log(`Data Vault Studio introspection server listening on http://127.0.0.1:${port}`);
+    console.log(`Studio mode: ${studioMode}`);
     console.log('This server only accepts connections from your own machine.');
     console.log('');
-    console.log(`Open the GUI at:  http://127.0.0.1:${PORT}/`);
+    console.log(`Open the GUI at:  http://127.0.0.1:${port}/`);
   });
 }
 

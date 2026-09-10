@@ -4,7 +4,7 @@ function registerSourceRoutes(parentApp, dependencies){
   const {
     express,
     isPackDialect,
-    getDatabasePack,
+    getDatabasePackForDialect,
     runJdbcBridge,
     packNamespaceFromBody,
     firstNonBlank,
@@ -13,21 +13,35 @@ function registerSourceRoutes(parentApp, dependencies){
     sourceHopCapabilitiesFromTables,
     applyPackSemanticTypes,
     openSourceConnection,
+    packagedCredentialService,
+    requestControls,
   } = dependencies;
   const app = express.Router();
 
-  app.post('/api/test-connection', async (req, res) => {
+  function packConnectionFor(body, requestedDialect){
+    // The bundled demo has a fixed, server-side MySQL credential profile.
+    // Keep it on the native mysql2 path, which is also the path it used before
+    // MySQL became Pack-backed. Pack/JDBC remains available for configurable
+    // MySQL sources, including their SSL and certificate options.
+    if(requestedDialect==='mysql' && body&&body.credentialRef==='packaged-mysql-source') return null;
+    const pack=getDatabasePackForDialect(requestedDialect);
+    if(!pack) return null;
+    if(pack.source.enabled===false) throw new Error(`Database Pack ${pack.label} is not enabled as a source.`);
+    return {pack,connection:packagedCredentialService.resolveConnection(body||{})};
+  }
+
+  app.post('/api/test-connection', requestControls.guard('connection-test'), async (req, res) => {
     let conn;
     try {
       const requestedDialect=String((req.body&&req.body.dialect)||'postgresql').toLowerCase();
-      if(isPackDialect(requestedDialect)){
-        const pack=getDatabasePack(requestedDialect);
-        if(pack.source.enabled===false)throw new Error(`Database Pack ${pack.label} is not enabled as a source.`);
+      const resolvedPack=packConnectionFor(req.body,requestedDialect);
+      if(resolvedPack){
+        const {pack,connection}=resolvedPack;
         // One JDBC metadata pass proves the connection, discovers namespaces, and
         // resolves Hop type capabilities. Previously this path started a JVM for
         // SELECT 1 and then a second JVM for the same connection's metadata.
-        const analysis=await runJdbcBridge(pack,req.body,'analyze','');
-        const ns=packNamespaceFromBody(pack,req.body);
+        const analysis=await runJdbcBridge(pack,connection,'analyze','');
+        const ns=packNamespaceFromBody(pack,connection);
         const currentCatalog=firstNonBlank(ns.catalog,analysis.currentCatalog);
         const currentSchema=firstNonBlank(ns.schema,analysis.currentSchema);
         const schemas=(analysis.schemas||[])
@@ -57,21 +71,23 @@ function registerSourceRoutes(parentApp, dependencies){
   // schema name instead of guessing (a mismatched schema is the #1 reason
   // "introspect" comes back with zero tables). In MySQL, "schema" and
   // "database" are the same thing.
-  app.post('/api/list-schemas', async (req, res) => {
+  app.post('/api/list-schemas', requestControls.guard('introspection'), async (req, res) => {
     let conn;
     try {
-      conn = await openSourceConnection(req.body);
-      if (isPackDialect(conn.dialect)) {
-        const pack=conn.pack || getDatabasePack(conn.dialect);
-        const analysis=await runJdbcBridge(pack,req.body,'analyze','');
-        const ns=packNamespaceFromBody(pack,req.body);
+      const requestedDialect=String((req.body&&req.body.dialect)||'postgresql').toLowerCase();
+      const resolvedPack=packConnectionFor(req.body,requestedDialect);
+      if(resolvedPack){
+        const {pack,connection}=resolvedPack;
+        const analysis=await runJdbcBridge(pack,connection,'analyze','');
+        const ns=packNamespaceFromBody(pack,connection);
         const effectiveCatalog=firstNonBlank(ns.catalog,analysis.currentCatalog);
         const effectiveSchema=firstNonBlank(ns.schema,analysis.currentSchema);
         const schemas=(analysis.schemas||[])
           .filter(x=>!effectiveCatalog || !x.catalog || x.catalog===effectiveCatalog)
-          .map(x=>x.schema).filter(Boolean);
+          .map(x=>typeof x==='string'?x:x.schema).filter(Boolean);
         return res.json({ ok:true, schemas:[...new Set(schemas)], catalogs:analysis.catalogs||[], currentCatalog:effectiveCatalog, currentSchema:effectiveSchema, namespace:pack.namespace||{}, analysis });
       }
+      conn = await openSourceConnection(req.body);
       let sql, params;
       if (conn.dialect === 'mysql') {
         sql = `SELECT schema_name AS schema_name FROM information_schema.schemata
@@ -283,24 +299,71 @@ function registerSourceRoutes(parentApp, dependencies){
     if (dialect === 'mysql') return '`' + text.replace(/`/g, '``') + '`';
     return '"' + text.replace(/"/g, '""') + '"';
   }
+
+
+  function jdbcSourceConnection(pack, connection, dialect){
+    return {
+      dialect,
+      query: async sql => {
+        const data=await runJdbcBridge(pack,connection,'query',String(sql||''));
+        return {rows:Array.isArray(data.rows)?data.rows:[],fields:Array.isArray(data.fields)?data.fields.map(name=>({name})):[],rowCount:Number(data.rowCount||0)};
+      },
+      queryBatch: async sqls => {
+        const data=await runJdbcBridge(pack,connection,'batch-query',(sqls||[]).map(String).join('\u001e'));
+        return Array.isArray(data.results) ? data.results.map(result=>({
+          ok:result&&result.ok===true,
+          error:result&&result.error,
+          rows:Array.isArray(result&&result.rows)?result.rows:[],
+          fields:Array.isArray(result&&result.fields)?result.fields.map(name=>({name})):[],
+          rowCount:Number((result&&result.rowCount)||0),
+        })) : [];
+      },
+      end: async()=>{},
+    };
+  }
+
+  function sourceSqlLiteral(value){
+    return `'${String(value==null?'':value).replace(/'/g,"''")}'`;
+  }
+
+  function builtinPackRowCountSql(dialect, schema){
+    return dialect==='mysql'
+      ? `SELECT table_name AS table_name, table_rows AS approx_rows FROM information_schema.tables WHERE table_schema = ${sourceSqlLiteral(schema)} AND table_type = 'BASE TABLE'`
+      : `SELECT relname AS table_name, n_live_tup AS approx_rows FROM pg_stat_user_tables WHERE schemaname = ${sourceSqlLiteral(schema)}`;
+  }
+
+  function applyBuiltinPackRowCountRows(rows, tables){
+    const byTable={};
+    for(const row of rows||[]){
+      const name=row.table_name!=null?row.table_name:row.TABLE_NAME;
+      const count=row.approx_rows!=null?row.approx_rows:row.APPROX_ROWS;
+      if(name!=null) byTable[String(name)]=count==null?null:Number(count);
+    }
+    for(const table of tables||[]) table.approxRows=Object.prototype.hasOwnProperty.call(byTable,table.name)?byTable[table.name]:null;
+  }
+
+  async function applyBuiltinPackRowCounts(conn, schema, tables){
+    const sql=builtinPackRowCountSql(conn.dialect,schema);
+    try{
+      const rows=(await conn.query(sql,[])).rows||[];
+      applyBuiltinPackRowCountRows(rows,tables);
+    }catch(_){
+      for(const table of tables||[]) if(table.approxRows===undefined) table.approxRows=null;
+    }
+  }
   
   // Infer-schema profiling is deliberately narrower than the manual Profile
   // button. Only source PK / NOT NULL columns can produce a staging NOT NULL
   // constraint, so only those columns need a blank/NULL scan here. One aggregate
   // query per table avoids issuing a separate full-table scan for every column.
-  async function profileConstraintSensitiveColumns(conn, schema, tables){
-    const warnings = [];
-    let attemptedColumns = 0;
-    let profiledColumns = 0;
+  function constraintProfileQueries(conn, schema, tables){
     const dialect = conn.dialect;
     const qSchema = quoteSourceIdentifier(dialect, schema);
-  
+    const queries=[];
     for (const table of tables){
       if (table.objectType !== 'table') continue;
       const columns = table.columns.filter(c => c.pk === true || c.nullable === false);
       if (!columns.length) continue;
-      attemptedColumns += columns.length;
-  
       const expressions = ['COUNT(*) AS total_rows'];
       columns.forEach((col, index) => {
         const qCol = quoteSourceIdentifier(dialect, col.name);
@@ -314,39 +377,91 @@ function registerSourceRoutes(parentApp, dependencies){
           expressions.push(`COUNT(*) FILTER (WHERE ${qCol} IS NOT NULL AND BTRIM(CAST(${qCol} AS text)) = '') AS ${blankAlias}`);
         }
       });
-  
       const qTable = quoteSourceIdentifier(dialect, table.name);
-      const sql = `SELECT ${expressions.join(', ')} FROM ${qSchema}.${qTable}`;
+      queries.push({table,columns,sql:`SELECT ${expressions.join(', ')} FROM ${qSchema}.${qTable}`});
+    }
+    return queries;
+  }
+
+  function applyConstraintProfileResults(queries, results){
+    const warnings=[];
+    let profiledColumns=0;
+    queries.forEach((query,index)=>{
+      const result=results[index];
+      if(!result||result.ok===false){
+        warnings.push(`${query.table.name}: ${(result&&result.error)||'Profile query failed.'}`);
+        return;
+      }
       try {
-        const result = await conn.query(sql, []);
         const row = result.rows[0] || {};
         const totalRows = Number(row.total_rows || 0);
-        columns.forEach((col, index) => {
-          col.profile = {
+        query.columns.forEach((col, columnIndex) => {
+          col.profile={
             totalRows,
             distinctValues: null,
-            nullValues: Number(row[`c${index}_null`] || 0),
-            blankValues: Number(row[`c${index}_blank`] || 0),
+            nullValues:Number(row[`c${columnIndex}_null`]||0),
+            blankValues:Number(row[`c${columnIndex}_blank`]||0),
             source: 'infer-schema',
           };
           profiledColumns++;
         });
-      } catch (err) {
-        warnings.push(`${table.name}: ${err.message}`);
-      }
-    }
-    return { attemptedColumns, profiledColumns, warnings };
+      }catch(err){warnings.push(`${query.table.name}: ${err.message}`);}
+    });
+    return {attemptedColumns:queries.reduce((total,query)=>total+query.columns.length,0),profiledColumns,warnings};
+  }
+
+  async function profileConstraintSensitiveColumns(conn, schema, tables){
+    const queries=constraintProfileQueries(conn,schema,tables);
+    const results=typeof conn.queryBatch==='function'
+      ? await conn.queryBatch(queries.map(query=>query.sql))
+      : await Promise.all(queries.map(async query=>{
+        try{return {...await conn.query(query.sql,[]),ok:true};}
+        catch(err){return {ok:false,error:err.message};}
+      }));
+    return applyConstraintProfileResults(queries,results);
   }
   
-  app.post('/api/introspect', async (req, res) => {
+  app.post('/api/introspect', requestControls.guard('introspection'), async (req, res) => {
     const requestedDialect=String((req.body&&req.body.dialect)||'postgresql').toLowerCase();
-    if (isPackDialect(requestedDialect)) {
+    const resolvedPack=packConnectionFor(req.body,requestedDialect);
+    if (resolvedPack) {
       try {
-        const pack=getDatabasePack(requestedDialect);
-        if(pack.source.enabled===false) throw new Error(`Database Pack ${pack.label} is not enabled as a source.`);
-        const ns=packNamespaceFromBody(pack,req.body);
-        const raw=await runJdbcBridge(pack,req.body,'introspect',`${ns.catalog}\n${ns.schema}`);
+        const {pack,connection}=resolvedPack;
+        const ns=packNamespaceFromBody(pack,connection);
+        const jdbcCatalog=requestedDialect==='mysql'?String(connection.database||''):ns.catalog;
+        const jdbcSchema=requestedDialect==='mysql'?'':ns.schema;
+        const raw=await runJdbcBridge(pack,connection,'introspect',`${jdbcCatalog}
+${jdbcSchema}`);
         const data=applyPackSemanticTypes(pack,raw);
+        const builtinPack=requestedDialect==='mysql'||requestedDialect==='postgresql'||requestedDialect==='postgres';
+        let profileSummary={attemptedColumns:0,profiledColumns:0,warnings:[]};
+        if(builtinPack){
+          const values=connection&&connection.packValues&&typeof connection.packValues==='object'?connection.packValues:{};
+          const effectiveSchema=requestedDialect==='mysql'
+            ? firstNonBlank(connection.database,values.database,data.catalog,data.schema)
+            : firstNonBlank(ns.schema,data.schema,'public');
+          const conn=jdbcSourceConnection(pack,connection,requestedDialect==='postgres'?'postgresql':requestedDialect);
+          if(req.body&&req.body.profileColumns===true){
+            // Keep all automatic profiling on the one JDBC connection opened by
+            // the bridge. The prior Pack implementation spawned a JVM for the
+            // row estimate and again for every source table.
+            const profileQueries=constraintProfileQueries(conn,effectiveSchema,data.tables||[]);
+            try{
+              const results=await conn.queryBatch([builtinPackRowCountSql(conn.dialect,effectiveSchema),...profileQueries.map(query=>query.sql)]);
+              const rowCounts=results[0];
+              if(rowCounts&&rowCounts.ok) applyBuiltinPackRowCountRows(rowCounts.rows,data.tables||[]);
+              else for(const table of data.tables||[]) table.approxRows=null;
+              profileSummary=applyConstraintProfileResults(profileQueries,results.slice(1));
+            }catch(_){
+              // Row estimates are helpful but must not prevent the source
+              // metadata from being returned when a driver rejects one query.
+              await applyBuiltinPackRowCounts(conn,effectiveSchema,data.tables||[]);
+              profileSummary=await profileConstraintSensitiveColumns(conn,effectiveSchema,data.tables||[]);
+            }
+          }else await applyBuiltinPackRowCounts(conn,effectiveSchema,data.tables||[]);
+          const sourceCapabilities=sourceHopCapabilitiesFromTables(data.tables||[]);
+          return res.json({ok:true,catalog:data.catalog||ns.catalog,schema:effectiveSchema,tables:data.tables||[],foreignKeys:data.foreignKeys||[],sourceCapabilities,profileSummary,pack:{id:pack.id,label:pack.label,version:pack.version}});
+        }
         // Introspection already gives enough column evidence for a fallback Hop
         // capability profile. Do not immediately start another JVM just to run
         // JDBC getTypeInfo(); a richer jdbc-type-info profile is captured by the
@@ -409,12 +524,12 @@ function registerSourceRoutes(parentApp, dependencies){
       if (conn) { try { await conn.end(); } catch (_) {} }
     }
   });
-  
+
   // Table profile used by the single Profile table button. It returns row,
   // distinct, SQL-null and blank counts for every requested column using one
   // aggregate scan. Identifiers are validated before any connection is opened.
   const IDENT_RE = /^[A-Za-z_][A-Za-z0-9_$]*$/;
-  app.post('/api/profile-table', async (req, res) => {
+  app.post('/api/profile-table', requestControls.guard('introspection'), async (req, res) => {
     const requestedDialect=String((req.body&&req.body.dialect)||'postgresql').toLowerCase();
     if (isPackDialect(requestedDialect)) return res.status(400).json({ok:false,error:'Live table profiling is not available for Database Pack sources; JDBC-declared nullability is retained and keys can be reviewed manually or with AI Assist.'});
     const { schema, table, columns } = req.body || {};
@@ -430,7 +545,10 @@ function registerSourceRoutes(parentApp, dependencies){
   
     let conn;
     try {
-      conn = await openSourceConnection(req.body);
+      const resolvedPack=packConnectionFor(req.body,requestedDialect);
+      conn = resolvedPack
+        ? jdbcSourceConnection(resolvedPack.pack,resolvedPack.connection,requestedDialect==='postgres'?'postgresql':requestedDialect)
+        : await openSourceConnection(req.body);
       const dialect = conn.dialect;
       const qSchema = quoteSourceIdentifier(dialect, schema);
       const qTable = quoteSourceIdentifier(dialect, table);
@@ -471,7 +589,7 @@ function registerSourceRoutes(parentApp, dependencies){
   // Per-column profile (row/null/distinct counts) to inform business-key and
   // incremental-column choices. Identifiers are strictly validated and then
   // double-quoted / backtick-quoted — never interpolated raw.
-  app.post('/api/profile-column', async (req, res) => {
+  app.post('/api/profile-column', requestControls.guard('introspection'), async (req, res) => {
     const requestedDialect=String((req.body&&req.body.dialect)||'postgresql').toLowerCase();
     if (isPackDialect(requestedDialect)) return res.status(400).json({ok:false,error:'Live column profiling is not available for Database Pack sources; JDBC-declared nullability is retained and keys can be reviewed manually or with AI Assist.'});
     const { schema, table, column } = req.body || {};
@@ -480,7 +598,10 @@ function registerSourceRoutes(parentApp, dependencies){
     }
     let conn;
     try {
-      conn = await openSourceConnection(req.body);
+      const resolvedPack=packConnectionFor(req.body,requestedDialect);
+      conn = resolvedPack
+        ? jdbcSourceConnection(resolvedPack.pack,resolvedPack.connection,requestedDialect==='postgres'?'postgresql':requestedDialect)
+        : await openSourceConnection(req.body);
       const dialect = conn.dialect;
       const qSchema = quoteSourceIdentifier(dialect, schema);
       const qTable = quoteSourceIdentifier(dialect, table);

@@ -3,11 +3,11 @@
 const crypto = require('node:crypto');
 
 function registerLicenseRoutes(parentApp, dependencies){
-  const { express, fs, path, PROJECT_ROOT } = dependencies;
+  const { express, fs, path, PROJECT_ROOT, env } = dependencies;
   const router = express.Router();
 
-  function licenseFilePath(){ return process.env.LICENSE_FILE || path.join(PROJECT_ROOT, 'LICENSE'); }
-  function licenseStateDir(){ return process.env.LICENSE_STATE_DIR || path.join(PROJECT_ROOT, '.license-state'); }
+  function licenseFilePath(){ return path.resolve(PROJECT_ROOT, env.LICENSE_FILE || 'LICENSE'); }
+  function licenseStateDir(){ return path.resolve(PROJECT_ROOT, env.LICENSE_STATE_DIR || '.license-state'); }
   function licenseMarkerPath(){ return path.join(licenseStateDir(), 'license.accepted'); }
   function licenseHash(){
     return crypto.createHash('sha256').update(fs.readFileSync(licenseFilePath())).digest('hex').toLowerCase();

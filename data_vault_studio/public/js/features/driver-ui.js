@@ -1,21 +1,22 @@
 /* =========================================================================
    STEP 1 — CONNECTIONS
    ========================================================================= */
-// JDBC drivers are required for non-PostgreSQL sources. The same project
-// jdbc-drivers/ mount is reused by the internal PostgreSQL FDW container.
+// The bundled MySQL/PostgreSQL Database Packs use the same local JDBC bridge
+// as every other Pack, so their JDBC jars live in project-root jdbc-drivers/.
+// The same folder is mounted into Hop and the internal PostgreSQL FDW image.
 function jdbcDriverSectionHtml(v){
   const spec=jdbcDriverSpec(v.dialect);
   if(!spec) return '';
   return `
       <div class="panel-head" style="margin:16px -14px 0;"><h3>${escapeHtml(spec.label)} <span class="badge-count">&nbsp;·&nbsp;required for this source</span></h3></div>
-      <p class="hint mt">This JDBC driver must be present in <span class="mono">jdbc-drivers/</span> before Hop can read the external ${escapeHtml(DIALECTS[v.dialect].label)} source.</p>
+      <p class="hint mt">This JDBC driver must be present in <span class="mono">jdbc-drivers/</span> for Studio connection tests and the Hop runtime.</p>
       <div class="grid cols-2 mt">
         <a class="btn" href="${escapeHtml(spec.url)}" download>⬇ Download ${escapeHtml(spec.label)} ${escapeHtml(spec.version)}</a>
         <a class="btn ghost" href="${escapeHtml(spec.otherUrl)}" target="_blank" rel="noopener">Other versions ↗</a>
       </div>
       <div class="field mt">
-        <label>Target folder <span class="hint">(auto-detected — override only if this project's layout differs)</span></label>
-        <input type="text" id="f-jdbc-folder" value="${jdbcDriverFolder}" placeholder="${jdbcDriverFolderDetected || 'detecting… (needs the local server running)'}">
+        <label>Target folder <span class="hint">(project default — override only if this project's layout differs)</span></label>
+        <input type="text" id="f-jdbc-folder" value="${jdbcDriverFolder}" placeholder="${jdbcDriverDefaultFolder}">
       </div>
       <button class="btn primary mt" id="btn-deploy-jdbc-driver">${jdbcDriverDeployStatus==='loading'?'Fetching & deploying…':'⬆ Fetch and deploy driver to jdbc-drivers/'}</button>
       <div id="jdbc-driver-deploy-status"></div>

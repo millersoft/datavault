@@ -86,7 +86,7 @@ async function probeDeploymentStatus(){
 
     // 1 · target database
     const dbResp = await localFetch(`/api/db-status`, { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ host: v.dvHost, port: v.dvPort, database: v.dvDatabase, user: v.dvUser, password: v.dvPassword }) }).then(r=>r.json());
+      body: JSON.stringify(targetConnectionPayload()) }).then(r=>r.json());
     if (!dbResp.ok) throw new Error(dbResp.error || 'Could not check the target database.');
     const dbExists = dbResp.exists === true;
     const postgresDatabaseRole=state.externalTables.enabled?'gateway':'target';
@@ -96,10 +96,10 @@ async function probeDeploymentStatus(){
       if (state.externalTables.enabled) attachExternalWorkflow(gatewayDbRow);
       else gatewayDbRow.apply = async ()=>{
         const r = await localFetch(`/api/create-database`, { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ host: v.dvHost, port: v.dvPort, database: v.dvDatabase, user: v.dvUser, password: v.dvPassword }) }).then(x=>x.json());
+          body: JSON.stringify(targetConnectionPayload()) }).then(x=>x.json());
         if (!r.ok) throw new Error(r.error || 'Create failed.');
         const verify = await localFetch(`/api/db-status`, { method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ host: v.dvHost, port: v.dvPort, database: v.dvDatabase, user: v.dvUser, password: v.dvPassword }) }).then(x=>x.json());
+          body: JSON.stringify(targetConnectionPayload()) }).then(x=>x.json());
         if (!verify.ok || !verify.exists) throw new Error(verify.error || `Database "${v.dvDatabase}" was not visible after creation.`);
       };
     }
@@ -162,12 +162,12 @@ async function probeDeploymentStatus(){
         const c = await localFetch('/api/env-credentials/status', { method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify(payload) }).then(r=>r.json());
         if (!c.ok) throw new Error(c.error || 'runtime secret check failed');
-        const current = c.found && c.sourceMatches && (!payload.externalPostgres || (c.targetMatches && c.targetUserMatches));
+        const current = c.found && c.sourceConfigured && c.targetConfigured && c.targetUserConfigured;
         const row = { key:'credentials', label:'Runtime secrets (.env)',
           state: current ? 'current' : (c.found ? 'stale' : 'missing'),
           detail: current
-            ? (payload.externalPostgres ? 'source and external PostgreSQL secrets match Connections' : 'source password matches Connections; internal PostgreSQL settings are unchanged')
-            : (!c.found ? 'root .env not found' : 'runtime secrets differ from Connections') };
+            ? (payload.externalPostgres ? 'runtime credentials are configured; Apply All synchronises entered external credentials' : 'packaged runtime credentials are configured server-side')
+            : (!c.found ? 'root .env not found' : 'required runtime credentials are not configured') };
         if (!current) row.apply=async()=>{ await deployRuntimeCredentials({silent:true}); };
         row.reapply=async()=>{ await deployRuntimeCredentials(); };
         rows.push(row);
@@ -580,7 +580,7 @@ async function applyAllPending(){
   }
 }
 
-// (The "run canonical Python validator" button was removed from the Export
-// page by request. The server's /api/validate-workbook endpoint remains for
-// CI or scripted use — POST { workbookBase64, filename }.)
+// Workbook validation is automatic now: download/deploy always runs Studio's
+// deterministic pdi_meta row preflight, and uses /api/validate-workbook as an
+// additional canonical Python check whenever that validator is available.
 

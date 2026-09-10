@@ -102,8 +102,25 @@ function mappingWorkbookFilename(){
   return `${base}_1.xls`;
 }
 
-function buildMappingWorkbook(){
-  const rows = buildWorkbookRows();
+function validateWorkbookRowsAgainstPdiMeta(rows){
+  const errors=[];
+  for(const [fieldKey,field] of Object.entries(PDI_META_LIMITS.fields || {})){
+    for(const location of field.workbookColumns || []){
+      const headers=SHEET_HEADERS[location.sheet];
+      if(!headers){ errors.push(`Workbook contract references unknown sheet "${location.sheet}" for ${fieldKey}.`); continue; }
+      const columnIndex=headers.indexOf(location.column);
+      if(columnIndex<0){ errors.push(`Workbook contract references unknown column "${location.sheet}.${location.column}" for ${fieldKey}.`); continue; }
+      (rows[location.sheet] || []).forEach((row,rowIndex)=>{
+        const value=(row || [])[columnIndex];
+        const issue=pdiMetaLengthIssue(fieldKey,value,`${location.sheet} row ${rowIndex+2} ${location.column}`);
+        if(issue) errors.push(issue);
+      });
+    }
+  }
+  return [...new Set(errors)];
+}
+
+function buildMappingWorkbook(rows = buildWorkbookRows()){
   const wb = XLSX.utils.book_new();
   Object.keys(SHEET_HEADERS).forEach(sheet=>{
     const aoa = [SHEET_HEADERS[sheet], ...(rows[sheet]||[])];
@@ -113,8 +130,45 @@ function buildMappingWorkbook(){
   return wb;
 }
 
-function downloadWorkbook(){
-  const wb = buildMappingWorkbook();
+async function canonicalWorkbookValidation(wb, filename){
+  try {
+    const workbookBase64=XLSX.write(wb,{bookType:'xlsx',type:'base64'});
+    const resp=await localFetch('/api/validate-workbook',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({workbookBase64,filename}),
+    });
+    const data=await resp.json();
+    // The canonical validator is optional in local/dev installs. If the server
+    // cannot run it, the deterministic Studio preflight still remains blocking.
+    if(!data.ok) return {available:false, reason:data.error || 'Canonical validator unavailable.'};
+    if(data.passed===false){
+      const rawDetail=String(data.stdout || data.stderr || 'Canonical workbook validation failed.').trim();
+      const detail=rawDetail.length>1200 ? `${rawDetail.slice(0,1200)}…` : rawDetail;
+      return {available:true,passed:false,error:detail};
+    }
+    return {available:true,passed:true};
+  } catch(err){
+    return {available:false,reason:err && err.message ? err.message : String(err)};
+  }
+}
+
+async function prepareMappingWorkbookForDelivery(){
+  const model=validateModel();
+  if(model.errors.length) return {ok:false,error:model.errors[0],errors:model.errors};
+  const rows=buildWorkbookRows();
+  const rowErrors=validateWorkbookRowsAgainstPdiMeta(rows);
+  if(rowErrors.length) return {ok:false,error:rowErrors[0],errors:rowErrors};
+  const wb=buildMappingWorkbook(rows);
+  const filename=mappingWorkbookFilename();
+  const canonical=await canonicalWorkbookValidation(wb,filename);
+  if(canonical.available && canonical.passed===false) return {ok:false,error:`Canonical workbook validation failed: ${canonical.error}`,errors:[canonical.error],canonical};
+  return {ok:true,wb,rows,filename,canonical};
+}
+
+async function downloadWorkbook(){
+  const prepared=await prepareMappingWorkbookForDelivery();
+  if(!prepared.ok) return prepared;
+  const wb=prepared.wb;
   // Genuine legacy .xls (bookType 'biff8') silently truncates any cell
   // string over 255 characters — confirmed directly, and it's exactly
   // what corrupted the payment/rental staging_sql_override values (both
@@ -124,7 +178,8 @@ function downloadWorkbook(){
   // Excel files (including Apache POI, which Hop's own Excel Input step
   // is built on) detects the real format from content, not the
   // extension, so this is safe in exchange for not silently losing data.
-  XLSX.writeFile(wb, mappingWorkbookFilename(), { bookType: 'xlsx' });
+  XLSX.writeFile(wb, prepared.filename, { bookType: 'xlsx' });
+  return prepared;
 }
 
 /* ---- validation, mirrors scripts/validate_mapping_workbook.py at a structural level ---- */

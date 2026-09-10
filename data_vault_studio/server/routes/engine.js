@@ -22,9 +22,13 @@ function registerEngineRoutes(parentApp, dependencies){
     fs,
     path,
     spawn,
+    studioMode,
     PROJECT_ROOT,
     licenseFilePath,
     licenseAccepted,
+    requestControls,
+    audit,
+    env,
   } = dependencies;
   const app = express.Router();
   const DB_SERVICES = ['mysql', 'postgres'];
@@ -40,17 +44,35 @@ function registerEngineRoutes(parentApp, dependencies){
         resolve({ ok:false, error:projectRootError(`${launcher.label} not found at ${launcher.scriptPath}.`) });
         return;
       }
-      let stdout = '', stderr = '', settled = false;
+      let stdout = '', stderr = '', settled = false, timedOut = false, killTimer;
       const child = spawn(launcher.command, launcher.args, {
         cwd: PROJECT_ROOT,
         stdio: ['ignore', 'pipe', 'pipe'], // no stdin — never hang waiting for interactive input
-        env: { ...process.env, ...envOverrides },
+        env: { ...env, ...envOverrides },
+        detached: process.platform !== 'win32',
+      });
+      const timeoutResult = () => ({
+        ok:false,
+        error:`Timed out after ${timeoutMs/1000}s waiting for: ${launcher.label} ${args.join(' ')}`,
+        stdout,
+        stderr,
       });
       const timer = setTimeout(() => {
         if (settled) return;
-        settled = true;
-        child.kill('SIGKILL');
-        resolve({ ok:false, error:`Timed out after ${timeoutMs/1000}s waiting for: ${launcher.label} ${args.join(' ')}`, stdout, stderr });
+        timedOut = true;
+        try {
+          if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL');
+          else child.kill('SIGKILL');
+        } catch (_) { try { child.kill('SIGKILL'); } catch (_) {} }
+        // Normally `close` follows the kill and releases the operation gate.
+        // Keep a bounded fallback for unusual platform/process failures.
+        if (process.platform !== 'win32'){
+          killTimer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            resolve(timeoutResult());
+          }, 5000);
+        }
       }, timeoutMs);
       child.stdout.on('data', d => { stdout += d.toString(); });
       child.stderr.on('data', d => { stderr += d.toString(); });
@@ -58,6 +80,8 @@ function registerEngineRoutes(parentApp, dependencies){
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        clearTimeout(killTimer);
+        if (timedOut) return resolve(timeoutResult());
         if (code === 0) return resolve({ ok: true, code, stdout, stderr });
         // Non-zero exit: surface WHY. The license prompt writes to stdout, so
         // stderr alone is often empty — without this, the GUI can only say
@@ -75,7 +99,8 @@ function registerEngineRoutes(parentApp, dependencies){
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolve({ ok:false, error: `${launcher.label}: ${err.message}`, stdout, stderr });
+        clearTimeout(killTimer);
+        resolve(timedOut ? timeoutResult() : { ok:false, error:`${launcher.label}: ${err.message}`, stdout, stderr });
       });
     });
   }
@@ -92,6 +117,14 @@ function registerEngineRoutes(parentApp, dependencies){
     internal: ['up', '-d', 'hop'],
     external: ['up', '--external-postgres', '-d', 'hop'],
   };
+
+  function runEtlTransition(args, timeoutMs, options = {}){
+    const gates = [];
+    if (options.build === true) gates.push({ group:'container-build', key:'exclusive' });
+    gates.push({ group:'etl-transition', key:'exclusive' });
+    return requestControls.execute(gates, () => runFixedCommand(args, timeoutMs, options.envOverrides));
+  }
+
   app.post('/api/docker/run-hop', async (req, res) => {
     const { mode = 'internal', build = false } = req.body || {};
     if (!Object.prototype.hasOwnProperty.call(ENGINE_MODES, mode)) {
@@ -105,14 +138,16 @@ function registerEngineRoutes(parentApp, dependencies){
       args = ['up', '--external-postgres', '--build', '-d', 'hop'];
       timeout = 600000;
     }
-    const result = await runFixedCommand(args, timeout);
-    res.json({ ...result, mode, args: args.join(' ') });
+    const result = await runEtlTransition(args, timeout, { build:mode === 'external' && build === true });
+    audit('etl.start', { mode, build:mode === 'external' && build === true, success:result.ok });
+    requestControls.sendResult(res, result, { mode, args:args.join(' ') });
   });
 
   app.post('/api/docker/stop-hop', async (_req, res) => {
     const args = ['stop', 'hop'];
-    const result = await runFixedCommand(args, 60000);
-    res.json({ ...result, args: args.join(' ') });
+    const result = await runEtlTransition(args, 60000);
+    audit('etl.stop', { success:result.ok });
+    requestControls.sendResult(res, result, { args:args.join(' ') });
   });
   
   // Start/stop the packaged database containers (the "MySQL Demo" and
@@ -141,24 +176,31 @@ function registerEngineRoutes(parentApp, dependencies){
     if (typeof fdw !== 'boolean') {
       return res.status(400).json({ ok: false, error: 'fdw must be true or false.' });
     }
-    if (mode === 'internal') {
-      const recreateArgs = fdw
-        ? ['up', '--fdw', '--build', '--force-recreate', '-d', 'postgres']
-        : ['up', '--studio-build', '--force-recreate', '-d', 'postgres'];
-      const databaseEnv = { INTERNAL_DATA_VAULT_DATABASE: database };
-      const recreate = await runFixedCommand(recreateArgs, 600000, databaseEnv);
-      if (!recreate.ok) return res.json({ ...recreate, step: 'recreate', mode, database });
-      const password = await runFixedCommand(['exec', '-T', 'postgres', 'bash', '/docker-entrypoint-initdb.d/01-vault-password.sh'], 120000);
-      if (!password.ok) return res.json({ ...password, step: 'password', mode, database });
-      const dump = await runFixedCommand([
-        'exec', '-T', 'postgres', 'psql', '-U', 'dvuser', '-d', 'postgres',
-        '-v', 'ON_ERROR_STOP=1', '-v', `target_database=${database}`,
-        '-f', '/docker-entrypoint-initdb.d/02-dump.sql',
-      ], 900000);
-      return res.json({ ...dump, step: dump.ok ? 'done' : 'dump', mode, database });
-    }
-    const bootstrap = await runFixedCommand(['bootstrap-external-postgres'], 900000);
-    res.json({ ...bootstrap, step: bootstrap.ok ? 'done' : 'bootstrap' });
+    const result = await requestControls.execute([
+      { group:'container-build', key:'exclusive' },
+      { group:'etl-transition', key:'exclusive' },
+    ], async () => {
+      if (mode === 'internal') {
+        const recreateArgs = fdw
+          ? ['up', '--fdw', '--build', '--force-recreate', '-d', 'postgres']
+          : ['up', '--studio-build', '--force-recreate', '-d', 'postgres'];
+        const databaseEnv = { INTERNAL_DATA_VAULT_DATABASE: database };
+        const recreate = await runFixedCommand(recreateArgs, 600000, databaseEnv);
+        if (!recreate.ok) return { ...recreate, step:'recreate', mode, database };
+        const password = await runFixedCommand(['exec', '-T', 'postgres', 'bash', '/docker-entrypoint-initdb.d/01-vault-password.sh'], 120000);
+        if (!password.ok) return { ...password, step:'password', mode, database };
+        const dump = await runFixedCommand([
+          'exec', '-T', 'postgres', 'psql', '-U', 'dvuser', '-d', 'postgres',
+          '-v', 'ON_ERROR_STOP=1', '-v', `target_database=${database}`,
+          '-f', '/docker-entrypoint-initdb.d/02-dump.sql',
+        ], 900000);
+        return { ...dump, step:dump.ok ? 'done' : 'dump', mode, database };
+      }
+      const bootstrap = await runFixedCommand(['bootstrap-external-postgres'], 900000);
+      return { ...bootstrap, step:bootstrap.ok ? 'done' : 'bootstrap' };
+    });
+    audit('bootstrap.executed', { mode:mode || 'external', fdw, database, success:result.ok });
+    requestControls.sendResult(res, result);
   });
   
   app.post('/api/docker/start-db', async (req, res) => {
@@ -166,6 +208,12 @@ function registerEngineRoutes(parentApp, dependencies){
     const { service, fdw = false } = request;
     if (!DB_SERVICES.includes(service)) {
       return res.status(400).json({ ok: false, error: `Unknown service "${service}" — allowed: ${DB_SERVICES.join(', ')}.` });
+    }
+    // The packaged MySQL service is demo data, not a general MySQL runtime.
+    // Production connections to MySQL are always user-supplied Database Pack
+    // connections and must never cause Studio to start the demo container.
+    if (service === 'mysql' && studioMode !== 'demo') {
+      return res.status(403).json({ ok:false, error:'The packaged MySQL service can only be started in demo mode.' });
     }
     if (typeof fdw !== 'boolean') {
       return res.status(400).json({ ok: false, error: 'fdw must be true or false.' });
@@ -197,16 +245,34 @@ function registerEngineRoutes(parentApp, dependencies){
     // recreate the container; Docker layer caching keeps repeated starts cheap.
     // start.sh still owns the Compose override ordering.
     const envOverrides = service === 'postgres' ? { INTERNAL_DATA_VAULT_DATABASE: database } : {};
-    const result = await runFixedCommand(args, service === 'postgres' ? 600000 : 120000, envOverrides);
-    res.json({ ...result, fdw: service === 'postgres' && fdw, database, args: args.join(' ') });
+    const result = service === 'postgres'
+      ? await requestControls.execute([
+          { group:'container-build', key:'exclusive' },
+          { group:'etl-transition', key:'exclusive' },
+        ], () => runFixedCommand(args, 600000, envOverrides))
+      : await requestControls.execute(
+          { group:'etl-transition', key:'exclusive' },
+          () => runFixedCommand(args, 120000, envOverrides),
+        );
+    audit('database.start', { service, fdw:service === 'postgres' && fdw, database, success:result.ok });
+    requestControls.sendResult(res, result, { fdw:service === 'postgres' && fdw, database, args:args.join(' ') });
   });
   app.post('/api/docker/stop-db', async (req, res) => {
     const { service } = req.body || {};
     if (!DB_SERVICES.includes(service)) {
       return res.status(400).json({ ok: false, error: `Unknown service "${service}" — allowed: ${DB_SERVICES.join(', ')}.` });
     }
-    const result = await runFixedCommand(['stop', service], 60000);
-    res.json(result);
+    const result = service === 'postgres'
+      ? await requestControls.execute([
+          { group:'container-build', key:'exclusive' },
+          { group:'etl-transition', key:'exclusive' },
+        ], () => runFixedCommand(['stop', service], 60000))
+      : await requestControls.execute(
+          { group:'etl-transition', key:'exclusive' },
+          () => runFixedCommand(['stop', service], 60000),
+        );
+    audit('database.stop', { service, success:result.ok });
+    requestControls.sendResult(res, result);
   });
   
   // Tail of the hop container's logs — read-only, command fully hardcoded.
@@ -226,9 +292,9 @@ function registerEngineRoutes(parentApp, dependencies){
   // silently drift from the validator the pipeline itself trusts. Best-effort:
   // returns a clear error if python3 or the script isn't present.
   
-  app.post('/api/docker/hop-status', async (req, res) => {
+  async function getHopStatus(){
     const result = await runFixedCommand(['ps', '-a', '--format', 'json', 'hop'], 15000);
-    if (!result.ok) return res.json(result);
+    if (!result.ok) return result;
     try {
       const trimmed = result.stdout.trim();
       const containers = !trimmed ? [] : (trimmed.startsWith('[')
@@ -241,7 +307,7 @@ function registerEngineRoutes(parentApp, dependencies){
       const rawExit = c && c.ExitCode;
       const exitCode = rawExit === undefined || rawExit === null || rawExit === '' || Number.isNaN(Number(rawExit))
         ? null : Number(rawExit);
-      res.json({
+      return {
         ok:true,
         present:!!c,
         running,
@@ -249,10 +315,14 @@ function registerEngineRoutes(parentApp, dependencies){
         status,
         exitCode,
         name:c ? String(c.Name || '') : '',
-      });
+      };
     } catch (parseErr) {
-      res.json({ ok:false, error:'Could not parse container status for Hop.', raw: result.stdout });
+      return { ok:false, error:'Could not parse container status for Hop.', raw: result.stdout };
     }
+  }
+
+  app.post('/api/docker/hop-status', async (_req, res) => {
+    res.json(await getHopStatus());
   });
   
   // Read-only container status check — not gated by the license flow since
@@ -274,7 +344,7 @@ function registerEngineRoutes(parentApp, dependencies){
   });
 
   parentApp.use(app);
-  return { ENGINE_MODES, runFixedCommand };
+  return { ENGINE_MODES, runFixedCommand, runEtlTransition, getHopStatus };
 }
 
 module.exports = { registerEngineRoutes, selectStudioLauncher };

@@ -18,10 +18,14 @@ function buildHopPackAttributes(hop,pack){
   const schemaField=(pack?.connectionFields||[]).find(field=>field.mapsTo==='schema');
   if(schemaField) attributes.PREFERRED_SCHEMA_NAME='${source_schema_name}';
   const pluginId=String(hop?.pluginId||pack?.hop?.pluginId||'').trim();
-  const options=typeof packJdbcOptionsPayload==='function'?packJdbcOptionsPayload('source'):{};
-  for(const [key,value] of Object.entries(options||{})){
+  // Packs may also ship static advanced attributes. Apply the same portable
+  // project-file convention without needing database-specific SSL knowledge.
+  for(const key of Object.keys(attributes)) attributes[key]=resolveProjectCertificateReferences(attributes[key]);
+  const options=typeof packJdbcOptionsPayload==='function'?packJdbcOptionsPayload('source'):[];
+  for(const option of options||[]){
+    const key=String(option&&option.key||'').trim();
     if(!key) continue;
-    attributes[`EXTRA_OPTION_${pluginId}.${key}`]=String(value??'');
+    attributes[`EXTRA_OPTION_${pluginId}.${key}`]=resolveProjectCertificateReferences(String(option&&option.value!=null?option.value:''));
   }
   return attributes;
 }
@@ -41,6 +45,7 @@ function buildHopSourceConnectionJson(){
   let hop=pack ? resolveHopDatabaseType(pack) : resolveHopDatabaseType(null,dialect);
   let rdbms;
   if(pack){
+    seedPackConnectionValues(pack,'source');
     syncPackMappedValues(pack,'source');
     const rawValues={...packConnectionValues('source')};
     const values={...rawValues};
@@ -48,7 +53,7 @@ function buildHopSourceConnectionJson(){
     const manualUrl=packTemplate(pack.jdbc.urlTemplate,values);
     hop=hop||{pluginId:'GENERIC',pluginName:'Generic database',strategy:'generic',connectionDefaults:{accessType:0,attributes:{}}};
     const common=Object.assign({},baseCommon,{accessType:hop.connectionDefaults?.accessType??0});
-    const userManualUrl=typeof packManualUrlValue==='function'?String(packManualUrlValue('source')||''):'';
+    const userManualUrl=typeof packManualUrlValue==='function'?resolveProjectCertificateReferences(String(packManualUrlValue('source')||'')):'';
     if(hop.strategy==='native'){
       const nativeProperties=buildHopPackNativeProperties(pack,rawValues);
       rdbms={ [hop.pluginId]: Object.assign({},common,nativeProperties,{
@@ -62,7 +67,7 @@ function buildHopSourceConnectionJson(){
         pluginId:'GENERIC',
         pluginName:hop.pluginName||'Generic database',
         driverClass:pack.jdbc.driverClass,
-        manualUrl:userManualUrl||manualUrl,
+        manualUrl:userManualUrl||resolveProjectCertificateReferences(manualUrl),
         attributes:buildHopPackAttributes(hop,pack),
       }) };
     }
@@ -86,7 +91,7 @@ function buildHopSourceConnectionJson(){
 function buildHopEnvironmentJson(){
   const v = state.vault;
   const sourcePack=databasePackForDialect(v.dialect);
-  if(sourcePack) syncPackMappedValues(sourcePack,'source');
+  if(sourcePack){ seedPackConnectionValues(sourcePack,'source'); syncPackMappedValues(sourcePack,'source'); }
   const sourcePackValues=sourcePack ? packConnectionValues('source') : {};
   // The hop engine runs INSIDE the compose network. When the packaged
   // containers are selected, the GUI talks to them via the host-mapped
@@ -104,7 +109,7 @@ function buildHopEnvironmentJson(){
   // explicit database value first and fall back to the selected pack catalog.
   // This keeps already-installed v0.1.0 manifests working after the v0.1.1+ migration.
   const srcDatabase = v.srcDatabase || sourcePackValues.database || sourcePackValues.catalog || '';
-  const srcSchema = sourcePack ? (sourcePackValues.schema || '') : (v.sourceSchema || 'public');
+  const srcSchema = sourcePack ? (packValueMappedTo(sourcePack,sourcePackValues,'schema') || v.sourceSchema || '') : (v.sourceSchema || 'public');
   const database = v.dvDatabase || '';
   const variables = [
     { name:'pdi_meta_host_name', value: host, description:'' },
@@ -172,7 +177,7 @@ function buildHopEnvironmentJson(){
       const runtimeName=runtimeVariableForPackField(field);
       if(existing.has(runtimeName)) return;
       const isSecret=field.type==='password'||field.mapsTo==='password';
-      variables.push({name:runtimeName,value:isSecret?'${SOURCE_PASSWORD}':String(values[field.key]??field.default??''),description:''});
+      variables.push({name:runtimeName,value:isSecret?'${SOURCE_PASSWORD}':resolveProjectCertificateReferences(String(values[field.key]??field.default??'')),description:''});
       existing.add(runtimeName);
     });
   }

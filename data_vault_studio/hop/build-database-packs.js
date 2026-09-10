@@ -17,6 +17,21 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+// Studio runtime compatibility settings that are not Hop registry defaults.
+// Keep them in the generated Pack so MySQL/PostgreSQL can use the common Pack
+// path without silently losing behaviour from Studio's former built-in path.
+const STUDIO_PACK_OVERRIDES = {
+  MYSQL: {
+    hopAttributes: {
+      'EXTRA_OPTION_MYSQL.tinyInt1isBit': 'false',
+      'EXTRA_OPTION_MYSQL.yearIsDateType': 'false',
+    },
+    sourceNativeTypeOverrides: {
+      YEAR: 'SMALL_INTEGER',
+    },
+  },
+};
+
 function normaliseId(value) {
   return String(value || '')
     .trim()
@@ -431,6 +446,7 @@ function buildCatalogue(rows) {
 
 function packForRow(row) {
   const key = pluginKey(row);
+  const studioOverride = STUDIO_PACK_OVERRIDES[key] || {};
   const id = normaliseId(row.pluginId || row.module);
   const label = String(row.pluginName || row.label || row.pluginId || id).trim();
   const driverClass = String(row.driverClass || '').trim();
@@ -492,7 +508,7 @@ function packForRow(row) {
     pluginIds: row.pluginIds || [],
     module: row.module || null,
     className: row.className || null,
-    attributes: row.defaultAttributes || {},
+    attributes: { ...(row.defaultAttributes || {}), ...(studioOverride.hopAttributes || {}) },
     defaultOptions: row.defaultOptions || {},
     connectionModel: {
       requiresDatabaseName: row.requiresDatabaseName,
@@ -530,6 +546,7 @@ function packForRow(row) {
     hop,
     source: {
       enabled: engineProfile.compatible === true,
+      nativeTypeOverrides: studioOverride.sourceNativeTypeOverrides,
       ...(engineProfile.compatible === true ? {} : { disabledReason: engineProfile.compatibilityBasis }),
     },
     capabilities: {

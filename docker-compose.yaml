@@ -136,6 +136,7 @@ services:
       - ./hop/postgres-environment.json:/app/postgres-environment.json
       - ./docker:/app/docker
       - ./jdbc-drivers:/opt/hop/lib/jdbc-extra:ro
+      - ./dv-certs:/app/dv-certs:ro
       - ./LICENSE:/app/LICENSE:ro
       - ./.license-state:/var/lib/datavault-hop
     networks:

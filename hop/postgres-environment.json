@@ -219,7 +219,12 @@
     "name" : "HUB_STATUS_SAT_INSERT_COPIES",
     "value" : "10",
     "description" : ""
-  } ],
+  }, {
+    "name": "TABLE_ERRORS",
+    "value": "",
+    "description": "Set to _errors to log table errors"
+    }
+],
   "purpose" : "Development",
   "name" : "postgres"
 }

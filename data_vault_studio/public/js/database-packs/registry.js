@@ -22,9 +22,89 @@ let hopDatabaseCatalog = { databaseTypes:[], generic:{pluginId:'GENERIC',pluginN
 let databasePackLoadError = '';
 function isDatabasePackDialect(value){ return /^pack:[a-z0-9][a-z0-9._-]{0,63}$/i.test(String(value||'')); }
 function databasePackId(value){ return isDatabasePackDialect(value) ? String(value).slice(5).toLowerCase() : ''; }
-function databasePackForDialect(value){ const id=databasePackId(value); return id ? databasePacks.find(p=>p.id===id) || null : null; }
+function bundledPackIdForDialect(value){
+  const dialect=String(value||'').toLowerCase();
+  if(dialect==='mysql') return 'mysql';
+  if(dialect==='postgresql'||dialect==='postgres') return 'postgresql';
+  return '';
+}
+function databasePackForDialect(value){
+  const id=databasePackId(value)||bundledPackIdForDialect(value);
+  return id ? databasePacks.find(p=>p.id===id) || null : null;
+}
+function databasePackDialectValue(pack){
+  const id=String(pack&&pack.id||'').toLowerCase();
+  if(id==='mysql') return 'mysql';
+  if(id==='postgresql'||id==='postgres') return 'postgresql';
+  return id?`pack:${id}`:'';
+}
+const PREFERRED_DATABASE_PACK_IDS=['postgresql','mysql','mssqlnative','oracle'];
+function orderedDatabasePacks(packs=databasePacks){
+  const rank=new Map(PREFERRED_DATABASE_PACK_IDS.map((id,index)=>[id,index]));
+  return [...(packs||[])].sort((a,b)=>{
+    const ai=rank.has(a.id)?rank.get(a.id):999;
+    const bi=rank.has(b.id)?rank.get(b.id):999;
+    return ai-bi || String(a.label||a.id).localeCompare(String(b.label||b.id));
+  });
+}
 function packTemplate(template, values){
   return String(template||'').replace(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g,(m,k)=>values&&values[k]!=null?String(values[k]):m);
+}
+
+const PROJECT_CERTS_REFERENCE_PREFIX='dv-certs/';
+const HOP_CERTS_ROOT='/app/dv-certs';
+const PROJECT_CERT_REFERENCE_BOUNDARIES=new Set(['=',';','?','&',':',',','(',' ','\t','\r','\n','\"',"'"]);
+const PROJECT_CERT_REFERENCE_TERMINATORS=new Set(['&',';','?','#',',','\"',"'",'<','>',')','}',']','\r','\n','\t']);
+const MANAGED_JDBC_FILE_MASK='__DVS_MANAGED_JDBC_FILE__';
+const JDBC_FILE_URI_RE=/(^|[=;&?,(:\s"'])file:/i;
+const JDBC_WINDOWS_ABSOLUTE_RE=/(^|[=;&?,(\s"'])(?:[A-Za-z]:[\\/]|\\\\)/;
+const JDBC_POSIX_ABSOLUTE_RE=/(^|[=;&?,(\s"'])\/(?!\/)/;
+const JDBC_RELATIVE_ESCAPE_RE=/(^|[=;&?,(\s"'])(?:~[\\/]|\.{1,2}[\\/])/;
+function validateProjectCertificateRelativeReference(relative){
+  const value=String(relative||'');
+  if(!value || !/^[A-Za-z0-9._/-]+$/.test(value)) throw new Error('Project certificate references must use a simple relative path beneath dv-certs/.');
+  const parts=value.split('/');
+  if(parts.some(part=>!part||part==='.'||part==='..')) throw new Error('Project certificate references cannot contain empty, current-directory, or parent-directory path segments.');
+  return value;
+}
+function jdbcProjectFilePropertyText(value){
+  const text=String(value==null?'':value);
+  if(!/^jdbc:/i.test(text)) return text;
+  const propertyParts=[];
+  const queryIndex=text.indexOf('?');
+  if(queryIndex>=0) propertyParts.push(text.slice(queryIndex+1));
+  for(const part of text.split(';').slice(1)) if(part.includes('=')) propertyParts.push(part);
+  return propertyParts.join('&');
+}
+function assertManagedJdbcLocalFileReferences(value){
+  const text=String(value==null?'':value);
+  let masked=resolveProjectCertificateReferencesRaw(text,MANAGED_JDBC_FILE_MASK);
+  masked=masked.replace(new RegExp(`file:${MANAGED_JDBC_FILE_MASK}`,'gi'),MANAGED_JDBC_FILE_MASK);
+  const inspect=jdbcProjectFilePropertyText(masked);
+  if(JDBC_FILE_URI_RE.test(inspect)||JDBC_WINDOWS_ABSOLUTE_RE.test(inspect)||JDBC_POSIX_ABSOLUTE_RE.test(inspect)||JDBC_RELATIVE_ESCAPE_RE.test(inspect)){
+    throw new Error('Local JDBC file references must use the project dv-certs/ directory.');
+  }
+  return text;
+}
+function resolveProjectCertificateReferencesRaw(value,runtimeRoot=HOP_CERTS_ROOT){
+  const text=String(value==null?'':value);
+  let output=''; let cursor=0; let offset=0; let found=false;
+  while(true){
+    const index=text.indexOf(PROJECT_CERTS_REFERENCE_PREFIX,offset);
+    if(index<0) break;
+    const previous=index===0?'':text[index-1];
+    if(index>0&&!PROJECT_CERT_REFERENCE_BOUNDARIES.has(previous)) throw new Error('Project certificate references must start with dv-certs/ as a standalone JDBC value or option value.');
+    let end=index+PROJECT_CERTS_REFERENCE_PREFIX.length;
+    while(end<text.length&&!PROJECT_CERT_REFERENCE_TERMINATORS.has(text[end])) end+=1;
+    const relative=validateProjectCertificateRelativeReference(text.slice(index+PROJECT_CERTS_REFERENCE_PREFIX.length,end));
+    output+=text.slice(cursor,index)+String(runtimeRoot||HOP_CERTS_ROOT).replace(/\/+$/,'')+'/'+relative;
+    cursor=end; offset=end; found=true;
+  }
+  return found?output+text.slice(cursor):text;
+}
+function resolveProjectCertificateReferences(value,runtimeRoot=HOP_CERTS_ROOT){
+  assertManagedJdbcLocalFileReferences(value);
+  return resolveProjectCertificateReferencesRaw(value,runtimeRoot);
 }
 function deriveStandardPackConnectionFields(pack){
   if(Array.isArray(pack&&pack.connectionFields)&&pack.connectionFields.length) return pack.connectionFields;
@@ -213,6 +293,27 @@ function packConnectionValues(scope='source'){
   if(!state.externalTables.packValues) state.externalTables.packValues={};
   return state.externalTables.packValues;
 }
+function seedPackConnectionValues(pack,scope='source',{reset=false}={}){
+  if(!pack) return {};
+  const values=packConnectionValues(scope);
+  if(reset) Object.keys(values).forEach(key=>delete values[key]);
+  const mappedValue=(mapsTo)=>{
+    if(scope==='source'){
+      const v=state.vault;
+      return ({host:v.srcHost,port:v.srcPort,database:v.srcDatabase,schema:v.sourceSchema,catalog:v.sourceCatalog,user:v.srcUser,password:v.srcPassword})[mapsTo];
+    }
+    const ext=state.externalTables;
+    return ({host:ext.studioHost,port:ext.studioPort,database:ext.studioDatabase||ext.remoteDatabase,schema:ext.studioSchema||ext.remoteSchema,catalog:ext.studioDatabase||ext.remoteDatabase,user:ext.studioUser||ext.username,password:ext.studioPassword||ext.password})[mapsTo];
+  };
+  (pack.connectionFields||[]).forEach(field=>{
+    if(!reset && values[field.key]!=null && String(values[field.key])!=='') return;
+    let value=field.mapsTo?mappedValue(field.mapsTo):undefined;
+    if((value==null||value==='')&&field.default!=null)value=field.default;
+    values[field.key]=value==null?'':String(value);
+  });
+  syncPackMappedValues(pack,scope);
+  return values;
+}
 // Hop "Options" tab: a list of {key,value} pairs applied to the JDBC driver.
 // Stored per-scope alongside packValues so they persist across re-renders.
 function packJdbcOptionsList(scope='source'){
@@ -263,6 +364,14 @@ function syncPackMappedValues(pack,scope='source'){
       if(field.mapsTo==='password'){ext.studioPassword=String(val);ext.password=String(val);}
     }
   });
+  if(String(pack.id||'').toLowerCase()==='mysql'){
+    const databaseField=(pack.connectionFields||[]).find(field=>field.mapsTo==='database'||field.mapsTo==='catalog');
+    const schemaField=(pack.connectionFields||[]).find(field=>field.mapsTo==='schema');
+    const databaseValue=databaseField&&values[databaseField.key]!=null?String(values[databaseField.key]):'';
+    if(schemaField) values[schemaField.key]=databaseValue;
+    if(scope==='source') state.vault.sourceSchema=databaseValue;
+    else { state.externalTables.studioSchema=databaseValue; state.externalTables.remoteSchema=databaseValue; }
+  }
 }
 function packValueMappedTo(pack,values,mapsTo){
   const field=(pack?.connectionFields||[]).find(f=>f.mapsTo===mapsTo);
@@ -272,6 +381,7 @@ function packValueMappedTo(pack,values,mapsTo){
 function databasePackConnectionBody(scope='source'){
   const dialect=scope==='source'?state.vault.dialect:state.externalTables.remoteDialect;
   const pack=databasePackForDialect(dialect); if(!pack) return null;
+  seedPackConnectionValues(pack,scope);
   syncPackMappedValues(pack,scope);
   const values={...packConnectionValues(scope)};
   const catalog=packValueMappedTo(pack,values,'catalog') || String(pack.namespace?.defaultCatalog||'');
@@ -282,6 +392,23 @@ function databasePackConnectionBody(scope='source'){
   const ext=state.externalTables;
   return {dialect,packValues:values,host:ext.studioHost,port:ext.studioPort,database:ext.studioDatabase||ext.remoteDatabase,catalog,schema,user:ext.studioUser||ext.username,password:ext.studioPassword||ext.password,options,manualUrl};
 }
+function stripDatabasePackPasswordsFromState(stateCopy){
+  if(!stateCopy||typeof stateCopy!=='object') return stateCopy;
+  const sourcePack=databasePackForDialect(stateCopy.vault&&stateCopy.vault.dialect);
+  if(sourcePack&&stateCopy.vault&&stateCopy.vault.sourcePackValues){
+    for(const field of sourcePack.connectionFields||[]){
+      if(field.mapsTo==='password') stateCopy.vault.sourcePackValues[field.key]='';
+    }
+  }
+  const targetPack=databasePackForDialect(stateCopy.externalTables&&stateCopy.externalTables.remoteDialect);
+  if(targetPack&&stateCopy.externalTables&&stateCopy.externalTables.packValues){
+    for(const field of targetPack.connectionFields||[]){
+      if(field.mapsTo==='password') stateCopy.externalTables.packValues[field.key]='';
+    }
+  }
+  return stateCopy;
+}
+
 function missingDatabasePackConnectionFields(pack,scope='target'){
   if(!pack) return [];
   const values=packConnectionValues(scope);
@@ -302,6 +429,7 @@ function databasePackFdwCredentialIssue(pack){
   return '';
 }
 function packConnectionFieldsHtml(pack,scope='source'){
+  seedPackConnectionValues(pack,scope);
   const values=packConnectionValues(scope); const prefix=scope==='source'?'src':'tgt';
   // Keep the common connection concepts visually grouped even when Hop emits
   // fields in a different order. Vendor-specific fields stay between namespace
@@ -327,6 +455,10 @@ function packConnectionFieldsHtml(pack,scope='source'){
       return `<div class="field"${rowStart}><label>${escapeHtml(field.label||field.key)}${required}${optional}</label><label style="display:flex;align-items:center;gap:8px;min-height:38px;"><input type="checkbox" data-pack-field="${escapeHtml(field.key)}" data-pack-scope="${scope}" id="f-pack-${prefix}-${escapeHtml(field.key)}" ${checked?'checked':''} style="width:auto;"> <span class="hint mb0">${escapeHtml(field.help||'Enabled')}</span></label></div>`;
     }
     const type=field.type==='password'?'password':field.type==='number'?'number':'text';
+    const mysqlSchema=String(pack.id||'').toLowerCase()==='mysql'&&field.mapsTo==='schema';
+    const pdiLimitKey=scope==='source' ? ({host:'connectionHost',database:'connectionDatabase',user:'connectionUser'}[field.mapsTo] || '') : '';
+    const pdiMaxLength=pdiLimitKey && typeof pdiMetaMaxLength==='function' ? pdiMetaMaxLength(pdiLimitKey) : null;
+    const maxLengthAttr=pdiMaxLength ? `maxlength="${pdiMaxLength}"` : '';
     const isSourceSchema=scope==='source'&&field.mapsTo==='schema'&&type==='text';
     const listId=isSourceSchema?'pack-source-schema-options':'';
     const schemaSuggestions=isSourceSchema&&discoveredSchemas.length
@@ -336,7 +468,7 @@ function packConnectionFieldsHtml(pack,scope='source'){
     // connection test; it no longer needs a permanent helper paragraph that
     // makes only the middle grid cell taller than its neighbours.
     const help=field.help&&!isSourceSchema?`<p class="hint mt">${escapeHtml(field.help)}</p>`:'';
-    return `<div class="field"${rowStart}><label>${escapeHtml(field.label||field.key)}${required}${optional}</label><input type="${type}" data-pack-field="${escapeHtml(field.key)}" data-pack-scope="${scope}" id="f-pack-${prefix}-${escapeHtml(field.key)}" value="${escapeHtml(String(value))}" ${listId?`list="${listId}"`:''} ${type==='password'?'autocomplete="off"':''}>${schemaSuggestions}${help}</div>`;
+    return `<div class="field"${rowStart}><label>${escapeHtml(field.label||field.key)}${required}${optional}</label><input type="${type}" ${mysqlSchema?'readonly aria-readonly="true"':''} data-pack-field="${escapeHtml(field.key)}" data-pack-scope="${scope}" id="f-pack-${prefix}-${escapeHtml(field.key)}" value="${escapeHtml(String(value))}" ${maxLengthAttr} ${listId?`list="${listId}"`:''} ${type==='password'?'autocomplete="off"':''}>${mysqlSchema?'<p class="hint mt">MySQL uses the database as its schema.</p>':''}${schemaSuggestions}${help}</div>`;
   }).join('');
 }
 // Hop-style "Options" key/value table. Rendered under the connection fields on
@@ -355,7 +487,7 @@ function packJdbcOptionsHtml(pack,scope='source'){
   return `
     <div class="pack-options" style="margin-top:16px;">
       <label class="mb0">Options</label>
-      <p class="hint mb0">JDBC driver properties (optional).</p>
+      <p class="hint mb0">JDBC driver properties (optional). Project certificate/key files can be referenced as <span class="mono">dv-certs/filename</span>; Studio resolves that reference locally and container-side JDBC connections use <span class="mono">/app/dv-certs/filename</span>.</p>
       ${rowHtml}
       <button type="button" class="btn ghost mt" data-pack-option-add="1" data-pack-option-scope="${scope}">+ Add option</button>
     </div>`;
@@ -433,23 +565,29 @@ function rerenderConnections(){
   // If the view is not mounted, let the normal application shell recreate it.
   if(typeof renderAll==='function') return renderAll();
 }
-// PostgreSQL and MySQL are handled by the dedicated built-in connection path,
-// not as Database Packs. Exclude any pack with those ids/aliases from the pack
-// option lists so they are not offered twice. (Revisit later if these move to
-// the pack model.)
-function isBuiltinDialectPack(pack){
-  const id=String(pack&&pack.id||'').toLowerCase();
-  return id==='postgresql'||id==='postgres'||id==='mysql';
-}
 function databasePackTargetOptionsHtml(){
   // Any installed Database Pack can be selected as a physical target. JDBC
   // discovery determines the usable target type profile at connection/preflight
   // time; source/target/fdw flags are not a physical-target allowlist.
   // The selector groups Pack targets separately, so each option only needs the
   // database label rather than repeating "Database Pack" on every row.
-  return databasePacks
-    .filter(p=>!isBuiltinDialectPack(p))
-    .map(p=>`<option value="pack:${p.id}" ${selectedDeploymentTarget()===`pack:${p.id}`?'selected':''}>${escapeHtml(p.label)}</option>`).join('');
+  return orderedDatabasePacks(databasePacks)
+    .filter(p=>String(p.id||'').toLowerCase()!=='postgresql')
+    .map(p=>{
+      const value=databasePackDialectValue(p);
+      return `<option value="${escapeHtml(value)}" ${selectedDeploymentTarget()===value?'selected':''}>${escapeHtml(p.label)}</option>`;
+    }).join('');
+}
+function databasePackTargetOptionsGroupedHtml(){
+  const packs=orderedDatabasePacks(databasePacks).filter(p=>String(p.id||'').toLowerCase()!=='postgresql');
+  const commonIds=new Set(PREFERRED_DATABASE_PACK_IDS.filter(id=>id!=='postgresql'));
+  const optionFor=pack=>{
+    const value=databasePackDialectValue(pack);
+    return `<option value="${escapeHtml(value)}" ${selectedDeploymentTarget()===value?'selected':''}>${escapeHtml(pack.label)}</option>`;
+  };
+  const common=packs.filter(pack=>commonIds.has(pack.id)).map(optionFor).join('');
+  const others=packs.filter(pack=>!commonIds.has(pack.id)).map(optionFor).join('');
+  return `${common?`<optgroup label="Common physical targets">${common}</optgroup>`:''}${others?`<optgroup label="Other physical targets">${others}</optgroup>`:''}`;
 }
 function deploymentTargetGatewayNoticeHtml(target){
   if(!target || target==='internal-postgres' || target==='postgres') return '';

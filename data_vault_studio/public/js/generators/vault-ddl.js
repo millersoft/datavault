@@ -144,4 +144,3 @@ function buildDataVaultDdl(){
   parts.push('RESET ROLE;');
   return parts.join('\n');
 }
-

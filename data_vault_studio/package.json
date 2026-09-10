@@ -1,7 +1,7 @@
 {
   "name": "vault-bench-introspect-server",
   "version": "1.2.1",
-  "description": "Local companion server for Data Vault Studio \u2014 built-in PostgreSQL/MySQL plus versioned JDBC Database Packs.",
+  "description": "Local companion server for Data Vault Studio \u2014 PostgreSQL/MySQL and other versioned JDBC Database Packs.",
   "main": "server.js",
   "engines": {
     "node": ">=18.17.0"
@@ -10,10 +10,10 @@
     "start": "node server.js",
     "start:demo": "node server.js --mode=demo",
     "start:production": "node server.js --mode=production",
-    "test": "node --test tests/gui.test.js tests/server.test.js tests/database-packs-v020.test.js tests/structure.test.js"
+    "test": "node --test tests/gui.test.js tests/mysql-postgres-pack-migration.test.js tests/project-file-references.test.js tests/server.test.js tests/database-packs-v020.test.js tests/outbound-connections.test.js tests/structure.test.js tests/pdi-meta-limits.test.js tests/studio-limits.test.js",
+    "check:pdi-meta-schema": "node scripts/check-pdi-meta-limits.js"
   },
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^4.19.2",
     "mssql": "11.0.1",
     "mysql2": "^3.22.5",

@@ -17,6 +17,8 @@ function registerDatabasePackRoutes(parentApp, dependencies){
     semanticTypeForJdbc,
     resolveJdbcTargetProfile,
     sourceHopCapabilitiesFromJdbcAnalysis,
+    requestControls,
+    audit,
   } = dependencies;
   const app = express.Router();
 
@@ -40,14 +42,15 @@ function registerDatabasePackRoutes(parentApp, dependencies){
       }
       const pack=writeDatabasePack(input);
       const driver=findPackJdbcDriver(pack);
+      audit('database-pack.installed', { id:pack.id, version:pack.version, driverPresent:driver.exists, success:true });
       res.json({ok:true,featureVersion:DATABASE_PACK_FEATURE_VERSION,pack:{...pack,driverPresent:driver.exists,driverFile:driver.filename}});
-    }catch(err){res.status(400).json({ok:false,error:err.message});}
+    }catch(err){audit('database-pack.installed', { success:false });res.status(400).json({ok:false,error:err.message});}
   });
   app.delete('/api/database-packs/:id', (req,res)=>{
-    try{const pack=removeDatabasePack(req.params.id);res.json({ok:true,removed:{id:pack.id,label:pack.label,version:pack.version}});}
-    catch(err){res.status(400).json({ok:false,error:err.message});}
+    try{const pack=removeDatabasePack(req.params.id);audit('database-pack.deleted', { id:pack.id, version:pack.version, success:true });res.json({ok:true,removed:{id:pack.id,label:pack.label,version:pack.version}});}
+    catch(err){audit('database-pack.deleted', { id:req.params.id, success:false });res.status(400).json({ok:false,error:err.message});}
   });
-  app.post('/api/database-packs/analyze', async (req,res)=>{
+  app.post('/api/database-packs/analyze', requestControls.guard('introspection'), async (req,res)=>{
     try{
       const body=req.body||{};
       const pack=body.pack ? validateDatabasePackManifest(body.pack) : getDatabasePack(body.dialect||body.id);
@@ -60,7 +63,7 @@ function registerDatabasePackRoutes(parentApp, dependencies){
       res.json({ok:true,pack:{id:pack.id,label:pack.label,version:pack.version},analysis:enriched,sourceCapabilities,targetProfile});
     }catch(err){res.status(400).json({ok:false,error:err.message});}
   });
-  app.post('/api/database-packs/test-target', async (req,res)=>{
+  app.post('/api/database-packs/test-target', requestControls.guard('connection-test'), async (req,res)=>{
     try{
       const body=req.body||{}; const pack=getDatabasePack(body.dialect||body.id);
       // JDBC metadata discovery opens and validates the connection itself, so a

@@ -27,6 +27,7 @@ function studioPlusDefaultConnection(){
         schema:'data_vault',
         user:state.vault.dvUser||'',
         password:state.vault.dvPassword||'',
+        credentialRef:demoTargetActive()?'internal-postgres-target':undefined,
         autoDefault:true,
       };
     }
@@ -39,6 +40,7 @@ function studioPlusDefaultConnection(){
       schema:ext.studioSchema||ext.remoteSchema||(dialect==='mysql'?database:'data_vault'),
       user:ext.studioUser||ext.username||'',
       password:ext.studioPassword||ext.password||'',
+      credentialRef:isDemoRuntime()?'demo-fdw-physical-mysql':undefined,
       autoDefault:true,
     };
   }
@@ -50,8 +52,14 @@ function studioPlusDefaultConnection(){
     schema:'data_vault',
     user:state.vault.dvUser||'',
     password:state.vault.dvPassword||'',
+    credentialRef:demoTargetActive()?'internal-postgres-target':undefined,
     autoDefault:true,
   };
+}
+
+function spConnectionPayload(){
+  if(spConn.credentialRef)return {credentialRef:spConn.credentialRef,database:spConn.database,dialect:spConn.dialect,schema:spConn.schema};
+  return {...spConn};
 }
 
 function spQuoteIdentifier(name){
@@ -312,7 +320,7 @@ async function spQuery(sql){
   await ensureLocalServerReachable();
   const resp = await localFetch(`/api/query`, {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ ...spConn, sql }),
+    body: JSON.stringify({...spConnectionPayload(),sql}),
   });
   const data = await resp.json();
   if (!data.ok) throw new Error(data.error || 'Query failed.');
@@ -329,7 +337,7 @@ async function spIntrospectSchema(){
     if (!health || !health.ok) throw new Error(`Local server not reachable at ${localServerUrl} — is it running?`);
     const response=await localFetch('/api/introspect',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({...spConn,schema:spConn.schema||spConn.database,profileColumns:false}),
+      body:JSON.stringify({...spConnectionPayload(),schema:spConn.schema||spConn.database,profileColumns:false}),
     });
     const data=await response.json();
     if(!data.ok) throw new Error(data.error||'Schema introspection failed.');

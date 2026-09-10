@@ -22,6 +22,46 @@ function resetApp(){
   app = loadApp();
 }
 
+describe('imported project connection confirmation',()=>{
+  test('requires one explicit confirmation per imported database destination',()=>{
+    const prompts=[];
+    const importedApp=loadApp({runtimeMode:'production',confirm(message){prompts.push(message);return true;}});
+    importedApp.eval(`
+      state.vault.dialect='postgresql'; state.vault.srcHost='10.20.30.40'; state.vault.srcPort='5432';
+      state.vault.srcDatabase='warehouse'; state.vault.srcUser='reader';
+      importedProjectConnectionsRequireConfirmation=true;
+      confirmedImportedConnectionTargets.clear();
+      sourceConnectionPayload(); sourceConnectionPayload();
+    `);
+    assert.strictEqual(prompts.length,1);
+    assert.match(prompts[0],/imported project file/);
+    assert.match(prompts[0],/10\.20\.30\.40:5432/);
+  });
+
+  test('preserves imported-target provenance through autosave restoration',()=>{
+    const importedApp=loadApp({runtimeMode:'production'});
+    assert.strictEqual(importedApp.eval(`
+      state.vault.name='imported';
+      importedProjectConnectionsRequireConfirmation=true;
+      const importedAutosave=buildAutosavePayload();
+      importedProjectConnectionsRequireConfirmation=false;
+      restoreAutosave(importedAutosave);
+      importedProjectConnectionsRequireConfirmation;
+    `),true);
+  });
+
+  test('cancelling does not authorize the imported destination',()=>{
+    const importedApp=loadApp({runtimeMode:'production',confirm(){return false;}});
+    assert.throws(()=>importedApp.eval(`
+      state.vault.dialect='postgresql'; state.vault.srcHost='localhost'; state.vault.srcPort='5432';
+      state.vault.srcDatabase='warehouse'; state.vault.srcUser='reader';
+      importedProjectConnectionsRequireConfirmation=true;
+      confirmedImportedConnectionTargets.clear();
+      sourceConnectionPayload();
+    `),/was cancelled/);
+  });
+});
+
 /** Builds a small but complete e-commerce-ish model in the sandbox. */
 function seedFixture(){
   app.eval(`
@@ -75,6 +115,32 @@ function seedFixture(){
   `);
 }
 
+describe('DVS-002-a browser API authorization', () => {
+  test('localFetch adds the injected token and preserves existing request options', async () => {
+    const requests=[];
+    const secureApp=loadApp({
+      apiToken:'browser-test-token',
+      location:{origin:'http://127.0.0.1:8420',protocol:'http:',href:'http://127.0.0.1:8420/',port:'8420'},
+      fetch:async(url,options)=>{
+        requests.push({url,options});
+        return {status:200,json:async()=>({ok:true,found:false})};
+      },
+    });
+    await secureApp.evalRaw(`localFetch('/api/health',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})`);
+    const request=requests.at(-1);
+    assert.strictEqual(request.url,'http://127.0.0.1:8420/api/health');
+    assert.strictEqual(request.options.method,'POST');
+    assert.strictEqual(request.options.body,'{}');
+    assert.strictEqual(request.options.headers.get('content-type'),'application/json');
+    assert.strictEqual(request.options.headers.get('x-dvs-token'),'browser-test-token');
+  });
+
+  test('direct file access cannot call the privileged API', async () => {
+    const fileApp=loadApp();
+    await assert.rejects(fileApp.evalRaw(`localFetch('/api/health')`), /must be opened through its local server/i);
+  });
+});
+
 describe('naming helpers', () => {
   beforeEach(resetApp);
 
@@ -95,6 +161,149 @@ describe('naming helpers', () => {
     assert.strictEqual(app.eval(`singularizeTableName('addresses')`), 'address');
     assert.strictEqual(app.eval(`singularizeTableName('order_items')`), 'order_item');
     assert.strictEqual(app.eval(`singularizeTableName('data')`), 'data'); // no trailing s
+  });
+});
+
+describe('link hub limit', () => {
+  beforeEach(resetApp);
+
+  test('link row validation rejects an eleventh hub before workbook generation', () => {
+    const issue=app.eval(`linkHubRowsIssue('too_many', null, Array.from({length:11},(_,i)=>({hubId:'h'+i,colId:'c'+i,colIds:['c'+i],role:''})))`);
+    assert.match(issue, /maximum of 10.*hub positions 1-10/i);
+  });
+
+
+  test('model validation catches a legacy/imported link with more than ten hubs', () => {
+    app.eval(`
+      startNewProject(true);
+      state.vault.name='sales';
+      state.vault.prefix='sales';
+      state.vault.tenantId='SALES';
+      state.vault.srcDescription='Sales data';
+      state.vault.srcCod='SALES';
+      state.vault.vaultDbName='datavault_sales';
+      const t=newTable('orders');
+      const c=Object.assign(newColumn('id','integer'),{pk:true,nullable:false});
+      t.columns=[c];
+      state.tables=[t];
+      const hub={id:'hub_one',entity:'order',description:'',tableId:t.id,pkColId:c.id,keyColIds:[c.id],statusSat:false};
+      state.hubs=[hub];
+      state.links=[{id:'lnk_many',entity:'too_many',description:'',tableId:t.id,hubs:Array.from({length:11},(_,i)=>({hubId:hub.id,colId:c.id,colIds:[c.id],role:'role_'+i}))}];
+    `);
+    const errors=app.eval(`validateModel().errors`);
+    assert.ok(errors.some(e=>/Link "too_many" has 11 hubs.*maximum of 10.*hub positions 1-10/i.test(e)), errors.join('\n'));
+  });
+});
+
+describe('bulk reset hardening', () => {
+  beforeEach(resetApp);
+
+  test('deleteAllVaultObjects clears only Vault model objects', () => {
+    seedFixture();
+    app.eval(`
+      const t=state.tables[0], c=t.columns[0];
+      state.hubs=[{id:'h1',entity:'customer',description:'',tableId:t.id,pkColId:c.id,keyColIds:[c.id],statusSat:true}];
+      state.links=[{id:'l1',entity:'customer_self',description:'',tableId:t.id,hubs:[{hubId:'h1',colId:c.id,colIds:[c.id],role:'a'},{hubId:'h1',colId:c.id,colIds:[c.id],role:'b'}]}];
+      state.hubSats=[{id:'s1',entity:'customer',concern:'profile',description:'',hubId:'h1',tableId:t.id,attrs:[]}];
+      t.derivations=[{id:'d1',entity:'customer',role:'customer',column:'id',kind:'both'}];
+    `);
+    const result=app.eval(`deleteAllVaultObjects()`);
+    assert.deepStrictEqual(result, {hubs:1,links:1,satellites:1});
+    assert.strictEqual(app.eval(`state.hubs.length+state.links.length+state.hubSats.length+state.linkSats.length`), 0);
+    assert.strictEqual(app.eval(`state.tables[0].derivations.length`), 1, 'staging keys must be kept');
+    assert.ok(app.eval(`state.tables.length`) > 0, 'source tables must be kept');
+  });
+
+  test('deleteAllStagingKeyDerivations clears keys without deleting source or Vault objects', () => {
+    seedFixture();
+    app.eval(`
+      state.tables[0].derivations=[{id:'d1',entity:'customer',role:'customer',column:'id',kind:'both'}];
+      state.tables[1].derivations=[{id:'d2',entity:'order',role:'order',column:'id',kind:'both'}];
+      const t=state.tables[0], c=t.columns[0];
+      state.hubs=[{id:'h1',entity:'customer',description:'',tableId:t.id,pkColId:c.id,keyColIds:[c.id],statusSat:true}];
+    `);
+    assert.strictEqual(app.eval(`stagingKeyDerivationCount()`), 2);
+    assert.strictEqual(app.eval(`deleteAllStagingKeyDerivations()`), 2);
+    assert.strictEqual(app.eval(`stagingKeyDerivationCount()`), 0);
+    assert.strictEqual(app.eval(`state.tables.length`), 4);
+    assert.strictEqual(app.eval(`state.hubs.length`), 1, 'Vault model must be kept');
+  });
+
+  test('Vault and Staging render explicit scoped bulk-delete controls', () => {
+    const source=readFrontendSources();
+    assert.match(source, /id="btn-delete-all-vault"[\s\S]*>Delete all<\/button>/);
+    assert.match(source, /id="btn-delete-all-staging-keys"[\s\S]*>Delete all keys<\/button>/);
+    assert.match(source, /Delete all Vault model objects[\s\S]*Source tables and staging key derivations will be kept/);
+    assert.match(source, /Delete all .*staging key derivation\(s\)[\s\S]*Source tables and Vault objects will be kept/);
+  });
+});
+
+describe('Studio-only field limits', () => {
+  beforeEach(resetApp);
+
+  test('model validation rejects staging prefix 31 and tenant ID 21', () => {
+    seedFixture();
+    app.eval(`state.vault.prefix='x'.repeat(31); state.vault.tenantId='T'.repeat(21);`);
+    const errors=app.eval(`validateModel().errors`);
+    assert.ok(errors.some(e=>/Staging prefix is 31 characters.*maximum of 30/i.test(e)), errors.join('\n'));
+    assert.ok(errors.some(e=>/Tenant ID literal is 21 characters.*maximum of 20/i.test(e)), errors.join('\n'));
+  });
+
+  test('project limit check catches Studio-only limits without modifying values', () => {
+    const issues=app.eval(`projectLimitIssues({vault:{name:'sales',prefix:'p'.repeat(31),tenantId:'T'.repeat(21),srcCod:'SALES',srcDescription:'Sales',vaultDbName:'dv',vaultDescription:'',srcHost:'',srcDatabase:'',srcUser:'',dvHost:'',dvDatabase:'',dvUser:''},tables:[],hubs:[],links:[],hubSats:[],linkSats:[]})`);
+    assert.ok(issues.some(e=>/Staging prefix is 31 characters/i.test(e)), issues.join('\n'));
+    assert.ok(issues.some(e=>/Tenant ID literal is 21 characters/i.test(e)), issues.join('\n'));
+  });
+});
+
+describe('Hopper EDW model export', () => {
+  beforeEach(() => { resetApp(); seedFixture(); });
+
+  test('serializes the Studio source and raw-vault model without credentials', () => {
+    app.eval(`suggestModelFromKeys();`);
+    const output = app.eval(`buildHopperExport()`);
+    assert.deepStrictEqual(output.issues.errors, []);
+    assert.match(output.hsm, /<source-model>/);
+    assert.match(output.hsm, /<tableName>customers<\/tableName>/);
+    assert.match(output.hsm, /<relationship>/);
+    assert.match(output.hdv, /<data-vault-model>/);
+    assert.match(output.hdv, /<tableType>HUB<\/tableType>/);
+    assert.match(output.hdv, /<tableType>LINK<\/tableType>/);
+    assert.match(output.hdv, /<tableType>SATELLITE<\/tableType>/);
+    assert.doesNotMatch(output.hsm + output.hdv + output.manifest, /srcPassword|dvPassword|SALES/);
+  });
+
+  test('places source and Vault objects on an initial non-overlapping canvas grid', () => {
+    app.eval(`suggestModelFromKeys();`);
+    const output = app.eval(`buildHopperExport()`);
+    const pairs = xml => Array.from(xml.matchAll(/<xloc>(\d+)<\/xloc>\s*<yloc>(\d+)<\/yloc>/g), m=>`${m[1]},${m[2]}`);
+    const sourcePositions=pairs(output.hsm), vaultPositions=pairs(output.hdv);
+    assert.ok(sourcePositions.length > 1 && new Set(sourcePositions).size > 1);
+    assert.ok(vaultPositions.length > 1 && new Set(vaultPositions).size > 1);
+    assert.ok(!vaultPositions.includes('0,0'));
+  });
+
+  test('nests link-satellite attribute mappings under the parent Link', () => {
+    app.eval(`suggestModelFromKeys(); state.linkSats[0].attrs[0].target='loaded_at';`);
+    const { hdv } = app.eval(`buildHopperExport()`);
+    assert.match(hdv, new RegExp([
+      '<linkSatelliteSources>',
+      '\\s*<linkSatelliteSource>',
+      '\\s*<source>order_tags</source>',
+      '\\s*<satelliteSourceKeyFields>',
+      '\\s*<satelliteSourceKeyField>',
+      '\\s*<satelliteName>lsat_sales_order_tag</satelliteName>',
+      '[\\s\\S]*?<attributeField>loaded_at</attributeField>',
+      '\\s*<sourceFieldName>created_at</sourceFieldName>',
+    ].join('')));
+  });
+
+  test('flags model features that Hopper model files cannot represent', () => {
+    app.eval(`state.tables[0].customOverride='select * from customers'; state.tables[0].incremental=true; state.hubs[0]={id:'h',entity:'customer',tableId:state.tables[0].id,pkColId:state.tables[0].columns[0].id,statusSat:true};`);
+    const issues = app.eval(`validateHopperExport()`);
+    assert.ok(issues.warnings.some(w => /Staging SQL override/.test(w)));
+    assert.ok(issues.warnings.some(w => /Incremental load settings/.test(w)));
+    assert.ok(issues.warnings.some(w => /Status satellite/.test(w)));
   });
 });
 
@@ -708,13 +917,13 @@ describe('DDL generators', () => {
     assert.match(sql, /Sales data/);
   });
 
-  test('pdi_meta target connections use the target password and fixed service users', () => {
-    app.eval(`state.vault.dvUser = 'postgres-admin'; state.vault.dvPassword = 'target-secret'; state.vault.vaultPassword = 'old-hidden-secret';`);
+  test('pdi_meta connections use environment references and fixed service users without persisting secrets', () => {
+    app.eval(`state.vault.srcPassword = 'source-secret'; state.vault.dvUser = 'postgres-admin'; state.vault.dvPassword = 'target-secret'; state.vault.vaultPassword = 'old-hidden-secret';`);
     const sql = app.eval(`buildPdiMetaSql()`);
-    assert.match(sql, /'staging', 'target-secret'/);
-    assert.match(sql, /'data_vault', 'target-secret'/);
-    assert.doesNotMatch(sql, /postgres-admin/);
-    assert.doesNotMatch(sql, /old-hidden-secret/);
+    assert.match(sql, /'sakila', '\$\{SOURCE_PASSWORD\}'/);
+    assert.match(sql, /'staging', '\$\{VAULT_PASSWORD\}'/);
+    assert.match(sql, /'data_vault', '\$\{VAULT_PASSWORD\}'/);
+    assert.doesNotMatch(sql, /source-secret|target-secret|postgres-admin|old-hidden-secret/);
   });
 
   test('expectedDataVaultTableNames returns each object plus its _err twin', () => {
@@ -1595,7 +1804,8 @@ describe('packaged container presets (MySQL Demo / Postgres Internal)', () => {
     assert.strictEqual(v.srcPort, '3306');
     assert.strictEqual(v.srcDatabase, 'sakila');
     assert.strictEqual(v.srcUser, 'sakila');
-    assert.strictEqual(v.srcPassword, 'sourcesecret');
+    assert.strictEqual(v.srcPassword, '');
+    assert.deepStrictEqual(app.eval(`sourceConnectionPayload()`), {credentialRef:'packaged-mysql-source',database:'sakila',dialect:'mysql'});
     assert.strictEqual(v.sourceSchema, 'sakila');
     assert.strictEqual(app.eval(`demoSourceActive()`), true);
   });
@@ -1614,21 +1824,36 @@ describe('packaged container presets (MySQL Demo / Postgres Internal)', () => {
     assert.strictEqual(v.dvHost, 'localhost');
     assert.strictEqual(v.dvPort, '5433');
     assert.strictEqual(v.dvUser, 'dvuser');
-    assert.strictEqual(v.dvPassword, 'secret');
+    assert.strictEqual(v.dvPassword, '');
+    assert.deepStrictEqual(app.eval(`targetConnectionPayload()`), {credentialRef:'internal-postgres-target',database:'datavault',dialect:'postgresql'});
     assert.strictEqual(app.eval(`demoTargetActive()`), true);
+  });
+
+  test('restored external PostgreSQL uses its deployed server-side credential profile', () => {
+    app.eval(`
+      applyDemoTarget(false);
+      Object.assign(state.vault,{dvHost:'external.example',dvPort:'5432',dvDatabase:'customer_vault',dvUser:'admin',dvPassword:''});
+    `);
+    assert.deepStrictEqual(app.eval(`targetConnectionPayload()`), {
+      credentialRef:'external-postgres-target',
+      host:'external.example',
+      port:'5432',
+      database:'customer_vault',
+      dialect:'postgresql',
+    });
   });
 
   test('Postgres Internal uses DB_USER and VAULT_PASSWORD defaults, never bootstrap credentials', () => {
     app.eval(`
       envDefaults = {
-        target:{ user:'db-user', password:'vault-password' },
-        bootstrap:{ user:'bootstrap-admin', password:'bootstrap-password' },
-        vault:{ password:'vault-password' },
+        target:{ user:'db-user', passwordConfigured:true },
+        bootstrap:{ user:'bootstrap-admin', passwordConfigured:true },
+        vault:{ passwordConfigured:true },
       };
       applyDemoTarget(true);
     `);
     assert.strictEqual(app.eval(`state.vault.dvUser`), 'db-user');
-    assert.strictEqual(app.eval(`state.vault.dvPassword`), 'vault-password');
+    assert.strictEqual(app.eval(`state.vault.dvPassword`), '');
   });
 
   test('engine mode follows the presets (start.sh flag mapping)', () => {
@@ -1989,22 +2214,17 @@ describe('external core Data Vault storage (jdbc_fdw)', () => {
     assert.strictEqual(ext.jarfile,'/opt/jdbc-drivers/mysql-connector-j-9.7.0.jar');
     assert.strictEqual(ext.studioUser,'sakila');
     assert.strictEqual(ext.username,'sakila');
-    assert.strictEqual(ext.studioPassword,'sourcesecret');
+    assert.strictEqual(ext.studioPassword,'');
     assert.strictEqual(app.eval(`externalPhysicalSchemaLabel()`),'datavault');
   });
 
-  test('demo target reuses the locked Sakila credentials', () => {
-    app.eval(`startNewProject(true); state.externalTables.enabled=true; state.vault.srcUser='shared_user'; state.vault.srcPassword='shared_secret'; applyExternalTargetDefaults(false);`);
-    const ext=app.eval(`state.externalTables`);
-    assert.strictEqual(ext.studioUser,'shared_user');
-    assert.strictEqual(ext.username,'shared_user');
-    assert.strictEqual(ext.studioPassword,'shared_secret');
-    assert.strictEqual(ext.password,'shared_secret');
+  test('demo target uses a server-side packaged credential reference', () => {
+    app.eval(`startNewProject(true); state.externalTables.enabled=true; applyExternalTargetDefaults(false);`);
     const payload=app.eval(`externalConnectionPayload('datavault')`);
-    assert.strictEqual(payload.user,'shared_user');
-    assert.strictEqual(payload.password,'shared_secret');
+    assert.deepStrictEqual(payload,{credentialRef:'demo-fdw-physical-mysql',dialect:'mysql',database:'datavault',schema:''});
     const ddl=app.eval(`buildFdwPreamble()`);
-    assert.match(ddl,/OPTIONS \(username 'shared_user', password 'shared_secret'\)/);
+    assert.match(ddl,/credentials and user mappings are installed server-side/);
+    assert.doesNotMatch(ddl,/password\s+'/i);
   });
 
   test('production FDW uses the user-defined physical target credential, independently of the source', () => {
@@ -2074,16 +2294,13 @@ describe('external core Data Vault storage (jdbc_fdw)', () => {
     assert.match(ddl,/CREATE OR REPLACE VIEW data_vault\.vw_information_schema_columns_data_vault/);
   });
 
-  test('FDW preamble is idempotent and maps both engine roles', () => {
+  test('demo FDW preview is idempotent and contains no browser-visible user mappings', () => {
     seedExternalModel();
     const ddl=app.eval(`buildFdwPreamble()`);
-    assert.match(ddl,/CREATE SERVER IF NOT EXISTS sales_external_srv/);
-    assert.match(ddl,/DROP USER MAPPING IF EXISTS FOR data_vault SERVER sales_external_srv/);
-    assert.match(ddl,/CREATE USER MAPPING FOR data_vault SERVER sales_external_srv/);
-    assert.match(ddl,/DROP USER MAPPING IF EXISTS FOR pdi_meta SERVER sales_external_srv/);
-    assert.match(ddl,/CREATE USER MAPPING FOR pdi_meta SERVER sales_external_srv/);
-    assert.match(ddl,/GRANT USAGE ON FOREIGN SERVER sales_external_srv TO data_vault, pdi_meta/);
-    assert.doesNotMatch(ddl,/FOR CURRENT_USER/);
+    assert.match(ddl,/DROP SERVER IF EXISTS sales_external_srv CASCADE/);
+    assert.match(ddl,/CREATE SERVER sales_external_srv/);
+    assert.match(ddl,/user mappings are installed server-side/);
+    assert.doesNotMatch(ddl,/CREATE USER MAPPING|password\s+'/i);
   });
 
   test('foreign-table key OPTIONS precede NOT NULL and parse as the underlying type', () => {
@@ -2206,7 +2423,8 @@ describe('landing page layout', () => {
     assert.strictEqual(external.database, 'datavault');
     assert.strictEqual(external.schema, 'datavault');
     assert.strictEqual(external.user, 'sakila');
-    assert.strictEqual(external.password, 'source_secret');
+    assert.strictEqual(external.password, '');
+    assert.strictEqual(external.credentialRef, 'demo-fdw-physical-mysql');
 
     app.eval(`state.externalTables.enabled=false; state.vault.dvHost='localhost'; state.vault.dvPort='5433'; state.vault.dvDatabase='datavault'; state.vault.dvUser='dvuser'; state.vault.dvPassword='vault_secret';`);
     const internal = app.eval(`studioPlusDefaultConnection()`);
@@ -3069,16 +3287,13 @@ describe('connections layout & naming hygiene', () => {
 });
 
 describe('Data Vault Hub visible run history', () => {
-  test('keeps the familiar run labels but also discovers real staging/vault work from job tables', () => {
+  test('shows only the Staging and Data Vault run records', () => {
     const html = readFrontendSources();
     const metrics = html.slice(html.indexOf('async function loadDashboardMetrics'), html.indexOf('function timeAgo'));
 
-    assert.match(metrics, /rt\.description IN \('Data Vault', 'Test Staging'\)/);
-    assert.match(metrics, /EXISTS \(SELECT 1 FROM pdi_meta\.inst_run_stg_jobs/);
-    assert.match(metrics, /EXISTS \(SELECT 1 FROM pdi_meta\.inst_run_dv_jobs/);
-    assert.match(metrics, /THEN 'Data Vault'/);
-    assert.match(metrics, /THEN 'Staging'/);
-    assert.doesNotMatch(metrics, /JOIN recent_visible_runs r ON r\.id_run = j\.id_run AND r\.run_type/);
+    assert.match(metrics, /rt\.description IN \('Data Vault', 'Staging'\)/);
+    assert.match(metrics, /rt\.description AS run_type/);
+    assert.doesNotMatch(metrics, /Test Staging|EXISTS \(SELECT 1 FROM pdi_meta\.inst_run_(?:stg|dv)_jobs/);
   });
 
   test('Hub automatically loads metrics for a known target connection and renders an empty history shell too', () => {
@@ -3089,6 +3304,76 @@ describe('Data Vault Hub visible run history', () => {
     assert.match(render, /dashboardStatus==='ok'/);
     assert.match(render, /renderDashboardResults\(document\.getElementById\('dash-results'\)\)/);
     assert.match(loader, /dashboardAutoLoadKey = dashboardConnectionKey\(\)/);
+  });
+});
+
+describe('Data Vault Hub scheduler overlap feedback', () => {
+  test('renders skipped scheduler runs distinctly and does not claim a skipped manual run started the engine', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const dashboard = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'features', 'dashboard.js'), 'utf8');
+    const render = dashboard.slice(dashboard.indexOf('function renderDashboard'), dashboard.indexOf('async function loadSchedulerStatus'));
+    const handler = dashboard.slice(dashboard.indexOf('async function runSchedulerNowFromHub'), dashboard.indexOf('async function dashQuery'));
+
+    assert.match(render, /l\.skipped\?'Skipped'/);
+    assert.match(render, /l\.error\|\|l\.message/);
+    assert.match(handler, /data\.result && data\.result\.skipped/);
+    assert.match(handler, /data\.result\.message \|\| 'Run skipped because another ETL is already active\.'/);
+  });
+});
+
+describe('Data Vault Hub packaged credentials', () => {
+  beforeEach(resetApp);
+
+  test('uses the internal target credential profile after refresh even when dashboard state has no reference', async () => {
+    app.eval(`
+      applyDemoTarget(true);
+      state.vault.dvDatabase='db_after_refresh';
+      dashboardConn={host:'localhost',port:'5433',database:'db_after_refresh',user:'',password:''};
+      capturedDashboardRequest=null;
+      localFetch=async(url,options)=>{
+        capturedDashboardRequest={url,body:JSON.parse(options.body)};
+        return {json:async()=>({ok:true,rows:[]})};
+      };
+    `);
+
+    await app.evalRaw(`dashQuery('SELECT 1')`);
+    const request=app.eval(`capturedDashboardRequest`);
+
+    assert.strictEqual(request.url, '/api/query');
+    assert.deepStrictEqual(request.body, {
+      credentialRef:'internal-postgres-target',
+      database:'db_after_refresh',
+      sql:'SELECT 1',
+    });
+    assert.strictEqual(Object.hasOwn(request.body, 'password'), false);
+  });
+
+  test('uses the deployed external target credential profile after refresh', async () => {
+    app.eval(`
+      applyDemoTarget(false);
+      Object.assign(state.vault,{dvHost:'external.example',dvPort:'5432',dvDatabase:'customer_vault',dvUser:'admin',dvPassword:''});
+      dashboardConn={host:'external.example',port:'5432',database:'customer_vault',user:'admin',password:''};
+      capturedDashboardRequest=null;
+      localFetch=async(url,options)=>{
+        capturedDashboardRequest={url,body:JSON.parse(options.body)};
+        return {json:async()=>({ok:true,rows:[]})};
+      };
+    `);
+
+    await app.evalRaw(`dashQuery('SELECT 1')`);
+    const request=app.eval(`capturedDashboardRequest`);
+
+    assert.deepStrictEqual(request.body, {
+      credentialRef:'external-postgres-target',
+      host:'external.example',
+      port:'5432',
+      database:'customer_vault',
+      dialect:'postgresql',
+      sql:'SELECT 1',
+    });
+    assert.strictEqual(Object.hasOwn(request.body, 'user'), false);
+    assert.strictEqual(Object.hasOwn(request.body, 'password'), false);
   });
 });
 
@@ -3327,7 +3612,7 @@ describe('Data Vault Hub incremental loading lifecycle', () => {
       t.incrementalConfiguredAt = '2026-08-25T00:00:00Z';
       dashboardConn.database = 'datavault_sales';
       dashQuery = async function(){ return [{
-        id_run:78, run_type:'Test Staging', date_start:'2026-08-21 01:00:00',
+        id_run:78, run_type:'Staging', date_start:'2026-08-21 01:00:00',
         date_end:'2026-08-21 01:05:00', source_table_name:'customers',
         target_table_name:'stg__customers_vw', has_dv_jobs:false, has_stg_jobs:true
       }]; };
@@ -3345,7 +3630,7 @@ describe('Data Vault Hub incremental loading lifecycle', () => {
       markIncrementalWorkbookDeployed();
       dashboardConn.database = 'datavault_sales';
       dashQuery = async function(){ return [{
-        id_run:80, run_type:'Test Staging', date_start:'2026-08-21T01:00:00Z',
+        id_run:80, run_type:'Staging', date_start:'2026-08-21T01:00:00Z',
         date_end:'2026-08-21T01:05:00Z', source_table_name:null,
         target_table_name:'staging.'+stagingViewName('customers'), has_dv_jobs:false, has_stg_jobs:true
       }]; };
@@ -3356,7 +3641,7 @@ describe('Data Vault Hub incremental loading lifecycle', () => {
     assert.strictEqual(app.eval(`dashboardStagingJobMatchesTable({source_table_name:null,target_table_name:'staging.'+stagingViewName('customers')}, state.tables.find(t=>t.name==='customers'))`), true);
   });
 
-  test('legacy metadata fallback treats a successful Test Staging run as initial-load evidence', async () => {
+  test('metadata fallback treats a successful Staging run as initial-load evidence', async () => {
     app.eval(`
       const t = state.tables.find(x=>x.name==='customers');
       configureIncrementalColumn(t, 'updated_at');
@@ -3366,7 +3651,7 @@ describe('Data Vault Hub incremental loading lifecycle', () => {
       dashQuery = async function(){
         calls++;
         if (calls===1) throw new Error('legacy metadata schema');
-        return [{ id_run:81, run_type:'Test Staging', date_start:'2026-08-21T01:00:00Z', date_end:'2026-08-21T01:05:00Z', has_stg_jobs:true, has_dv_jobs:false }];
+        return [{ id_run:81, run_type:'Staging', date_start:'2026-08-21T01:00:00Z', date_end:'2026-08-21T01:05:00Z', has_stg_jobs:true, has_dv_jobs:false }];
       };
     `);
     const changed = await app.evalRaw(`refreshIncrementalReadiness({ silent:true, rerender:false })`);
@@ -3955,24 +4240,29 @@ describe('board recovers after an individual deploy', () => {
 });
 
 
-describe('cross-role grants (external engine permission fix)', () => {
+describe('least-privilege cross-schema grants', () => {
   beforeEach(() => { resetApp(); seedFixture(); app.eval(`suggestModelFromKeys()`); });
 
-  test('staging and vault DDL grant peer roles and register default privileges for the creating role', () => {
+  test('staging and vault DDL grant only their directional readers', () => {
     const stg = app.eval(`buildStagingDdl()`);
-    assert.match(stg, /GRANT ALL ON ALL TABLES IN SCHEMA staging TO pdi_meta, data_vault;/);
-    assert.match(stg, /ALTER DEFAULT PRIVILEGES FOR ROLE staging IN SCHEMA staging GRANT ALL ON TABLES TO pdi_meta, data_vault;/);
-    assert.ok(stg.indexOf('GRANT ALL ON ALL TABLES') < stg.indexOf('RESET ROLE;'), 'grants run as the owner role');
+    assert.match(stg, /GRANT USAGE ON SCHEMA staging TO pdi_meta, data_vault;/);
+    assert.match(stg, /GRANT SELECT ON ALL TABLES IN SCHEMA staging TO pdi_meta, data_vault;/);
+    assert.match(stg, /ALTER DEFAULT PRIVILEGES FOR ROLE staging IN SCHEMA staging GRANT SELECT ON TABLES TO pdi_meta, data_vault;/);
+    assert.doesNotMatch(stg, /GRANT ALL ON ALL TABLES IN SCHEMA staging/);
+    assert.ok(stg.indexOf('GRANT SELECT ON ALL TABLES') < stg.indexOf('RESET ROLE;'), 'grants run as the owner role');
     const dv = app.eval(`buildDataVaultDdl()`);
-    assert.match(dv, /GRANT ALL ON ALL TABLES IN SCHEMA data_vault TO pdi_meta, staging;/);
-    assert.match(dv, /ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON TABLES TO pdi_meta, staging;/);
+    assert.match(dv, /GRANT USAGE ON SCHEMA data_vault TO pdi_meta, staging;/);
+    assert.match(dv, /GRANT SELECT ON ALL TABLES IN SCHEMA data_vault TO pdi_meta, staging;/);
+    assert.match(dv, /ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT SELECT ON TABLES TO pdi_meta, staging;/);
+    assert.doesNotMatch(dv, /GRANT ALL ON ALL TABLES IN SCHEMA data_vault/);
   });
 
-  test('incremental DDL carries the same grants for the schemas it touches', () => {
+  test('incremental DDL retains only the matching directional grants', () => {
     const sql = app.eval(`buildIncrementalSql({
       missingTables: parseGeneratedDdlObjects(buildStagingDdl()).slice(0,1),
       missingColumns: [], typeMismatches: [] })`);
-    assert.match(sql, /GRANT ALL ON ALL TABLES IN SCHEMA staging TO pdi_meta, data_vault;/);
+    assert.match(sql, /GRANT SELECT ON ALL TABLES IN SCHEMA staging TO pdi_meta, data_vault;/);
+    assert.doesNotMatch(sql, /GRANT ALL ON ALL TABLES IN SCHEMA staging/);
   });
 });
 
@@ -4012,7 +4302,7 @@ describe('MySQL Connector/J type overrides', () => {
     assert.strictEqual(my.rdbms.MYSQL.attributes['EXTRA_OPTION_MYSQL.tinyInt1isBit'], 'false',
       'TINYINT(1) must reach hop as an integer, not a boolean rendered Y/N');
     assert.strictEqual(my.rdbms.MYSQL.attributes['EXTRA_OPTION_MYSQL.yearIsDateType'], 'false',
-      'YEAR must reach hop as a numeric year, not a date value');
+      'YEAR must reach Hop as a numeric year, matching detected staging metadata');
     app.eval(`state.vault.dialect = 'postgresql'`);
     const pg = JSON.parse(app.eval(`buildHopSourceConnectionJson()`));
     assert.ok(!('EXTRA_OPTION_MYSQL.tinyInt1isBit' in pg.rdbms.POSTGRESQL.attributes));
@@ -4025,11 +4315,12 @@ describe('.env runtime credential deployment', () => {
 
   test('internal targets synchronise only SOURCE_PASSWORD', () => {
     app.eval(`
-      state.vault.targetPreset = 'internal';
+      state.vault.targetPreset = 'internal'; state.vault.sourcePreset = '';
       state.vault.srcPassword = 'source-secret';
       state.vault.dvUser = 'data-vault-user'; state.vault.dvPassword = 'target-secret';
     `);
     assert.deepStrictEqual(app.eval(`runtimeCredentialPayload()`), {
+      sourceCredentialMode: 'replace',
       sourcePassword: 'source-secret',
       targetPassword: '',
       targetUser: '',
@@ -4040,11 +4331,12 @@ describe('.env runtime credential deployment', () => {
 
   test('native PostgreSQL synchronises source, bootstrap and runtime role passwords', () => {
     app.eval(`
-      state.vault.targetPreset = '';
+      state.vault.targetPreset = ''; state.vault.sourcePreset = '';
       state.vault.srcPassword = 'source-secret';
       state.vault.dvUser = 'postgres-admin'; state.vault.dvPassword = 'target-secret';
     `);
     assert.deepStrictEqual(app.eval(`runtimeCredentialPayload()`), {
+      sourceCredentialMode: 'replace',
       sourcePassword: 'source-secret',
       targetPassword: 'target-secret',
       targetUser: 'postgres-admin',
@@ -4054,7 +4346,7 @@ describe('.env runtime credential deployment', () => {
   });
 
   test('reports missing source details and native PostgreSQL target details', () => {
-    app.eval(`state.vault.srcPassword = ''; state.vault.targetPreset = 'internal';`);
+    app.eval(`state.vault.srcPassword = ''; state.vault.sourcePreset = ''; state.vault.targetPreset = 'internal';`);
     assert.match(app.eval(`runtimeCredentialValidationMessage()`), /source password/i);
     app.eval(`state.vault.srcPassword = 'source-secret'; state.vault.targetPreset = ''; state.vault.dvUser = ''; state.vault.dvPassword = 'target-secret';`);
     assert.match(app.eval(`runtimeCredentialValidationMessage()`), /external PostgreSQL username/i);
@@ -4072,12 +4364,14 @@ describe('.env runtime credential deployment', () => {
     assert.ok(!json.includes('legacy-secret'));
   });
 
-  test('pdi_meta target connections use the single target password', () => {
-    app.eval(`state.vault.dvPassword = 'target-secret'; state.vault.vaultPassword = 'legacy-secret';`);
+  test('pdi_meta SQL never persists runtime passwords', () => {
+    app.eval(`state.vault.srcPassword = 'source-secret'; state.vault.dvPassword = 'target-secret'; state.vault.vaultPassword = 'legacy-secret';`);
     const sql = app.eval(`buildPdiMetaSql()`);
-    assert.match(sql, /'staging', 'target-secret'/);
-    assert.match(sql, /'data_vault', 'target-secret'/);
-    assert.doesNotMatch(sql, /legacy-secret/);
+    assert.match(sql, /ref_connections\.password stores environment-variable references; literal runtime secrets are never persisted/);
+    assert.match(sql, /'staging', '\$\{VAULT_PASSWORD\}'/);
+    assert.match(sql, /'data_vault', '\$\{VAULT_PASSWORD\}'/);
+    assert.match(sql, /'sakila', '\$\{SOURCE_PASSWORD\}'/);
+    assert.doesNotMatch(sql, /source-secret|target-secret|legacy-secret/);
   });
 
   test('the Connections UI asks for one native PostgreSQL target password', () => {
@@ -4222,5 +4516,160 @@ describe('manual staging derivation add flow', () => {
     const result=app.eval(`addManualKeyDerivation(state.tables[0],'missing_id','customer','customer','hash')`);
     assert.strictEqual(result.ok,false);
     assert.match(result.reason,/staged source column/i);
+  });
+});
+
+describe('pdi_meta field-length hardening', () => {
+  beforeEach(resetApp);
+
+  test('validateModel blocks source-system codes longer than the DB contract', () => {
+    seedFixture();
+    app.eval(`state.vault.srcCod = 'X'.repeat(17); suggestModelFromKeys();`);
+    const errors=app.eval(`validateModel().errors`);
+    assert.ok(errors.some(e=>/Source system code is 17 characters.*maximum of 16/i.test(e)));
+  });
+
+  test('validateModel catches generated source_concat overflow even when both inputs are individually within their limits', () => {
+    seedFixture();
+    app.eval(`
+      state.vault.srcDescription = 'S'.repeat(128);
+      state.tables[0].name = 'T'.repeat(128);
+    `);
+    const errors=app.eval(`validateModel().errors`);
+    assert.ok(errors.some(e=>/Generated source_concat.*257 characters.*maximum of 256/i.test(e)));
+  });
+
+  test('direct GUI fields take maxlength from the shared contract', () => {
+    const source=readFrontendSources();
+    assert.match(source, /id="f-name" maxlength="\$\{pdiMetaMaxLength\('vaultShortName'\)\}"/);
+    assert.match(source, /id="f-cod" maxlength="\$\{pdiMetaMaxLength\('sourceSystemCode'\)\}"/);
+    assert.match(source, /id="f-srcdesc" maxlength="\$\{pdiMetaMaxLength\('sourceSystemDescription'\)\}"/);
+    assert.match(source, /id="f-src-host" maxlength="\$\{pdiMetaMaxLength\('connectionHost'\)\}"/);
+    assert.match(source, /id="f-src-db" maxlength="\$\{pdiMetaMaxLength\('connectionDatabase'\)\}"/);
+    assert.match(source, /id="f-src-user" maxlength="\$\{pdiMetaMaxLength\('connectionUser'\)\}"/);
+    assert.doesNotMatch(source, /id="f-srcpass"[^>]*maxlength=/);
+    assert.doesNotMatch(source, /id="f-dvpass"[^>]*maxlength=/);
+    assert.match(source, /id="f-dbname" maxlength="\$\{pdiMetaMaxLength\('dataVaultName'\)\}"/);
+    assert.match(source, /id="f-dbdesc" maxlength="\$\{pdiMetaMaxLength\('dataVaultDescription'\)\}"/);
+    assert.match(source, /id="f-prefix" maxlength="\$\{studioMaxLength\('stagingPrefix'\)\}"/);
+    assert.match(source, /id="f-tenant" maxlength="\$\{studioMaxLength\('tenantId'\)\}"/);
+    assert.match(source, /id="new-table-name" maxlength="\$\{pdiMetaMaxLength\('sourceTableName'\)\}"/);
+    assert.match(source, /data-tf="description" maxlength="\$\{pdiMetaMaxLength\('sourceTableDescription'\)\}"/);
+    assert.match(source, /override-text-\$\{t\.id\}" maxlength="\$\{pdiMetaMaxLength\('stagingSqlOverride'\)\}"/);
+    assert.match(source, /pdiLimitKey=scope==='source'.*connectionHost.*connectionDatabase.*connectionUser/);
+    assert.doesNotMatch(source, /password:'connectionPassword'/);
+    assert.strictEqual(app.eval(`pdiMetaMaxLength('vaultShortName')`), 54);
+    assert.strictEqual(app.eval(`pdiMetaMaxLength('sourceSystemCode')`), 16);
+    assert.strictEqual(app.eval(`pdiMetaMaxLength('sourceSystemDescription')`), 128);
+    assert.strictEqual(app.eval(`pdiMetaMaxLength('connectionHost')`), 256);
+    assert.strictEqual(app.eval(`pdiMetaMaxLength('connectionDatabase')`), 256);
+    assert.strictEqual(app.eval(`pdiMetaMaxLength('connectionUser')`), 128);
+    assert.strictEqual(app.eval(`pdiMetaMaxLength('connectionPassword')`), null);
+    assert.strictEqual(app.eval(`pdiMetaMaxLength('stagingSqlOverride')`), 8192);
+  });
+
+  test('validateModel blocks connection values that exceed ref_connections widths', () => {
+    seedFixture();
+    app.eval(`state.vault.srcHost='H'.repeat(257); state.vault.srcUser='U'.repeat(129);`);
+    const errors=app.eval(`validateModel().errors`);
+    assert.ok(errors.some(e=>/Source connection host is 257 characters.*maximum of 256/i.test(e)), errors.join('\n'));
+    assert.ok(errors.some(e=>/Source connection username is 129 characters.*maximum of 128/i.test(e)), errors.join('\n'));
+  });
+
+  test('runtime password length is not constrained by the ref_connections DDL', () => {
+    seedFixture();
+    app.eval(`state.vault.srcPassword='S'.repeat(300); state.vault.dvPassword='T'.repeat(300);`);
+    const errors=app.eval(`validateModel().errors`);
+    assert.ok(!errors.some(e=>/connection password.*characters|password.*maximum/i.test(e)), errors.join('\n'));
+    const sql=app.eval(`buildPdiMetaSql()`);
+    assert.ok(!sql.includes('S'.repeat(100)), 'source runtime password leaked into pdi_meta SQL');
+    assert.ok(!sql.includes('T'.repeat(100)), 'target runtime password leaked into pdi_meta SQL');
+  });
+
+  test('project import precheck reports pdi_meta violations without altering the saved values', () => {
+    const result=app.eval(`(()=>{
+      const candidate={vault:{name:'sales',srcCod:'X'.repeat(17),srcDescription:'Sales',srcHost:'',srcDatabase:'',srcUser:'',srcPassword:'',dvHost:'',dvDatabase:'',dvUser:'',dvPassword:'',vaultDbName:'dv',vaultDescription:''},tables:[],hubs:[],links:[{entity:'many',description:'',hubs:Array(11).fill({})}],hubSats:[],linkSats:[]};
+      const before=candidate.vault.srcCod;
+      const issues=projectPdiMetaIssues(candidate);
+      return {issues,after:candidate.vault.srcCod,before};
+    })()`);
+    assert.strictEqual(result.after,result.before);
+    assert.ok(result.issues.some(e=>/Source system code is 17 characters.*maximum of 16/i.test(e)));
+    assert.ok(result.issues.some(e=>/Link "many" has 11 hubs.*maximum of 10/i.test(e)));
+  });
+
+  test('project import rejects malformed collection shapes before assignment', () => {
+    assert.match(app.eval(`projectStateShapeIssue({vault:{},tables:{}})`), /tables.*array/i);
+    assert.strictEqual(app.eval(`projectStateShapeIssue({vault:{},tables:[],hubs:[],links:[],hubSats:[],linkSats:[]})`), '');
+  });
+
+  test('generated workbook rows get their own pdi_meta length preflight', () => {
+    const errors=app.eval(`(()=>{
+      const row=Array(SHEET_HEADERS.source_tables.length).fill('');
+      row[SHEET_HEADERS.source_tables.indexOf('source_concat')]='X'.repeat(257);
+      return validateWorkbookRowsAgainstPdiMeta({source_tables:[row]});
+    })()`);
+    assert.ok(errors.some(e=>/source_tables row 2 source_concat is 257 characters.*maximum of 256/i.test(e)), errors.join('\n'));
+  });
+
+  test('workbook download and deploy both use the automatic preflight', () => {
+    const source=readFrontendSources();
+    assert.match(source, /async function downloadWorkbook\(\)[\s\S]*prepareMappingWorkbookForDelivery\(\)/);
+    assert.match(source, /async function deployMappingWorkbook\(options = \{\}\)[\s\S]*prepareMappingWorkbookForDelivery\(\)/);
+    assert.match(source, /async function prepareMappingWorkbookForDelivery\(\)[\s\S]*validateWorkbookRowsAgainstPdiMeta\(rows\)[\s\S]*canonicalWorkbookValidation\(wb,filename\)/);
+  });
+
+});
+
+describe('important naming inline validation', () => {
+  beforeEach(resetApp);
+
+  test('validateModel enforces character rules without banning valid spaces in description and tenant ID', () => {
+    seedFixture();
+    app.eval(`
+      state.vault.name='sales vault';
+      state.vault.prefix='sales@stage';
+      state.vault.srcCod='SALES CODE';
+      state.vault.srcDescription='Sales Data';
+      state.vault.tenantId='Sales Tenant';
+    `);
+    let errors=app.eval(`validateModel().errors`);
+    assert.ok(errors.some(e=>/Vault short name.*Spaces are not allowed/i.test(e)), errors.join('\n'));
+    assert.ok(errors.some(e=>/Staging prefix.*Only letters, numbers, hyphens and underscores/i.test(e)), errors.join('\n'));
+    assert.ok(errors.some(e=>/Source system code.*Spaces are not allowed/i.test(e)), errors.join('\n'));
+    assert.ok(!errors.some(e=>/Source system description.*Sales Data/i.test(e)), errors.join('\n'));
+    assert.ok(!errors.some(e=>/Tenant ID literal.*Sales Tenant/i.test(e)), errors.join('\n'));
+
+    app.eval(`state.vault.name='sales_vault'; state.vault.prefix='sales-stage'; state.vault.srcCod='SALES_01'; state.vault.srcDescription=' Sales Data'; state.vault.tenantId='Tenant@1';`);
+    errors=app.eval(`validateModel().errors`);
+    assert.ok(errors.some(e=>/Source system description cannot start or end with a space/i.test(e)), errors.join('\n'));
+    assert.ok(errors.some(e=>/Tenant ID literal.*Only letters, numbers, spaces, hyphens and underscores/i.test(e)), errors.join('\n'));
+  });
+
+  test('connections GUI renders inline validation messages and red invalid-field styling', () => {
+    const source=readFrontendSources();
+    assert.match(source, /id="f-name-warn"/);
+    assert.match(source, /id="f-prefix-warn"/);
+    assert.match(source, /id="f-tenant-warn"/);
+    assert.match(source, /id="f-cod-warn"/);
+    assert.match(source, /id="f-srcdesc-warn"/);
+    assert.match(source, /node\.classList\.toggle\('field-invalid',!!issue\)/);
+    assert.match(source, /message\.textContent=issue\|\|reached/);
+    assert.match(source, /Maximum \$\{cfg\.maxLength\} characters reached/);
+    assert.match(source, /input\.field-invalid\{border-color:var\(--err\);\}/);
+  });
+
+  test('project import precheck reports character-rule violations without changing values', () => {
+    const result=app.eval(`(()=>{
+      const candidate={vault:{name:'sales vault',prefix:'sales@stage',tenantId:'Tenant One',srcCod:'SALES CODE',srcDescription:'Sales Data',vaultDbName:'dv',vaultDescription:'',srcHost:'',srcDatabase:'',srcUser:'',dvHost:'',dvDatabase:'',dvUser:''},tables:[],hubs:[],links:[],hubSats:[],linkSats:[]};
+      const before=JSON.stringify(candidate.vault);
+      const issues=projectLimitIssues(candidate);
+      return {issues,before,after:JSON.stringify(candidate.vault)};
+    })()`);
+    assert.strictEqual(result.after,result.before);
+    assert.ok(result.issues.some(e=>/Vault short name.*Spaces are not allowed/i.test(e)), result.issues.join('\n'));
+    assert.ok(result.issues.some(e=>/Staging prefix.*Only letters, numbers, hyphens and underscores/i.test(e)), result.issues.join('\n'));
+    assert.ok(result.issues.some(e=>/Source system code.*Spaces are not allowed/i.test(e)), result.issues.join('\n'));
+    assert.ok(!result.issues.some(e=>/Source system description.*Only letters/i.test(e)), result.issues.join('\n'));
   });
 });

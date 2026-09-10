@@ -7,3 +7,4 @@ services:
       dockerfile: postgres/Dockerfile.fdw
     volumes:
       - ./jdbc-drivers:/opt/jdbc-drivers:ro
+      - ./dv-certs:/app/dv-certs:ro

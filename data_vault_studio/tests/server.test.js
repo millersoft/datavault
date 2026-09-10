@@ -17,12 +17,20 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const http = require('node:http');
 const { spawnSync } = require('node:child_process');
 const { createApp } = require('../server/app');
+const { createApiToken, createApiAccess } = require('../server/api-access');
+const { createApiResponseSanitizer, sanitizeDiagnosticText } = require('../server/api-response-sanitizer');
+const { createRequestControls } = require('../server/request-controls');
+const { createPackagedCredentialService } = require('../server/packaged-credentials');
 const { selectStudioLauncher } = require('../server/routes/engine');
+const { registerSchedulerRoutes } = require('../server/routes/scheduler');
 const { readServerSources } = require('./helpers/load-app');
 
+const TEST_API_TOKEN = 'dvs-test-api-token-32-bytes-long';
 let app;
+let demoApp;
 let projectRoot;
 
 function readExternalPostgresBootstrap(){
@@ -55,8 +63,21 @@ function findRoute(stack, method, pathname){
   return null;
 }
 
-async function api(pathname, { method = 'POST', body, headers = {} } = {}){
-  const found=findRoute(app._router.stack,method,pathname);
+function invokeMiddleware(middleware, headers = {}){
+  let status=200, payload, nextCalled=false;
+  const responseHeaders=new Map();
+  const req={headers};
+  const res={
+    status(code){status=code;return this;},
+    set(name,value){responseHeaders.set(String(name).toLowerCase(),String(value));return this;},
+    json(value){payload=value;return this;},
+  };
+  middleware(req,res,()=>{nextCalled=true;});
+  return {status,payload,nextCalled,headers:responseHeaders};
+}
+
+async function apiOn(targetApp, pathname, { method = 'POST', body, headers = {} } = {}){
+  const found=findRoute(targetApp._router.stack,method,pathname);
   if(!found)throw new Error(`Route not registered: ${method} ${pathname}`);
   const responseHeaders=new Map();
   let status=200, payload;
@@ -69,8 +90,12 @@ async function api(pathname, { method = 'POST', body, headers = {} } = {}){
     json(value){payload=value;finishResponse();return this;},
     send(value){payload=value;finishResponse();return this;},
   };
-  const req={body:body||{},headers,params:found.params,method,path:pathname};
-  for(const layer of found.route.stack)await layer.handle(req,res,()=>{});
+  const req={body:body||{},headers,params:found.params,method,path:pathname,originalUrl:pathname};
+  for(const layer of found.route.stack){
+    let nextCalled=false;
+    await layer.handle(req,res,()=>{nextCalled=true;});
+    if(!nextCalled && payload!==undefined) break;
+  }
   if(payload===undefined){
     await Promise.race([
       responseFinished,
@@ -84,6 +109,37 @@ async function api(pathname, { method = 'POST', body, headers = {} } = {}){
     async json(){return payload;},
     async text(){return typeof payload==='string'?payload:JSON.stringify(payload);},
   };
+}
+
+async function api(pathname, options = {}){
+  return apiOn(app, pathname, options);
+}
+
+function requestFromServer(server, pathname, { method = 'GET', headers = {} } = {}){
+  return new Promise((resolve, reject) => {
+    const request = http.request({
+      hostname:'127.0.0.1',
+      port:server.address().port,
+      path:pathname,
+      method,
+      headers,
+    }, response => {
+      let body='';
+      response.setEncoding('utf8');
+      response.on('data', chunk => body += chunk);
+      response.on('end', () => resolve({ status:response.statusCode, headers:response.headers, body }));
+    });
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+function assertSecurityHeaders(response){
+  assert.strictEqual(response.headers['x-content-type-options'], 'nosniff');
+  assert.strictEqual(response.headers['referrer-policy'], 'no-referrer');
+  assert.strictEqual(response.headers['x-frame-options'], 'DENY');
+  assert.strictEqual(response.headers['content-security-policy'], "frame-ancestors 'none'");
+  assert.strictEqual(response.headers['permissions-policy'], 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), fullscreen=()');
 }
 
 before(async () => {
@@ -100,7 +156,8 @@ before(async () => {
     DVS_PROJECT_ROOT:projectRoot,
     DVS_DATABASE_PACK_HOME:path.join(projectRoot,'data_vault_studio','database-packs'),
   });
-  app=createApp({studioMode:'production',env});
+  app=createApp({studioMode:'production',env,apiToken:TEST_API_TOKEN});
+  demoApp=createApp({studioMode:'demo',env,apiToken:TEST_API_TOKEN});
 });
 
 after(() => {
@@ -142,14 +199,112 @@ describe('runtime mode defaults', () => {
   });
 });
 
+describe('request controls', () => {
+  test('loads Studio runtime and request-control settings from the project .env', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dvs-env-test-'));
+    try {
+      fs.writeFileSync(path.join(root, 'start.sh'), '#!/bin/bash\nexit 0\n');
+      fs.writeFileSync(path.join(root, 'docker-compose.yaml'), 'services: {}\n');
+      fs.writeFileSync(path.join(root, '.env'), [
+        'PORT=9123',
+        'STUDIO_MODE=demo',
+        'DVS_API_RATE_LIMIT_REQUESTS=7',
+        'DVS_MAX_JDBC_DRIVER_BYTES=2048',
+        '',
+      ].join('\n'));
+      const configured = createApp({ env:{ DVS_PROJECT_ROOT:root }, scheduler:false });
+      assert.strictEqual(configured.locals.port, '9123');
+      assert.strictEqual(configured.locals.studioMode, 'demo');
+      assert.strictEqual(configured.locals.requestControlConfig.rateLimitRequests, 7);
+      assert.strictEqual(configured.locals.requestControlConfig.maxJdbcDriverBytes, 2048);
+    } finally {
+      fs.rmSync(root, { recursive:true, force:true });
+    }
+  });
+
+  test('returns a recoverable 429 and allows requests after the configured window', () => {
+    let current = 1000;
+    const controls = createRequestControls({
+      env:{ DVS_API_RATE_LIMIT_REQUESTS:'2', DVS_API_RATE_LIMIT_WINDOW_MS:'1000' },
+      now:() => current,
+    });
+    assert.strictEqual(invokeMiddleware(controls.rateLimit).nextCalled, true);
+    assert.strictEqual(invokeMiddleware(controls.rateLimit).nextCalled, true);
+    const limited = invokeMiddleware(controls.rateLimit);
+    assert.strictEqual(limited.status, 429);
+    assert.strictEqual(limited.payload.code, 'RATE_LIMITED');
+    assert.strictEqual(limited.payload.retryable, true);
+    assert.strictEqual(limited.headers.get('retry-after'), '1');
+    current += 1000;
+    assert.strictEqual(invokeMiddleware(controls.rateLimit).nextCalled, true);
+  });
+
+  test('distinguishes duplicate operations from exhausted concurrency pools', () => {
+    const controls = createRequestControls({ env:{ DVS_CONNECTION_TEST_CONCURRENCY:'2' } });
+    const first = controls.acquire('connection-test', 'one');
+    const duplicate = controls.acquire('connection-test', 'one');
+    const second = controls.acquire('connection-test', 'two');
+    const exhausted = controls.acquire('connection-test', 'three');
+    assert.strictEqual(first.ok, true);
+    assert.deepStrictEqual({ status:duplicate.httpStatus, code:duplicate.code }, { status:409, code:'OPERATION_IN_PROGRESS' });
+    assert.strictEqual(second.ok, true);
+    assert.deepStrictEqual({ status:exhausted.httpStatus, code:exhausted.code }, { status:429, code:'CONCURRENCY_LIMIT_REACHED' });
+    first.release();
+    second.release();
+    assert.strictEqual(controls.acquire('connection-test', 'three').ok, true);
+  });
+
+  test('applies a small default body limit while retaining the larger deployment limit', async () => {
+    const env = Object.assign({}, process.env, {
+      DVS_PROJECT_ROOT:projectRoot,
+      DVS_DATABASE_PACK_HOME:path.join(projectRoot, 'data_vault_studio', 'database-packs'),
+      DVS_API_RATE_LIMIT_REQUESTS:'1000',
+    });
+    const localApp = createApp({ studioMode:'production', env, apiToken:TEST_API_TOKEN, scheduler:false });
+    const server = await new Promise(resolve => {
+      const listener = localApp.listen(0, '127.0.0.1', () => resolve(listener));
+    });
+    const send = (pathname, payload) => new Promise((resolve, reject) => {
+      const request = http.request({
+        hostname:'127.0.0.1', port:server.address().port, path:pathname, method:'POST',
+        headers:{
+          'X-DVS-Token':TEST_API_TOKEN,
+          'Content-Type':'application/json',
+          'Content-Length':Buffer.byteLength(payload),
+        },
+      }, response => {
+        let text = '';
+        response.on('data', chunk => text += chunk);
+        response.on('end', () => resolve({ status:response.statusCode, body:JSON.parse(text) }));
+      });
+      request.on('error', reject);
+      request.end(payload);
+    });
+    try {
+      const padding = 'x'.repeat(2 * 1024 * 1024);
+      const ordinary = await send('/api/docker/status', JSON.stringify({ padding }));
+      assert.strictEqual(ordinary.status, 413);
+      assert.strictEqual(ordinary.body.code, 'BODY_TOO_LARGE');
+      const deployment = await send('/api/deploy-files', JSON.stringify({ destination:'invalid', padding }));
+      assert.strictEqual(deployment.status, 400);
+      assert.match(deployment.body.error, /Unknown destination/);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
+  });
+});
+
 describe('basics', () => {
-  test('GET /api/health answers with the resolved project root', async () => {
+  test('GET /api/health returns only the public service identity', async () => {
     const r = await api('/api/health',{method:'GET'});
     const body = await r.json();
     assert.strictEqual(r.status, 200);
-    assert.strictEqual(body.ok, true);
-    assert.strictEqual(body.projectRoot, projectRoot);
-    assert.strictEqual(body.studioMode, 'production');
+    assert.deepStrictEqual(body, {
+      ok:true,
+      service:'data-vault-studio',
+      version:require('../package.json').version,
+    });
+    assert.doesNotMatch(JSON.stringify(body), new RegExp(projectRoot.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
   });
 
   test('GET / serves the GUI', async () => {
@@ -160,7 +315,39 @@ describe('basics', () => {
     assert.ok(html.includes('Data Vault Studio'));
     assert.ok(html.includes('millersoft'), 'should be the real GUI page');
     assert.ok(html.includes("const STUDIO_RUNTIME_MODE = 'production' === 'demo' ? 'demo' : 'production'"));
+    assert.ok(html.includes(`<meta name="dvs-api-token" content="${TEST_API_TOKEN}">`));
     assert.ok(!html.includes('__STUDIO_RUNTIME_MODE__'));
+    assert.ok(!html.includes('__DVS_API_TOKEN__'));
+  });
+
+  test('GET /index.html uses the same protected token-injection route', async () => {
+    const r = await api('/index.html',{method:'GET'});
+    assert.strictEqual(r.status, 200);
+    const html = await r.text();
+    assert.ok(html.includes(`<meta name="dvs-api-token" content="${TEST_API_TOKEN}">`));
+    assert.ok(!html.includes('__DVS_API_TOKEN__'));
+  });
+
+  test('applies security headers to HTML, static assets, API success, and API errors', async () => {
+    const server = await new Promise(resolve => {
+      const listener = app.listen(0, '127.0.0.1', () => resolve(listener));
+    });
+    try {
+      const html = await requestFromServer(server, '/');
+      const asset = await requestFromServer(server, '/css/studio.css');
+      const apiSuccess = await requestFromServer(server, '/api/health', {
+        headers:{ 'X-DVS-Token':TEST_API_TOKEN },
+      });
+      const apiError = await requestFromServer(server, '/api/health');
+
+      assert.strictEqual(html.status, 200);
+      assert.strictEqual(asset.status, 200);
+      assert.strictEqual(apiSuccess.status, 200);
+      assert.strictEqual(apiError.status, 401);
+      for (const response of [html, asset, apiSuccess, apiError]) assertSecurityHeaders(response);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+    }
   });
 
   test('GET /api/runtime-profile reports the selected npm-start mode', async () => {
@@ -168,6 +355,136 @@ describe('basics', () => {
     const body = await r.json();
     assert.strictEqual(r.status, 200);
     assert.deepStrictEqual(body, { ok:true, mode:'production', isDemo:false, isProduction:true });
+  });
+});
+
+describe('DVS-002-d diagnostic redaction', () => {
+  test('redacts known credentials, connection strings, SQL passwords, and host paths', () => {
+    const message=[
+      'login failed for studio_user at internal-db.example',
+      'password=correct-horse-battery-staple',
+      "CREATE LOGIN studio_user WITH PASSWORD 'generated-secret'",
+      'POSTGRES_PASSWORD=environment-secret',
+      '{"password":"json-secret"}',
+      'jdbc:postgresql://internal-db.example:5432/vault?user=studio_user&password=correct-horse-battery-staple',
+      '/Users/operator/private/jdbc/vendor.jar /etc/postgresql/config \\\\fileserver\\share\\driver.jar',
+      'resolved endpoints 10.20.30.40 and [fd00::1234]',
+    ].join('\n');
+    const sanitized=sanitizeDiagnosticText(message,['correct-horse-battery-staple','studio_user','internal-db.example']);
+    for (const secret of ['correct-horse-battery-staple','generated-secret','environment-secret','json-secret','studio_user','internal-db.example','jdbc:postgresql','/Users/operator','/etc/postgresql','fileserver','10.20.30.40','fd00::1234']) {
+      assert.ok(!sanitized.includes(secret), `should redact ${secret}`);
+    }
+    assert.match(sanitized,/\[redacted(?: connection string| path)?\]/);
+  });
+
+  test('sanitizes failed API payloads with request and packaged credentials', () => {
+    const middleware=createApiResponseSanitizer({
+      sensitiveValues:['/private/project-root'],
+      resolveCredential:ref=>ref==='internal-target'?{user:'packaged_user',password:'packaged_password',host:'packaged-db'}:null,
+    });
+    const req={body:{host:'request-db',username:'request_user',password:'request_password',credentialRef:'internal-target'}};
+    let output;
+    const res={statusCode:400,json(payload){output=payload;return this;}};
+    middleware(req,res,()=>{});
+    res.json({ok:false,error:'request_user request_password request-db packaged_user packaged_password packaged-db /private/project-root/config jdbc:mysql://request-db/vault'});
+    const serialized=JSON.stringify(output);
+    for (const secret of ['request_user','request_password','request-db','packaged_user','packaged_password','packaged-db','/private/project-root','jdbc:mysql']) {
+      assert.ok(!serialized.includes(secret), `should redact ${secret}`);
+    }
+  });
+
+  test('redacts arbitrary Database Pack fields and JDBC option values from failures', () => {
+    const middleware=createApiResponseSanitizer();
+    const req={body:{packValues:{endpoint:'private-pack-host',credential:'custom-pack-secret'},options:{vendorAuth:'vendor-option-secret'}}};
+    let output;
+    const res={statusCode:400,json(payload){output=payload;return this;}};
+    middleware(req,res,()=>{});
+    res.json({ok:false,error:'Driver echoed private-pack-host custom-pack-secret vendor-option-secret'});
+    const serialized=JSON.stringify(output);
+    for(const value of ['private-pack-host','custom-pack-secret','vendor-option-secret'])assert.ok(!serialized.includes(value));
+  });
+
+  test('sanitizes successful diagnostics without altering ordinary business fields', () => {
+    const middleware=createApiResponseSanitizer();
+    const req={body:{password:'request_password'}};
+    let output;
+    const res={statusCode:200,json(payload){output=payload;return this;}};
+    middleware(req,res,()=>{});
+    const payload={ok:true,data:'request_password is ordinary response data',stdout:'password=request_password',logs:'jdbc:mysql://user:request_password@db/vault'};
+    res.json(payload);
+    assert.strictEqual(output.data,payload.data);
+    assert.ok(!output.stdout.includes('request_password'));
+    assert.ok(!output.logs.includes('request_password'));
+    assert.ok(!output.logs.includes('jdbc:mysql'));
+  });
+});
+
+describe('DVS-002-a local API access protection', () => {
+  const access = createApiAccess({apiToken:TEST_API_TOKEN});
+  const authorized = (host='127.0.0.1:8420') => ({host,'x-dvs-token':TEST_API_TOKEN});
+
+  test('generates a new cryptographically random token for each application process', () => {
+    const first = createApiToken();
+    const second = createApiToken();
+    assert.match(first, /^[A-Za-z0-9_-]{43}$/);
+    assert.match(second, /^[A-Za-z0-9_-]{43}$/);
+    assert.notStrictEqual(first, second);
+  });
+
+  test('rejects missing and incorrect API tokens but accepts the configured token', () => {
+    let result = invokeMiddleware(access.validateApiRequest, {host:'127.0.0.1:8420'});
+    assert.strictEqual(result.status, 401);
+    assert.match(result.payload.error, /authorization failed/i);
+    assert.strictEqual(result.nextCalled, false);
+
+    result = invokeMiddleware(access.validateApiRequest, {host:'127.0.0.1:8420','x-dvs-token':'wrong-token'});
+    assert.strictEqual(result.status, 401);
+
+    result = invokeMiddleware(access.validateApiRequest, authorized());
+    assert.strictEqual(result.status, 200);
+    assert.strictEqual(result.nextCalled, true);
+    assert.strictEqual(result.headers.get('cache-control'), 'no-store');
+  });
+
+  test('accepts matching loopback origins and rejects foreign or opaque origins', () => {
+    for (const host of ['127.0.0.1:8420', 'localhost:8420', '[::1]:8420']) {
+      const result = invokeMiddleware(access.validateApiRequest, {...authorized(host),origin:`http://${host}`});
+      assert.strictEqual(result.status, 200, host);
+      assert.strictEqual(result.nextCalled, true, host);
+    }
+
+    for (const origin of ['https://attacker.example', 'null', 'http://127.0.0.1:9999']) {
+      const result = invokeMiddleware(access.validateApiRequest, {...authorized(),origin});
+      assert.strictEqual(result.status, 403, origin);
+      assert.match(result.payload.error, /origin is not allowed/i);
+      assert.strictEqual(result.nextCalled, false);
+    }
+  });
+
+  test('accepts only loopback Host headers before any page or API route', () => {
+    for (const host of ['127.0.0.1:8420', 'localhost:8420', '[::1]:8420']) {
+      const result = invokeMiddleware(access.validateLocalHost, {host});
+      assert.strictEqual(result.nextCalled, true, host);
+    }
+    for (const host of ['attacker.example', '192.168.1.10:8420', '', 'localhost:99999']) {
+      const result = invokeMiddleware(access.validateLocalHost, {host});
+      assert.strictEqual(result.status, 403, host);
+      assert.strictEqual(result.nextCalled, false, host);
+      assert.doesNotMatch(JSON.stringify(result.payload), new RegExp(TEST_API_TOKEN));
+    }
+  });
+
+  test('mounts Host/API protection before body parsing and exposes no CORS middleware', () => {
+    const source = fs.readFileSync(path.join(__dirname, '..', 'server', 'app.js'), 'utf8');
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+    const hostIndex = source.indexOf('app.use(apiAccess.validateLocalHost)');
+    const apiIndex = source.indexOf("app.use('/api', apiAccess.validateApiRequest)");
+    const sanitizerIndex = source.indexOf("app.use('/api', createApiResponseSanitizer");
+    const jsonIndex = source.indexOf("app.use('/api', express.json({ limit: requestControls.config.defaultBodyLimit }))");
+    const routeIndex = source.indexOf('registerSystemRoutes(app');
+    assert.ok(hostIndex >= 0 && apiIndex > hostIndex && sanitizerIndex > apiIndex && jsonIndex > sanitizerIndex && routeIndex > jsonIndex);
+    assert.doesNotMatch(source, /require\(['"]cors['"]\)|access-control-allow-origin/i);
+    assert.strictEqual(pkg.dependencies.cors, undefined);
   });
 });
 
@@ -260,6 +577,24 @@ describe('Studio-managed Postgres bootstrap scope', () => {
     assert.doesNotMatch(wrapper, /include_sakila/i);
     assert.match(dump, /ARRAY\['pdi_meta', 'staging', 'data_vault'\]/);
     assert.match(dump, /SET search_path TO staging, data_vault, pdi_meta, public/);
+  });
+
+  test('core PostgreSQL bootstrap uses directional cross-schema privileges', () => {
+    const dump = fs.readFileSync(path.join(__dirname, '..', '..', 'db-init', '02-dump.sql'), 'utf8');
+    const ddls = fs.readFileSync(path.join(__dirname, '..', '..', 'db-init', '03-ddls.sql'), 'utf8');
+
+    assert.match(dump, /GRANT USAGE ON SCHEMA staging\s+TO pdi_meta, data_vault;/);
+    assert.match(dump, /ALTER DEFAULT PRIVILEGES FOR ROLE staging\s+IN SCHEMA staging\s+GRANT SELECT ON TABLES TO pdi_meta, data_vault;/);
+    assert.match(dump, /GRANT USAGE ON SCHEMA data_vault TO pdi_meta, staging;/);
+    assert.match(dump, /ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT SELECT ON TABLES TO pdi_meta, staging;/);
+    assert.match(dump, /GRANT SELECT ON TABLE pdi_meta\.stg_management_source_systems,[\s\S]*pdi_meta\.stg_management_link_satellites[\s\S]*TO data_vault;/);
+    assert.match(dump, /GRANT SELECT \(name\) ON TABLE pdi_meta\.ref_connections TO data_vault;/);
+    assert.match(dump, /GRANT EXECUTE ON FUNCTION pdi_meta\.prc_create_error_table\(character varying, character varying\) TO data_vault;/);
+    assert.match(dump, /ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta\s+REVOKE EXECUTE ON ROUTINES FROM PUBLIC;/);
+    assert.doesNotMatch(dump, /GRANT ALL ON SCHEMA (pdi_meta|staging|data_vault)/);
+    assert.doesNotMatch(dump, /GRANT ALL ON TABLES\s+TO pdi_meta, staging, data_vault/);
+    assert.doesNotMatch(dump, /ALTER DEFAULT PRIVILEGES[\s\S]*REVOKE ALL/);
+    assert.doesNotMatch(ddls, /GRANT ALL ON SCHEMA (pdi_meta|staging|data_vault)/);
   });
 
   test('external bootstrap uses the exact ordered core-file allowlist and requires regular files', () => {
@@ -368,51 +703,130 @@ describe('Studio-managed Postgres bootstrap scope', () => {
 });
 
 describe('deploy-files hardening', () => {
-  test('writes files inside the project root', async () => {
-    const folder = path.join(projectRoot, 'db-init');
-    const r = await api('/api/deploy-files', { body: { folder, files: { '04-test.sql': 'SELECT 1;' } } });
-    const body = await r.json();
-    assert.strictEqual(r.status, 200);
-    assert.strictEqual(body.ok, true);
-    assert.strictEqual(fs.readFileSync(path.join(folder, '04-test.sql'), 'utf8'), 'SELECT 1;');
-  });
-
-  test('defaults to <root>/db-init when no folder is given', async () => {
-    const r = await api('/api/deploy-files', { body: { files: { 'default-loc.sql': '-- hi' } } });
-    const body = await r.json();
-    assert.strictEqual(body.ok, true);
-    assert.strictEqual(body.folder, path.join(projectRoot, 'db-init'));
-  });
-
-  test('rejects folders outside the project root', async () => {
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'dvs-outside-'));
-    try {
-      const r = await api('/api/deploy-files', { body: { folder: outside, files: { 'evil.sh': 'rm -rf /' } } });
+  test('writes each approved generated file to its logical destination', async () => {
+    const cases = [
+      ['db-init', '04-ddls.sql', 'SELECT 1;', path.join(projectRoot, 'db-init'), 'SELECT 1;'],
+      ['db-init', '05-pdi-meta.sql', 'SELECT 2;', path.join(projectRoot, 'db-init'), 'SELECT 2;'],
+      ['mappings', 'deployment_test_1.xls', Buffer.from('workbook').toString('base64'), path.join(projectRoot, 'mappings'), 'workbook'],
+      ['hop', 'postgres-environment.json', '{"name":"postgres"}', path.join(projectRoot, 'hop'), '{"name":"postgres"}'],
+      ['metadata-rdbms', 'source.json', '{"name":"source"}', path.join(projectRoot, 'metadata', 'rdbms'), '{"name":"source"}'],
+    ];
+    for (const [destination, name, content, folder, expected] of cases) {
+      const r = await api('/api/deploy-files', { body: { destination, files: { [name]: content } } });
       const body = await r.json();
-      assert.strictEqual(r.status, 400);
-      assert.match(body.error, /inside the project root/i);
-      assert.ok(!fs.existsSync(path.join(outside, 'evil.sh')));
-    } finally {
-      fs.rmSync(outside, { recursive: true, force: true });
+      assert.strictEqual(r.status, 200, `${destination}/${name} should be accepted: ${body.error || ''}`);
+      assert.strictEqual(body.destination, destination);
+      const expectedLabel=destination==='metadata-rdbms'?'metadata/rdbms':destination;
+      assert.strictEqual(body.folder, expectedLabel);
+      assert.deepStrictEqual(body.written,[name]);
+      assert.ok(!JSON.stringify(body).includes(projectRoot));
+      assert.strictEqual(fs.readFileSync(path.join(folder, name), 'utf8'), expected);
     }
   });
 
-  test('rejects path-traversal folder values', async () => {
-    const r = await api('/api/deploy-files', { body: { folder: path.join(projectRoot, '..', '..'), files: { 'x.sql': '1' } } });
+  test('rejects legacy folder paths even when they point inside the project', async () => {
+    const r = await api('/api/deploy-files', {
+      body: { folder: path.join(projectRoot, 'db-init'), files: { '06-ddls.sql': 'SELECT 1;' } },
+    });
+    const body = await r.json();
     assert.strictEqual(r.status, 400);
+    assert.match(body.error, /folder is not accepted/i);
+    assert.ok(!fs.existsSync(path.join(projectRoot, 'db-init', '06-ddls.sql')));
+  });
+
+  test('rejects absolute, traversing, unknown, and missing destinations', async () => {
+    for (const destination of [projectRoot, '../db-init', 'data_vault_studio/server', 'unknown', undefined]) {
+      const r = await api('/api/deploy-files', { body: { destination, files: { '06-ddls.sql': 'SELECT 1;' } } });
+      assert.strictEqual(r.status, 400, `${String(destination)} should be rejected`);
+      assert.match((await r.json()).error, /Unknown destination/i);
+    }
   });
 
   test('rejects unsafe filenames', async () => {
     for (const name of ['../escape.sql', 'a/b.sql', 'a\\b.sql', '..']){
-      const r = await api('/api/deploy-files', { body: { files: { [name]: 'x' } } });
+      const r = await api('/api/deploy-files', { body: { destination: 'db-init', files: { [name]: 'x' } } });
       const body = await r.json();
       assert.strictEqual(r.status, 400, `${name} should be rejected`);
       assert.match(body.error, /Unsafe file name/);
     }
   });
 
+  test('enforces the filename allowlist for every destination', async () => {
+    const rejected = [
+      ['db-init', 'arbitrary.sql'],
+      ['db-init', '04-test.sql'],
+      ['db-init', 'start.sh'],
+      ['mappings', 'report.xlsx'],
+      ['mappings', 'package.json'],
+      ['hop', 'Dockerfile'],
+      ['hop', 'postgres-environment.json.external'],
+      ['metadata-rdbms', 'data_vault.json'],
+      ['metadata-rdbms', 'pdi_meta.json'],
+    ];
+    for (const [destination, name] of rejected) {
+      const r = await api('/api/deploy-files', { body: { destination, files: { [name]: 'x' } } });
+      const body = await r.json();
+      assert.strictEqual(r.status, 400, `${destination}/${name} should be rejected`);
+      assert.match(body.error, /not allowed/i);
+    }
+  });
+
+  test('cannot address launchers, configuration, Studio source, or git metadata', async () => {
+    for (const name of ['start.sh', 'start.ps1', 'docker-compose.yaml', 'package.json', 'data_vault_studio/server/app.js', 'data_vault_studio/public/index.html', '.git/config']) {
+      const r = await api('/api/deploy-files', { body: { destination: 'db-init', files: { [name]: 'overwritten' } } });
+      assert.strictEqual(r.status, 400, `${name} should be protected`);
+    }
+    assert.match(fs.readFileSync(path.join(projectRoot, 'start.sh'), 'utf8'), /^#!\/bin\/bash/);
+    assert.strictEqual(fs.readFileSync(path.join(projectRoot, 'docker-compose.yaml'), 'utf8'), 'services: {}\n');
+  });
+
+  test('validates the whole batch before writing any file', async () => {
+    const acceptedPath = path.join(projectRoot, 'db-init', '07-ddls.sql');
+    fs.rmSync(acceptedPath, { force: true });
+    const r = await api('/api/deploy-files', {
+      body: { destination: 'db-init', files: { '07-ddls.sql': 'SELECT 1;', 'start.sh': 'bad' } },
+    });
+    assert.strictEqual(r.status, 400);
+    assert.ok(!fs.existsSync(acceptedPath));
+  });
+
+  test('rejects a logical destination that is symlinked outside the project', async () => {
+    const folder = path.join(projectRoot, 'db-init');
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'dvs-outside-'));
+    fs.rmSync(folder, { recursive: true, force: true });
+    try {
+      fs.symlinkSync(outside, folder, 'dir');
+      const r = await api('/api/deploy-files', { body: { destination: 'db-init', files: { '08-ddls.sql': 'SELECT 1;' } } });
+      assert.strictEqual(r.status, 400);
+      assert.match((await r.json()).error, /symbolic link/i);
+      assert.ok(!fs.existsSync(path.join(outside, '08-ddls.sql')));
+    } finally {
+      fs.rmSync(folder, { force: true });
+      fs.mkdirSync(folder, { recursive: true });
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects an approved output filename that is an existing symlink', async () => {
+    const folder = path.join(projectRoot, 'db-init');
+    const target = path.join(projectRoot, 'start.sh');
+    const link = path.join(folder, '09-ddls.sql');
+    const original = fs.readFileSync(target, 'utf8');
+    fs.mkdirSync(folder, { recursive: true });
+    fs.rmSync(link, { force: true });
+    try {
+      fs.symlinkSync(target, link, 'file');
+      const r = await api('/api/deploy-files', { body: { destination: 'db-init', files: { '09-ddls.sql': 'overwritten' } } });
+      assert.strictEqual(r.status, 400);
+      assert.match((await r.json()).error, /symbolic link/i);
+      assert.strictEqual(fs.readFileSync(target, 'utf8'), original);
+    } finally {
+      fs.rmSync(link, { force: true });
+    }
+  });
+
   test('rejects an empty file set', async () => {
-    const r = await api('/api/deploy-files', { body: { files: {} } });
+    const r = await api('/api/deploy-files', { body: { destination: 'db-init', files: {} } });
     assert.strictEqual(r.status, 400);
   });
 });
@@ -488,6 +902,37 @@ describe('fetch-driver allowlist', () => {
     assert.strictEqual(r.status, 400);
     assert.match(body.error, /Unsafe file name/);
   });
+
+  test('stops chunked downloads at the configured byte limit and removes the partial file', async () => {
+    const originalApp = app;
+    const chunks = [Buffer.from('123'), Buffer.from('456')];
+    const fetchImpl = async () => ({
+      ok:true,
+      status:200,
+      headers:{ get(){ return null; } },
+      body:{ getReader(){ return { async read(){ return chunks.length ? { done:false, value:chunks.shift() } : { done:true }; } }; } },
+    });
+    const env = Object.assign({}, process.env, {
+      DVS_PROJECT_ROOT:projectRoot,
+      DVS_DATABASE_PACK_HOME:path.join(projectRoot, 'data_vault_studio', 'database-packs'),
+      DVS_MAX_JDBC_DRIVER_BYTES:'5',
+    });
+    app = createApp({ studioMode:'production', env, apiToken:TEST_API_TOKEN, fetch:fetchImpl, scheduler:false });
+    const target = path.join(projectRoot, 'jdbc-drivers', 'oversized.jar');
+    try {
+      const response = await api('/api/fetch-driver', { body:{ url:'https://repo1.maven.org/oversized.jar', filename:'oversized.jar' } });
+      const body = await response.json();
+      assert.strictEqual(response.status, 413);
+      assert.strictEqual(body.code, 'DOWNLOAD_TOO_LARGE');
+      assert.strictEqual(body.maxBytes, 5);
+      assert.strictEqual(fs.existsSync(target), false);
+      const leftovers = fs.existsSync(path.dirname(target)) ? fs.readdirSync(path.dirname(target)).filter(name => name.endsWith('.part')) : [];
+      assert.deepStrictEqual(leftovers, []);
+    } finally {
+      fs.rmSync(target, { force:true });
+      app = originalApp;
+    }
+  });
 });
 
 describe('profile-table identifier validation', () => {
@@ -554,11 +999,12 @@ describe('file-status', () => {
 });
 
 describe('driver-status', () => {
-  test('reports no MySQL driver when jdbc-drivers/ is empty or missing', async () => {
+  test('reports no bundled JDBC drivers when jdbc-drivers/ is empty or missing', async () => {
     const r = await api('/api/driver-status',{method:'GET'});
     const body = await r.json();
     assert.strictEqual(body.ok, true);
     assert.strictEqual(body.mysqlDriver, null);
+    assert.strictEqual(body.postgresDriver, null);
     assert.strictEqual(body.sqlServerDriver, null);
     assert.deepStrictEqual(body.jars, []);
   });
@@ -572,6 +1018,17 @@ describe('driver-status', () => {
     const body = await r.json();
     assert.strictEqual(body.mysqlDriver, 'mysql-connector-j-9.7.0.jar');
     assert.deepStrictEqual(body.jars, ['mysql-connector-j-9.7.0.jar']);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('finds a PostgreSQL JDBC jar once one is in place', async () => {
+    const dir = path.join(projectRoot, 'jdbc-drivers');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'postgresql-42.7.7.jar'), 'stub');
+    const r = await api('/api/driver-status',{method:'GET'});
+    const body = await r.json();
+    assert.strictEqual(body.postgresDriver, 'postgresql-42.7.7.jar');
+    assert.deepStrictEqual(body.jars, ['postgresql-42.7.7.jar']);
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
@@ -663,6 +1120,54 @@ describe('scheduler config', () => {
     assert.strictEqual(body.ok, true);
     assert.strictEqual(typeof body.intervalMinutes, 'number');
   });
+
+  test('an overdue scheduled occurrence is skipped and advanced when Hop is already running', async () => {
+    const express = require('express');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dvs-scheduler-overlap-'));
+    const statePath = path.join(root, '.vault-studio-scheduler.json');
+    fs.writeFileSync(statePath, JSON.stringify({
+      enabled:true,
+      intervalMinutes:60,
+      mode:'internal',
+      nextRunAt:new Date(Date.now() - 60000).toISOString(),
+      lastRunAt:null,
+      log:[],
+    }));
+
+    let pollTick;
+    const realSetInterval = global.setInterval;
+    try {
+      global.setInterval = fn => {
+        pollTick = fn;
+        return { unref(){} };
+      };
+      const isolated = express();
+      registerSchedulerRoutes(isolated, {
+        express,
+        fs,
+        path,
+        PROJECT_ROOT:root,
+        ENGINE_MODES:{ internal:['up','-d','hop'] },
+        runFixedCommand:async () => { throw new Error('overlapping Hop run must not be started'); },
+        getHopStatus:async () => ({ ok:true, present:true, running:true, state:'running', status:'Up' }),
+      });
+    } finally {
+      global.setInterval = realSetInterval;
+    }
+
+    try {
+      assert.strictEqual(typeof pollTick, 'function');
+      const before = Date.now();
+      pollTick();
+      await new Promise(resolve => setImmediate(resolve));
+      const persisted = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+      assert.strictEqual(persisted.log[0].skipped, true);
+      assert.strictEqual(persisted.log[0].skipReason, 'hop-already-running');
+      assert.ok(new Date(persisted.nextRunAt).getTime() >= before + 59 * 60000, 'skipped occurrence should advance the schedule');
+    } finally {
+      fs.rmSync(root, { recursive:true, force:true });
+    }
+  });
 });
 
 describe('docker endpoints stay fixed-command and answer JSON', () => {
@@ -701,6 +1206,27 @@ describe('docker endpoints stay fixed-command and answer JSON', () => {
     }
   });
 
+  test('rejects a concurrent ETL transition with a retryable conflict', async () => {
+    const startPath = path.join(projectRoot, 'start.sh');
+    const original = fs.readFileSync(startPath);
+    try {
+      fs.writeFileSync(startPath, '#!/bin/bash\nsleep 0.2\nexit 0\n');
+      fs.chmodSync(startPath, 0o755);
+      const first = api('/api/docker/run-hop', { body:{ mode:'internal' } });
+      const second = await api('/api/docker/run-hop', { body:{ mode:'internal' } });
+      const conflict = await second.json();
+      assert.strictEqual(second.status, 409);
+      assert.strictEqual(conflict.code, 'OPERATION_IN_PROGRESS');
+      assert.strictEqual(conflict.operation, 'etl-transition');
+      assert.strictEqual(conflict.retryable, true);
+      assert.strictEqual(second.headers.get('retry-after'), '1');
+      assert.strictEqual((await (await first).json()).ok, true);
+    } finally {
+      fs.writeFileSync(startPath, original);
+      fs.chmodSync(startPath, 0o755);
+    }
+  });
+
   test('engine routes never spawn a hardcoded container engine command', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'server', 'routes', 'engine.js'), 'utf8');
     assert.doesNotMatch(source, /spawn\s*\(\s*['"](?:docker|docker-compose|podman)['"]/);
@@ -718,14 +1244,24 @@ describe('docker endpoints stay fixed-command and answer JSON', () => {
     }
   });
 
-  test('start-db/stop-db accept the packaged services and answer JSON', async () => {
-    for (const service of ['mysql', 'postgres']){
-      const r = await api('/api/docker/start-db', { body: { service } });
-      const body = await r.json();
-      assert.strictEqual(typeof body.ok, 'boolean'); // stub start.sh exits 0 in this test root
-      const r2 = await api('/api/docker/stop-db', { body: { service } });
-      assert.strictEqual(typeof (await r2.json()).ok, 'boolean');
+  test('production can start packaged PostgreSQL but packaged MySQL is demo-only', async () => {
+    const mysql = await api('/api/docker/start-db', { body: { service:'mysql' } });
+    assert.strictEqual(mysql.status, 403);
+    assert.match((await mysql.json()).error, /only be started in demo mode/i);
+
+    const postgres = await api('/api/docker/start-db', { body: { service:'postgres' } });
+    assert.strictEqual(typeof (await postgres.json()).ok, 'boolean');
+
+    for (const service of ['mysql','postgres']) {
+      const stopped = await api('/api/docker/stop-db', { body:{ service } });
+      assert.strictEqual(typeof (await stopped.json()).ok, 'boolean');
     }
+  });
+
+  test('demo mode can start the packaged MySQL service', async () => {
+    const r = await apiOn(demoApp, '/api/docker/start-db', { body:{ service:'mysql' } });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(typeof (await r.json()).ok, 'boolean');
   });
 
   test('start-db uses exact native/FDW commands and postgres-only database overrides', async () => {
@@ -733,7 +1269,7 @@ describe('docker endpoints stay fixed-command and answer JSON', () => {
     const envLogPath = path.join(projectRoot, 'env.log');
     fs.rmSync(logPath, { force: true });
     fs.rmSync(envLogPath, { force: true });
-    await api('/api/docker/start-db', { body: { service: 'mysql' } });
+    await apiOn(demoApp, '/api/docker/start-db', { body: { service: 'mysql' } });
     await api('/api/docker/start-db', { body: { service: 'postgres', database: 'Customer_Vault2' } });
     await api('/api/docker/start-db', { body: { service: 'postgres', database: 'fdw_vault', fdw: true } });
     const log = fs.readFileSync(logPath, 'utf8').trim().split('\n');
@@ -766,13 +1302,13 @@ describe('docker endpoints stay fixed-command and answer JSON', () => {
       assert.match((await response.json()).error, /plain SQL identifier/i);
       assert.strictEqual(fs.existsSync(logPath), false, 'invalid database must not reach start.sh');
     }
-    const mysql = await api('/api/docker/start-db', { body: { service:'mysql', database:'datavault' } });
+    const mysql = await apiOn(demoApp, '/api/docker/start-db', { body: { service:'mysql', database:'datavault' } });
     assert.strictEqual(mysql.status, 400);
     assert.match((await mysql.json()).error, /only valid for the postgres/i);
   });
 
   test('FDW mode is rejected for MySQL and non-boolean values', async () => {
-    let r = await api('/api/docker/start-db', { body: { service: 'mysql', fdw: true } });
+    let r = await apiOn(demoApp, '/api/docker/start-db', { body: { service: 'mysql', fdw: true } });
     assert.strictEqual(r.status, 400);
     assert.match((await r.json()).error, /only valid for the postgres/i);
     r = await api('/api/docker/start-db', { body: { service: 'postgres', fdw: 'yes' } });
@@ -815,8 +1351,45 @@ describe('docker endpoints stay fixed-command and answer JSON', () => {
     const logPath = path.join(projectRoot, 'args.log');
     fs.rmSync(logPath, { force: true });
     await api('/api/scheduler/run-now', { body: {} });
-    assert.strictEqual(fs.readFileSync(logPath, 'utf8').trim(), 'up --demo -d hop');
+    assert.deepStrictEqual(fs.readFileSync(logPath, 'utf8').trim().split('\n'), [
+      'ps -a --format json hop',
+      'up --demo -d hop',
+    ]);
     await api('/api/scheduler/config', { body: { mode: 'internal', enabled: false } });
+  });
+
+  test('scheduler skips a manual start when Hop is already running', async () => {
+    const stubPath = path.join(projectRoot, 'start.sh');
+    const original = fs.readFileSync(stubPath);
+    const logPath = path.join(projectRoot, 'args.log');
+    try {
+      fs.writeFileSync(stubPath, `#!/bin/bash
+echo "$@" >> args.log
+if [ "$1" = "ps" ]; then
+  echo '{"Service":"hop","State":"running","Status":"Up 2 minutes","ExitCode":0,"Name":"test-hop"}'
+fi
+exit 0
+`);
+      fs.chmodSync(stubPath, 0o755);
+      fs.rmSync(logPath, { force:true });
+
+      const r = await api('/api/scheduler/run-now', { body:{} });
+      const body = await r.json();
+      assert.strictEqual(body.ok, true);
+      assert.strictEqual(body.result.ok, true);
+      assert.strictEqual(body.result.skipped, true);
+      assert.strictEqual(body.result.skipReason, 'hop-already-running');
+      assert.match(body.result.message, /already active/i);
+      assert.strictEqual(body.log[0].skipped, true);
+      assert.strictEqual(body.log[0].skipReason, 'hop-already-running');
+      assert.deepStrictEqual(fs.readFileSync(logPath, 'utf8').trim().split('\n'), [
+        'ps -a --format json hop',
+      ]);
+    } finally {
+      fs.writeFileSync(stubPath, original);
+      fs.chmodSync(stubPath, 0o755);
+      await api('/api/scheduler/config', { body:{ mode:'internal', enabled:false } });
+    }
   });
 
   test('validate-workbook reports a clear error when no validator script exists', async () => {
@@ -837,7 +1410,7 @@ describe('start.sh failure diagnostics', () => {
   test('license prompt on stdout becomes a clear, actionable error', async () => {
     fs.writeFileSync(stubPath(), '#!/bin/bash\necho "LICENSE AGREEMENT"\necho "You must accept the license agreement before the ETL process can start."\nexit 1\n');
     fs.chmodSync(stubPath(), 0o755);
-    const r = await (await api('/api/docker/start-db', { body: { service: 'mysql' } })).json();
+    const r = await (await apiOn(demoApp, '/api/docker/start-db', { body: { service: 'mysql' } })).json();
     assert.strictEqual(r.ok, false);
     assert.match(r.error, /License not accepted/i);
     assert.match(r.error, /accept it in the GUI/i);
@@ -931,10 +1504,91 @@ describe('env-defaults', () => {
     ].join('\n'));
     const r = await (await api('/api/env-defaults', { method: 'GET' })).json();
     assert.strictEqual(r.found, true);
-    assert.deepStrictEqual(r.mysql, { user: 'sakila', password: 'password' });
-    assert.deepStrictEqual(r.target, { user: 'dvuser', password: 'vault-password' });
-    assert.deepStrictEqual(r.bootstrap, { user: 'postgres_admin', password: 'bootstrap-password' });
-    assert.deepStrictEqual(r.vault, { password: 'vault-password' });
+    assert.deepStrictEqual(r.mysql, { user: 'sakila', passwordConfigured: true });
+    assert.deepStrictEqual(r.target, { user: 'dvuser', passwordConfigured: true });
+    assert.deepStrictEqual(r.bootstrap, { user: 'postgres_admin', passwordConfigured: true });
+    assert.deepStrictEqual(r.vault, { passwordConfigured: true });
+    assert.doesNotMatch(JSON.stringify(r), /vault-password|bootstrap-password|"password"\s*:/);
+  });
+});
+
+describe('DVS-002-b packaged credential references', () => {
+  let temp,envFile,hopEnvironmentFile,service;
+  beforeEach(()=>{
+    temp=fs.mkdtempSync(path.join(os.tmpdir(),'dvs-credentials-'));
+    envFile=path.join(temp,'.env');
+    hopEnvironmentFile=path.join(temp,'postgres-environment.json');
+    fs.writeFileSync(envFile,[
+      'SOURCE_PASSWORD=canary-source-secret',
+      'MYSQL_USER=sakila',
+      'MYSQL_PASSWORD=${SOURCE_PASSWORD}',
+      'VAULT_PASSWORD=canary-vault-secret',
+      'DB_USER=dvuser',
+      'DB_PASSWORD=${VAULT_PASSWORD}',
+      'POSTGRES_BOOTSTRAP_USER=admin',
+      'POSTGRES_BOOTSTRAP_PASSWORD=canary-bootstrap-secret',
+      '',
+    ].join('\n'));
+    fs.writeFileSync(hopEnvironmentFile,JSON.stringify({variables:[
+      {name:'pdi_meta_host_name',value:'external.example'},
+      {name:'pdi_meta_port_number',value:'5432'},
+      {name:'pdi_meta_database_name',value:'customer_vault'},
+      {name:'data_vault_host_name',value:'external.example'},
+      {name:'data_vault_port_number',value:'5432'},
+      {name:'data_vault_database_name',value:'customer_vault'},
+      {name:'stg_host_name',value:'external.example'},
+      {name:'stg_port_number',value:'5432'},
+      {name:'stg_database_name',value:'customer_vault'},
+    ]}));
+    service=createPackagedCredentialService({envFilePath:envFile,hopEnvironmentPath:hopEnvironmentFile});
+  });
+  afterEach(()=>fs.rmSync(temp,{recursive:true,force:true}));
+
+  test('public defaults expose configuration state but no password values',()=>{
+    const defaults=service.publicDefaults();
+    assert.deepStrictEqual(defaults.mysql,{user:'sakila',passwordConfigured:true});
+    assert.deepStrictEqual(defaults.target,{user:'dvuser',passwordConfigured:true});
+    assert.doesNotMatch(JSON.stringify(defaults),/canary-|"password"\s*:/);
+  });
+
+  test('resolves only the four fixed server-side connection profiles',()=>{
+    const source=service.resolveConnection({credentialRef:'packaged-mysql-source',database:'sakila',dialect:'mysql'});
+    assert.strictEqual(source.host,'localhost');assert.strictEqual(source.port,'3306');assert.strictEqual(source.password,'canary-source-secret');
+    const target=service.resolveConnection({credentialRef:'internal-postgres-target',database:'Customer_Vault'});
+    assert.strictEqual(target.host,'localhost');assert.strictEqual(target.port,'5433');assert.strictEqual(target.password,'canary-vault-secret');
+    const external=service.resolveConnection({credentialRef:'external-postgres-target',host:'external.example',port:'5432',database:'customer_vault',dialect:'postgresql'});
+    assert.strictEqual(external.user,'admin');assert.strictEqual(external.password,'canary-bootstrap-secret');
+    assert.deepStrictEqual(service.resolveRedactionValues('external-postgres-target'),{user:'admin',password:'canary-bootstrap-secret'});
+    const physical=service.resolveConnection({credentialRef:'demo-fdw-physical-mysql',database:'datavault'});
+    assert.strictEqual(physical.password,'canary-source-secret');
+  });
+
+  test('fails closed for unknown, conflicting, or redirectable references',()=>{
+    assert.throws(()=>service.resolveConnection({credentialRef:'SOURCE_PASSWORD',database:'sakila'}),/unknown/i);
+    assert.throws(()=>service.resolveConnection({credentialRef:'packaged-mysql-source',database:'sakila',password:'x'}),/cannot be combined/i);
+    assert.throws(()=>service.resolveConnection({credentialRef:'packaged-mysql-source',database:'sakila',host:'attacker.example'}),/that host/i);
+    assert.throws(()=>service.resolveConnection({credentialRef:'internal-postgres-target',database:'bad-name'}),/plain identifier/i);
+    assert.throws(()=>service.resolveConnection({credentialRef:'external-postgres-target',host:'attacker.example',port:'5432',database:'customer_vault'}),/deployed host/i);
+    assert.throws(()=>service.resolveConnection({credentialRef:'external-postgres-target',host:'external.example',port:'5432',database:'other_vault'}),/deployed database/i);
+  });
+
+  test('reads updated secrets on each request rather than retaining them in memory',()=>{
+    assert.strictEqual(service.resolveSecret('packaged-mysql-source').password,'canary-source-secret');
+    fs.writeFileSync(envFile,'SOURCE_PASSWORD=replaced\nMYSQL_USER=sakila\n');
+    assert.strictEqual(service.resolveSecret('packaged-mysql-source').password,'replaced');
+  });
+
+  test('packaged query references cannot read credential-bearing system catalogs',async()=>{
+    const response=await api('/api/query',{body:{credentialRef:'internal-postgres-target',database:'datavault',sql:'SELECT umoptions FROM pg_user_mappings'}});
+    assert.strictEqual(response.status,400);
+    assert.match((await response.json()).error,/security-sensitive credential catalogs/i);
+  });
+
+  test('demo FDW endpoint rejects arbitrary SQL, credentials, and wrong references before connecting',async()=>{
+    let response=await api('/api/demo-fdw/infrastructure',{body:{gatewayDatabase:'datavault',serverName:'demo_srv',gatewayCredentialRef:'internal-postgres-target',physicalCredentialRef:'demo-fdw-physical-mysql',sql:'SELECT 1'}});
+    assert.strictEqual(response.status,400);assert.match((await response.json()).error,/unsupported demo FDW field/i);
+    response=await api('/api/demo-fdw/infrastructure',{body:{gatewayDatabase:'datavault',serverName:'demo_srv',gatewayCredentialRef:'internal-postgres-target',physicalCredentialRef:'wrong'}});
+    assert.strictEqual(response.status,400);assert.match((await response.json()).error,/fixed internal PostgreSQL and demo MySQL/i);
   });
 });
 
@@ -959,6 +1613,26 @@ describe('bootstrap endpoint', () => {
     const r = await api('/api/docker/bootstrap', { body: {} });
     assert.strictEqual(r.status, 403);
     assert.match((await r.json()).error, /license/i);
+  });
+
+  test('rejects a second bootstrap while the first bootstrap is running', async () => {
+    await acceptLicense();
+    const startPath = path.join(projectRoot, 'start.sh');
+    const original = fs.readFileSync(startPath);
+    try {
+      fs.writeFileSync(startPath, '#!/bin/bash\nsleep 0.2\nexit 0\n');
+      fs.chmodSync(startPath, 0o755);
+      const first = api('/api/docker/bootstrap', { body:{} });
+      const second = await api('/api/docker/bootstrap', { body:{} });
+      const conflict = await second.json();
+      assert.strictEqual(second.status, 409);
+      assert.strictEqual(conflict.code, 'OPERATION_IN_PROGRESS');
+      assert.strictEqual(conflict.operation, 'container-build');
+      assert.strictEqual((await (await first).json()).ok, true);
+    } finally {
+      fs.writeFileSync(startPath, original);
+      fs.chmodSync(startPath, 0o755);
+    }
   });
 
   test('external bootstrap uses only the dedicated fixed launcher subcommand', async () => {
@@ -1056,17 +1730,28 @@ describe('allowlisted project .env credential deployment', () => {
     const internal = await (await api('/api/env-credentials/status', {
       body: { sourcePassword:'source-secret', targetPassword:'target-secret', targetUser:'data-vault-user', externalPostgres:false },
     })).json();
-    assert.strictEqual(internal.sourceMatches, true);
-    assert.strictEqual(internal.targetMatches, true);
-    assert.strictEqual(internal.targetUserMatches, true);
+    assert.strictEqual(internal.sourceConfigured, true);
+    assert.strictEqual(internal.targetConfigured, true);
+    assert.strictEqual(internal.targetUserConfigured, true);
+    assert.strictEqual(internal.sourceMatches, undefined);
 
     const external = await (await api('/api/env-credentials/status', {
       body: { sourcePassword:'source-secret', targetPassword:'bootstrap-password', targetUser:'postgres_admin', externalPostgres:true },
     })).json();
-    assert.strictEqual(external.sourceMatches, true);
-    // Native PostgreSQL also requires VAULT_PASSWORD to match the single GUI target password.
-    assert.strictEqual(external.targetMatches, false);
-    assert.strictEqual(external.targetUserMatches, true);
+    assert.strictEqual(external.sourceConfigured, true);
+    assert.strictEqual(external.targetConfigured, true);
+    assert.strictEqual(external.targetUserConfigured, true);
+    assert.strictEqual(external.targetMatches, undefined);
+  });
+
+  test('packaged source deployment preserves the server-side SOURCE_PASSWORD', async () => {
+    fs.writeFileSync(envPath(),'SOURCE_PASSWORD=keep-packaged-secret\nMYSQL_USER=sakila\n');
+    const response=await api('/api/env-credentials',{body:{sourceCredentialMode:'preserve',sourcePassword:'browser-must-not-win',externalPostgres:false}});
+    const body=await response.json();
+    assert.strictEqual(response.status,200);
+    assert.deepStrictEqual(body.updated,[]);
+    assert.match(fs.readFileSync(envPath(),'utf8'),/SOURCE_PASSWORD=keep-packaged-secret/);
+    assert.doesNotMatch(fs.readFileSync(envPath(),'utf8'),/browser-must-not-win/);
   });
 
   test('internal/FDW deployment updates SOURCE_PASSWORD only', async () => {
@@ -1150,7 +1835,7 @@ describe('allowlisted project .env credential deployment', () => {
     const original = 'DB_USER=administrator-controlled\n';
     fs.writeFileSync(envPath(), original);
     const response = await api('/api/deploy-files', {
-      body: { folder:projectRoot, files:{ '.env':'DB_USER=studio-overwrite\n' } },
+      body: { destination:'db-init', files:{ '.env':'DB_USER=studio-overwrite\n' } },
     });
     assert.strictEqual(response.status, 400);
     assert.match((await response.json()).error, /\.env file is read-only/i);

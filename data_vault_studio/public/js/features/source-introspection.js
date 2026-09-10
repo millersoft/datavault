@@ -1,8 +1,12 @@
 async function fetchIntrospection(profileColumns=false){
   const v = state.vault;
   const effectiveSchema = v.dialect==='mysql' ? v.srcDatabase : v.sourceSchema;
-  const packBody=databasePackConnectionBody('source');
-  const body=packBody || { host: v.srcHost, port: v.srcPort, database: v.srcDatabase, user: v.srcUser, password: v.srcPassword, schema: effectiveSchema, dialect: v.dialect };
+  // The bundled demo intentionally keeps its MySQL password server-side.
+  // MySQL is now Pack-backed, but its Pack body must not replace the fixed
+  // packaged credential reference used by demo-mode endpoints.
+  const usePackBody=!demoSourceActive();
+  const packBody=usePackBody ? databasePackConnectionBody('source') : null;
+  const body=confirmImportedConnectionTarget(packBody || sourceConnectionPayload());
   // Database Packs own their namespace model. Do not overwrite it with the
   // PostgreSQL-oriented sourceSchema state (normally "public"). When a pack
   // has no explicit catalog/schema, the JDBC bridge scopes metadata to the
@@ -87,6 +91,8 @@ async function introspectDatabase(){
   if (btn){ btn.disabled = true; btn.textContent = 'Detecting Source Tables…'; }
   try {
     const data = await fetchIntrospection(true);
+    const invalidTableName=(data.tables||[]).map(t=>pdiMetaLengthIssue('sourceTableName',t.name,`Source table "${t.name}" name`)).find(Boolean);
+    if(invalidTableName) throw new Error(`Source schema cannot be imported into PDI metadata: ${invalidTableName}`);
     captureSourceMeta(data);
     let added = 0, updated = 0, viewsFound = 0, viewsAutoExcluded = 0, incrementalDetected = 0;
     data.tables.forEach(rt=>{
@@ -185,4 +191,3 @@ async function introspectDatabase(){
     if (btn){ btn.disabled = false; btn.textContent = 'Detect Source Tables'; }
   }
 }
-

@@ -71,18 +71,27 @@ function confirmStagingChanges(){
   return true;
 }
 
+function stagingKeyDerivationCount(){
+  return (state.tables||[]).reduce((sum,t)=>sum+(t.derivations||[]).length,0);
+}
+function deleteAllStagingKeyDerivations(){
+  let removed=0;
+  (state.tables||[]).forEach(t=>{ removed+=(t.derivations||[]).length; t.derivations=[]; });
+  return removed;
+}
+
 function renderStaging(el){
   const tables = includedTables();
   const missingHashTables = stagingTablesMissingHashColumns();
   tables.forEach(t=>{ t.loadGroup = 2000; });
   if (tables.length && expandedStagingTableId===undefined) expandedStagingTableId = tables[0].id;
   el.innerHTML = `
-    <div class="flex-between">
-      <div>
+    <div class="flex-between step-header">
+      <div class="step-header-copy">
         <h2 class="section-title">Step 3 — Staging</h2>
-        <p class="section-desc mb0">Review the source columns and detected hash keys that staging will produce. The Vault design only uses the tables and columns selected here.</p>
+        <p class="section-desc mb0">Review source columns and detected staging hash keys. Only selected tables and columns feed the Vault model.</p>
       </div>
-      <div style="display:flex;gap:8px;flex-shrink:0;">
+      <div class="step-actions">
         <span class="quick-tip" data-tooltip="Detect deterministic staging hash and business keys from the source primary and foreign keys.">
           <button class="btn primary" id="btn-suggest-keys-staging">Detect Hash Keys</button>
         </span>
@@ -91,6 +100,9 @@ function renderStaging(el){
         </span>
         <span class="quick-tip" data-tooltip="Use an AI provider to propose staging key choices for review.">
           <button class="btn" id="btn-ai-staging">AI Assist</button>
+        </span>
+        <span class="quick-tip" data-tooltip="Delete all staging key derivations. Source tables and Vault objects are kept; required keys must be detected again before confirmation.">
+          <button class="btn danger" id="btn-delete-all-staging-keys" ${stagingKeyDerivationCount()?'':'disabled'}>Delete all keys</button>
         </span>
       </div>
     </div>
@@ -136,6 +148,16 @@ function renderStaging(el){
   document.getElementById('btn-ai-staging').addEventListener('click', ()=> openAiModal('staging'));
   document.getElementById('btn-coverage-staging').addEventListener('click', ()=> openCoverageModal('staging'));
   document.getElementById('btn-suggest-keys-staging').addEventListener('click', ()=> runSuggestFromKeys('staging'));
+  document.getElementById('btn-delete-all-staging-keys').addEventListener('click', ()=>{
+    const count=stagingKeyDerivationCount();
+    if(!count) return;
+    if(!confirm(`Delete all ${count} staging key derivation(s)? Source tables and Vault objects will be kept, but required keys must be detected again before staging can be confirmed.`)) return;
+    pushUndo('delete all staging keys');
+    const removed=deleteAllStagingKeyDerivations();
+    invalidateStagingConfirmation();
+    renderAll(); setActiveTabViewOnly('staging');
+    toastUndo(`Deleted all ${removed} staging key derivation(s).`);
+  });
   document.getElementById('btn-deselect-staging').addEventListener('click', ()=>{
     if (!tables.length) return;
     pushUndo('deselect all staging tables');
@@ -260,7 +282,7 @@ function renderStagingTable(el, t){
           <h3>Staging SQL override</h3>
           <span class="tag ${isCustom?'sat':''}" style="text-transform:none;">${isCustom?'custom':'auto-generated'}</span>
         </div>
-        <textarea id="override-text-${t.id}" class="mono" style="min-height:160px;background:#20142b;color:#e7d9f0;border-color:var(--border);">${escapeHtml(isCustom ? t.customOverride : buildOverride(t))}</textarea>
+        <textarea id="override-text-${t.id}" maxlength="${pdiMetaMaxLength('stagingSqlOverride')}" class="mono" style="min-height:160px;background:#20142b;color:#e7d9f0;border-color:var(--border);">${escapeHtml(isCustom ? t.customOverride : buildOverride(t))}</textarea>
         <div class="flex-between mt">
           <p class="hint mb0">Edits here become the exported <span class="mono">staging_sql_override</span>. Column inclusion is controlled above and remains authoritative; custom SQL should still return every selected structural column and derived key alias.</p>
           <button class="btn small ${isCustom?'':'ghost'}" id="btn-reset-override-${t.id}" ${isCustom?'':'disabled'}>↺ Reset to auto</button>

@@ -75,6 +75,18 @@ Example:
 
 At container startup, any `.jar` or `.JAR` files in `jdbc-drivers/` are mounted into the Hop container and copied into Hop’s JDBC library directory.
 
+### Project database certificates
+
+User-managed database certificates, client keys, JDBC keystores, and similar connection files belong under the reserved project directory:
+
+```text
+./dv-certs/
+```
+
+Do not put certificate contents into Studio. In Database Pack JDBC Options or a Manual connection URL, reference a project file as `dv-certs/<relative-file>`, for example `dv-certs/company-ca.pem` or `file:dv-certs/client.p12`. Studio resolves that reference against the local project directory for connection tests and metadata operations. The Hop runtime sees the same files at `/app/dv-certs/...`; when JDBC FDW mode is used, the internal PostgreSQL gateway receives the same read-only mount. The `dv-certs` bind mounts are read-only, actual files under `dv-certs/` are gitignored, and references containing parent-directory traversal or symbolic-link escapes are rejected. Certificate existence and validity are intentionally left to the JDBC driver so connection failures keep the normal driver error path and API sanitisation.
+
+For Pack-backed physical targets routed through `jdbc_fdw`, generic JDBC Options and the Pack Manual connection URL belong to Studio's host-side JDBC connection test. The FDW runtime intentionally keeps its own **JDBC URL seen inside PostgreSQL** because container hostnames can differ from host-side names. Put runtime driver settings that must reach `jdbc_fdw` in that container-side JDBC URL using the driver's supported URL syntax; `dv-certs/...` references in that URL are rewritten to `/app/dv-certs/...` when the FDW DDL is generated.
+
 ---
 
 <a id="startup-modes"></a>
@@ -811,6 +823,7 @@ The external bootstrap connects using the admin/bootstrap credentials from `.env
 ├── metadata/
 ├── logs/
 ├── jdbc-drivers/
+├── dv-certs/
 ├── mysql-init/
 └── hop/
 ```

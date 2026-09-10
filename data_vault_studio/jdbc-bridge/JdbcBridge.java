@@ -1,10 +1,15 @@
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
+import java.net.InetAddress;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.security.Security;
 import java.sql.*;
 import java.util.*;
 import java.util.Base64;
 import java.util.Properties;
+import java.util.concurrent.*;
 
 public final class JdbcBridge {
   private static String esc(String s){
@@ -34,7 +39,18 @@ public final class JdbcBridge {
   private static String jdbcTypeName(int code){
     try { return JDBCType.valueOf(code).getName(); } catch(Exception e){ return "TYPE_"+code; }
   }
-  private static Connection connect(String jar, String driverClass, String url, String user, String password, java.util.Map<String,String> options) throws Exception {
+  private static void verifyPinnedDestination(String host, String allowedCsv) throws Exception {
+    if(host==null||host.isEmpty())return;
+    Set<InetAddress> allowed=new HashSet<>();
+    for(String address:String.valueOf(allowedCsv).split(","))if(!address.isEmpty())allowed.add(InetAddress.getByName(address));
+    if(allowed.isEmpty())throw new SQLException("JDBC destination has no validated addresses.");
+    Security.setProperty("networkaddress.cache.ttl","60");
+    for(InetAddress resolved:InetAddress.getAllByName(host)){
+      if(!allowed.contains(resolved))throw new SQLException("JDBC destination changed after validation.");
+    }
+  }
+
+  private static Connection connect(String jar, String driverClass, String url, String user, String password, java.util.Map<String,String> options, int timeoutMillis) throws Exception {
     URLClassLoader loader=new URLClassLoader(new URL[]{new File(jar).toURI().toURL()}, JdbcBridge.class.getClassLoader());
     Class<?> clazz=Class.forName(driverClass, true, loader);
     Driver driver=(Driver)clazz.getDeclaredConstructor().newInstance();
@@ -48,9 +64,19 @@ public final class JdbcBridge {
     }
     if(user!=null && !user.isEmpty()) props.setProperty("user", user);
     if(password!=null && !password.isEmpty()) props.setProperty("password", password);
-    Connection conn=driver.connect(url, props);
-    if(conn==null) throw new SQLException("JDBC driver did not accept URL: "+url);
-    return conn;
+    ThreadFactory daemonFactory=task->{Thread thread=new Thread(task,"dvs-jdbc-connect");thread.setDaemon(true);return thread;};
+    ExecutorService executor=Executors.newSingleThreadExecutor(daemonFactory);
+    Future<Connection> future=executor.submit(()->driver.connect(url,props));
+    try{
+      Connection conn=future.get(timeoutMillis,TimeUnit.MILLISECONDS);
+      if(conn==null) throw new SQLException("JDBC driver did not accept the supplied URL.");
+      return conn;
+    }catch(TimeoutException e){
+      future.cancel(true);
+      throw new SQLTimeoutException("Database connection timed out.");
+    }finally{
+      executor.shutdownNow();
+    }
   }
   private static void printError(Throwable t){
     System.out.println("{\"ok\":false,\"error\":"+q(t.getMessage()==null?t.toString():t.getMessage())+"}");
@@ -198,11 +224,11 @@ public final class JdbcBridge {
 
   private static String emptyToNull(String s){ return s==null || s.isEmpty() ? null : s; }
 
-  private static void query(Connection conn, String sql) throws Exception {
+  private static String queryResult(Connection conn, String sql) throws Exception {
     try(Statement st=conn.createStatement()){
       st.setQueryTimeout(30);
       boolean has=st.execute(sql);
-      if(!has){ System.out.println("{\"ok\":true,\"rows\":[],\"fields\":[],\"rowCount\":0}"); return; }
+      if(!has) return "{\"ok\":true,\"rows\":[],\"fields\":[],\"rowCount\":0}";
       try(ResultSet rs=st.getResultSet()){
         ResultSetMetaData md=rs.getMetaData(); int n=md.getColumnCount();
         StringBuilder b=new StringBuilder("{\"ok\":true,\"fields\":[");
@@ -215,9 +241,31 @@ public final class JdbcBridge {
           }
           b.append('}');
         }
-        b.append("],\"rowCount\":").append(count).append('}'); System.out.println(b.toString());
+        b.append("],\"rowCount\":").append(count).append('}'); return b.toString();
       }
     }
+  }
+
+  private static void query(Connection conn, String sql) throws Exception {
+    System.out.println(queryResult(conn,sql));
+  }
+
+  // The Node side supplies statements separated by an ASCII record separator.
+  // Generated introspection SQL never contains this control character, avoiding
+  // the need for a JSON parser in this deliberately dependency-free bridge.
+  private static void batchQuery(Connection conn, String payload) throws Exception {
+    String[] statements=payload.split("\\u001e",-1);
+    StringBuilder out=new StringBuilder("{\"ok\":true,\"results\":[");
+    for(int i=0;i<statements.length;i++){
+      if(i>0) out.append(',');
+      try{
+        out.append(queryResult(conn,statements[i]));
+      }catch(Throwable t){
+        out.append("{\"ok\":false,\"error\":").append(q(t.getMessage()==null?t.toString():t.getMessage())).append('}');
+      }
+    }
+    out.append("]}");
+    System.out.println(out.toString());
   }
 
   private static List<String> splitSqlStatements(String sql){
@@ -273,24 +321,37 @@ public final class JdbcBridge {
   }
   private static char unescape(char c){ switch(c){ case 'n': return '\n'; case 'r': return '\r'; case 't': return '\t'; default: return c; } }
 
+  private static String decodeLine(String line){
+    return new String(Base64.getDecoder().decode(line==null?"":line),java.nio.charset.StandardCharsets.UTF_8);
+  }
+
   public static void main(String[] args){
-    if(args.length<7){ printError(new IllegalArgumentException("Usage: JdbcBridge <mode> <jar> <driverClass> <url> <user> <password> <payloadBase64> [optionsBase64]")); return; }
-    String mode=args[0], jar=args[1], driver=args[2], url=args[3], user=args[4], password=args[5];
-    String payload=new String(Base64.getDecoder().decode(args[6]), java.nio.charset.StandardCharsets.UTF_8);
-    // Optional 8th arg: base64-encoded flat JSON object of JDBC options. Absent
-    // for older callers, so parsing stays fully backward compatible.
-    java.util.Map<String,String> options=new java.util.LinkedHashMap<>();
-    if(args.length>7 && args[7]!=null && !args[7].isEmpty()){
-      String optionsJson=new String(Base64.getDecoder().decode(args[7]), java.nio.charset.StandardCharsets.UTF_8);
-      options=parseFlatJsonObject(optionsJson);
-    }
-    try(Connection conn=connect(jar,driver,url,user,password,options)){
+    if(args.length<4){ printError(new IllegalArgumentException("Usage: JdbcBridge <mode> <jar> <driverClass> <connectTimeoutMs>")); return; }
+    String mode=args[0], jar=args[1], driver=args[2];
+    int connectTimeoutMillis;
+    try{connectTimeoutMillis=Integer.parseInt(args[3]);}catch(Exception e){printError(new IllegalArgumentException("Invalid JDBC connection timeout."));return;}
+    String url,user,password,payload,optionsJson,destinationHost,destinationAddresses;
+    try{
+      BufferedReader input=new BufferedReader(new InputStreamReader(System.in,java.nio.charset.StandardCharsets.UTF_8));
+      url=decodeLine(input.readLine()); user=decodeLine(input.readLine()); password=decodeLine(input.readLine());
+      payload=decodeLine(input.readLine()); optionsJson=decodeLine(input.readLine());
+      destinationHost=decodeLine(input.readLine()); destinationAddresses=decodeLine(input.readLine());
+    }catch(Exception e){printError(new IllegalArgumentException("Could not read JDBC bridge input."));return;}
+    java.util.Map<String,String> options=parseFlatJsonObject(optionsJson);
+    try{
+      verifyPinnedDestination(destinationHost,destinationAddresses);
+    }catch(Throwable t){printError(t);return;}
+    try(Connection conn=connect(jar,driver,url,user,password,options,connectTimeoutMillis)){ 
       if("analyze".equals(mode)) analyze(conn);
       else if("introspect".equals(mode)){
         String[] parts=payload.split("\\n",-1); introspect(conn,parts.length>0?parts[0]:"",parts.length>1?parts[1]:"");
       } else if("query".equals(mode)) query(conn,payload);
+      else if("batch-query".equals(mode)) batchQuery(conn,payload);
       else if("execute".equals(mode)) execute(conn,payload);
       else throw new IllegalArgumentException("Unknown mode: "+mode);
-    } catch(Throwable t){ printError(t); }
+    } catch(Throwable t){
+      printError(t);
+      if(t instanceof SQLTimeoutException)System.exit(0);
+    }
   }
 }

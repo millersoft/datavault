@@ -48,7 +48,7 @@ async function executeSqlAgainstTarget(sql, options={}){
   await ensureLocalServerReachable();
   const resp = await localFetch(`/api/execute-sql`, {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ host: v.dvHost, port: v.dvPort, database: v.dvDatabase, user: v.dvUser, password: v.dvPassword, sql }),
+    body: JSON.stringify({...targetConnectionPayload(),sql}),
   });
   const data = await resp.json();
   if (!data.ok) throw new Error(data.error || 'Execution failed.');
@@ -60,7 +60,7 @@ async function queryPostgresDatabase(database, sql, options={}){
   await ensureLocalServerReachable();
   const resp = await localFetch(`/api/query`, {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ host: v.dvHost, port: v.dvPort, database, user: v.dvUser, password: v.dvPassword, sql, role: options.role || undefined }),
+    body: JSON.stringify({...targetConnectionPayload(database),sql,role:options.role||undefined}),
   });
   const data = await resp.json();
   if (!data.ok) throw new Error(data.error || 'Query failed.');
@@ -225,10 +225,6 @@ async function dockerRunHop(){
 // future surface needs it; only the hop ENGINE is Docker-managed here.)
 
 async function deployFilesToFolder(){
-  if (!deployFolder && !deployFolderDetected){
-    toast('Local server not reachable to auto-detect the deploy folder — enter a folder path manually, or start the server.', 'err');
-    return;
-  }
   const n = parseInt(deployStartNum, 10) || 4;
   const pad = num => String(num).padStart(2, '0');
   const files = {
@@ -242,8 +238,7 @@ async function deployFilesToFolder(){
   try {
     const health = await localFetch(`/api/health`).catch(()=>null);
     if (!health || !health.ok) throw new Error(`Local server not reachable at ${localServerUrl} — is it running?`);
-    const body = { files };
-    if (deployFolder) body.folder = deployFolder; // explicit override; otherwise server defaults to its own computed db-init path
+    const body = { destination: 'db-init', files };
     const resp = await localFetch(`/api/deploy-files`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body),
@@ -272,10 +267,7 @@ async function deployJdbcDriver(context='source'){
     toast(message, 'err');
     return;
   }
-  if (!jdbcDriverFolder && !jdbcDriverFolderDetected){
-    toast('Local server not reachable to auto-detect jdbc-drivers/ — enter a folder path manually, or start the server.', 'err');
-    return;
-  }
+
   jdbcDriverDeployStatus = 'loading';
   if(targetRequest) targetJdbcDriverStatus='loading';
   const btn = document.getElementById(targetRequest?'btn-deploy-target-jdbc-driver':'btn-deploy-jdbc-driver');
@@ -286,16 +278,20 @@ async function deployJdbcDriver(context='source'){
     if (!health || !health.ok) throw new Error(`Local server not reachable at ${localServerUrl} — is it running?`);
     const resp = await localFetch(`/api/fetch-driver`, {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ url:spec.url, filename:spec.filename, folder: jdbcDriverFolder || jdbcDriverFolderDetected }),
+      body: JSON.stringify({ url:spec.url, filename:spec.filename, ...(jdbcDriverFolder ? {folder:jdbcDriverFolder} : {}) }),
     });
     const data = await resp.json();
     if (!data.ok) throw new Error(data.error || 'Fetch/deploy failed.');
     jdbcDriverDeployStatus = 'ok';
     if(targetRequest){
       state.externalTables.jarfile=`/opt/jdbc-drivers/${spec.filename}`;
+      const pack=databasePackForDialect(dialect);
+      if(pack){ pack.driverPresent=true; pack.driverFile=spec.filename; }
       targetJdbcDriverStatus='ok';
       targetJdbcDriverMessage=`${spec.filename} was written to jdbc-drivers/ and is available to the packaged PostgreSQL FDW container.`;
     } else if (statusEl) {
+      const pack=databasePackForDialect(dialect);
+      if(pack){ pack.driverPresent=true; pack.driverFile=spec.filename; }
       statusEl.innerHTML = `<div class="ai-status ok mt" style="align-items:flex-start;"><span>Fetched and wrote <span class="mono">${escapeHtml(spec.filename)}</span> (${(data.bytes/1024/1024).toFixed(1)} MB) to <span class="mono">${escapeHtml(data.folder)}</span>.</span></div>`;
     }
     toast(`Deployed ${spec.filename} to ${data.folder}.`, 'ok');
@@ -313,16 +309,11 @@ async function deployJdbcDriver(context='source'){
   if (btn) btn.textContent = targetRequest?`Fetch ${spec.label}`:'⬆ Fetch and deploy driver to jdbc-drivers/';
 }
 async function deployHopConfig(options = {}){
-  if (!hopConfigFolder && !hopConfigFolderDetected){
-    const msg = 'Local server not reachable to auto-detect hop/ — enter a folder path manually, or start the server.';
-    if (!options.silent){ toast(msg, 'err'); return null; }
-    throw new Error(msg);
-  }
   const statusEl = document.getElementById('hopconfig-deploy-status');
   try {
     const health = await localFetch(`/api/health`).catch(()=>null);
     if (!health || !health.ok) throw new Error(`Local server not reachable at ${localServerUrl} — is it running?`);
-    const body = { files: { 'postgres-environment.json': buildHopEnvironmentJson() }, folder: hopConfigFolder || hopConfigFolderDetected };
+    const body = { destination: 'hop', files: { 'postgres-environment.json': buildHopEnvironmentJson() } };
     const resp = await localFetch(`/api/deploy-files`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body),
@@ -345,16 +336,11 @@ async function deployHopConfig(options = {}){
 }
 
 async function deployHopSourceConnection(options = {}){
-  if (!rdbmsFolder && !rdbmsFolderDetected){
-    const msg = 'Local server not reachable to auto-detect metadata/rdbms/ — enter a folder path manually, or start the server.';
-    if (!options.silent){ toast(msg, 'err'); return null; }
-    throw new Error(msg);
-  }
   const statusEl = document.getElementById('sourceconn-deploy-status');
   try {
     const health = await localFetch(`/api/health`).catch(()=>null);
     if (!health || !health.ok) throw new Error(`Local server not reachable at ${localServerUrl} — is it running?`);
-    const body = { files: { 'source.json': buildHopSourceConnectionJson() }, folder: rdbmsFolder || rdbmsFolderDetected };
+    const body = { destination: 'metadata-rdbms', files: { 'source.json': buildHopSourceConnectionJson() } };
     const resp = await localFetch(`/api/deploy-files`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body),
@@ -377,19 +363,16 @@ async function deployHopSourceConnection(options = {}){
 }
 
 async function deployMappingWorkbook(options = {}){
-  if (!mappingsFolder && !mappingsFolderDetected){
-    const msg = 'Local server not reachable to auto-detect mappings/ — enter a folder path manually, or start the server.';
-    if (!options.silent){ toast(msg, 'err'); return null; }
-    throw new Error(msg);
-  }
   const statusEl = document.getElementById('mapping-deploy-status');
   try {
     const health = await localFetch(`/api/health`).catch(()=>null);
     if (!health || !health.ok) throw new Error(`Local server not reachable at ${localServerUrl} — is it running?`);
-    const wb = buildMappingWorkbook();
+    const prepared=await prepareMappingWorkbookForDelivery();
+    if(!prepared.ok) throw new Error(`Workbook preflight failed: ${prepared.error}`);
+    const wb = prepared.wb;
     const base64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
-    const filename = mappingWorkbookFilename();
-    const body = { files: { [filename]: base64 }, encoding: 'base64', folder: mappingsFolder || mappingsFolderDetected };
+    const filename = prepared.filename;
+    const body = { destination: 'mappings', files: { [filename]: base64 } };
     const resp = await localFetch(`/api/deploy-files`, {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body),

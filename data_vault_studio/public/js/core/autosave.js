@@ -29,7 +29,8 @@ function buildAutosavePayload(){
   stateCopy.vault.dvPassword = '';
   stateCopy.vault.vaultPassword = '';
   if (stateCopy.externalTables){ stateCopy.externalTables.password = ''; stateCopy.externalTables.studioPassword = ''; }
-  return { state: stateCopy, uidCounter, savedAt: new Date().toISOString() };
+  stripDatabasePackPasswordsFromState(stateCopy);
+  return { state: stateCopy, uidCounter, importedProjectConnectionsRequireConfirmation, savedAt: new Date().toISOString() };
 }
 function writeAutosaveNow(){
   try {
@@ -37,7 +38,7 @@ function writeAutosaveNow(){
     const payload = buildAutosavePayload();
     const json = JSON.stringify(payload);
     // Compare without the timestamp so idle tabs don't churn localStorage.
-    const comparable = JSON.stringify({ state: payload.state, uidCounter: payload.uidCounter });
+    const comparable = JSON.stringify({ state: payload.state, uidCounter: payload.uidCounter, importedProjectConnectionsRequireConfirmation:payload.importedProjectConnectionsRequireConfirmation });
     if (comparable === lastAutosavedJson) return;
     localStorage.setItem(AUTOSAVE_KEY, json);
     lastAutosavedJson = comparable;
@@ -66,6 +67,8 @@ function readAutosave(){
 }
 function restoreAutosave(parsed){
   Object.assign(state, parsed.state);
+  importedProjectConnectionsRequireConfirmation=parsed.importedProjectConnectionsRequireConfirmation===true;
+  confirmedImportedConnectionTargets.clear();
   if (!state.sourceMeta) state.sourceMeta = { foreignKeys: [], approxRows: {}, relationshipSuggestions: [], hopCapabilities: null };
   if (!state.sourceMeta.relationshipSuggestions) state.sourceMeta.relationshipSuggestions=[];
   if (!state.vault.sourcePackValues) state.vault.sourcePackValues={};

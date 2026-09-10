@@ -65,7 +65,7 @@ function dashboardRunHasVaultWork(row){
 
 function dashboardRunHasStagingWork(row){
   const type=String(row && row.run_type || '').trim().toLowerCase();
-  return dashboardTruthy(row && row.has_stg_jobs) || type==='test staging' || type==='staging';
+  return dashboardTruthy(row && row.has_stg_jobs) || type==='staging';
 }
 
 function dashboardStagingJobMatchesTable(row, table){
@@ -317,10 +317,10 @@ async function refreshIncrementalReadiness(options = {}){
       rows = await dashQuery(`
         SELECT r.id_run, rt.description AS run_type, r.date_start, r.date_end,
                NULL AS source_table_name, NULL AS target_table_name,
-               CASE WHEN LOWER(rt.description) IN ('test staging','staging') THEN TRUE ELSE FALSE END AS has_stg_jobs
+               CASE WHEN LOWER(rt.description) = 'staging' THEN TRUE ELSE FALSE END AS has_stg_jobs
         FROM pdi_meta.inst_runs r
         LEFT JOIN pdi_meta.ref_runtypes rt ON rt.id_rtyp = r.id_rtyp
-        WHERE LOWER(rt.description) IN ('test staging','staging')
+        WHERE LOWER(rt.description) = 'staging'
         ORDER BY r.id_run DESC
         LIMIT 5000
       `);
@@ -382,9 +382,10 @@ function renderDashboard(el){
   // Convenience: borrow the target connection from the Designer if one's
   // already been entered there, but this stays independently editable —
   // the dashboard works on its own.
-  if (!dashboardConn.database && state.vault.dvDatabase){
-    dashboardConn = { host: state.vault.dvHost||'localhost', port: state.vault.dvPort||'5432',
-      database: state.vault.dvDatabase, user: state.vault.dvUser||'', password: state.vault.dvPassword||'' };
+  if (demoTargetActive() && state.vault.dvDatabase){
+    dashboardConn = {credentialRef:'internal-postgres-target',host:'localhost',port:'5433',database:state.vault.dvDatabase,user:'',password:''};
+  } else if (!dashboardConn.database && state.vault.dvDatabase){
+    dashboardConn = {host:state.vault.dvHost||'localhost',port:state.vault.dvPort||'5432',database:state.vault.dvDatabase,user:state.vault.dvUser||'',password:state.vault.dvPassword||''};
   }
   el.innerHTML = `
     <h2 class="section-title">Data Vault Hub</h2>
@@ -463,7 +464,12 @@ function renderDashboard(el){
           <tr>
             <td class="mono">${new Date(l.at).toLocaleString()}</td>
             <td>${l.reason==='manual'?'Manual':'Scheduled'}</td>
-            <td><span class="tag" style="border-color:${l.ok?'var(--ok)':'var(--err)'};color:${l.ok?'var(--ok)':'var(--err)'};">${l.ok?'Success':'Failed'}</span>${l.error?` <span class="hint">${escapeHtml(l.error)}</span>`:''}</td>
+            <td>${(()=>{
+              const label=l.skipped?'Skipped':(l.ok?'Success':'Failed');
+              const color=l.skipped?'var(--muted)':(l.ok?'var(--ok)':'var(--err)');
+              const detail=l.error||l.message||'';
+              return `<span class="tag" style="border-color:${color};color:${color};">${label}</span>${detail?` <span class="hint">${escapeHtml(detail)}</span>`:''}`;
+            })()}</td>
           </tr>`).join('')}
       </table>` : ''}
     </div>
@@ -536,7 +542,11 @@ async function runSchedulerNowFromHub(){
     const resp = await localFetch(`/api/scheduler/run-now`, { method:'POST' });
     const data = await resp.json();
     schedulerStatus = data;
-    toast(data.result && data.result.ok ? 'Engine started.' : `Run failed: ${(data.result && data.result.error) || 'see log below'}`, data.result && data.result.ok ? 'ok' : 'err');
+    if (data.result && data.result.skipped){
+      toast(data.result.message || 'Run skipped because another ETL is already active.', data.result.ok ? 'ok' : 'err');
+    } else {
+      toast(data.result && data.result.ok ? 'Engine started.' : `Run failed: ${(data.result && data.result.error) || 'see log below'}`, data.result && data.result.ok ? 'ok' : 'err');
+    }
   } catch(err){
     toast('Could not reach the local server: ' + err.message, 'err');
   }
@@ -545,9 +555,17 @@ async function runSchedulerNowFromHub(){
 }
 
 async function dashQuery(sql){
+  const packagedInternal=demoTargetActive();
+  const database=dashboardConn.database||state.vault.dvDatabase;
+  const restoredExternal=!packagedInternal&&!dashboardConn.password&&!state.vault.dvPassword;
+  const payload=packagedInternal
+    ? {credentialRef:'internal-postgres-target',database,sql}
+    : restoredExternal
+      ? {credentialRef:'external-postgres-target',host:dashboardConn.host||state.vault.dvHost,port:dashboardConn.port||state.vault.dvPort,database,dialect:'postgresql',sql}
+      : (dashboardConn.credentialRef?{credentialRef:dashboardConn.credentialRef,database,sql}:{...dashboardConn,sql});
   const resp = await localFetch(`/api/query`, {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ ...dashboardConn, sql }),
+    body: JSON.stringify(payload),
   });
   const data = await resp.json();
   if (!data.ok) throw new Error(data.error || 'Query failed.');
@@ -917,34 +935,25 @@ async function loadDashboardMetrics(){
     if (!health || !health.ok) throw new Error(`Local server not reachable at ${localServerUrl} — is it running?`);
     try {
       dashboardRuns = await dashQuery(`
-        SELECT r.id_run,
-               CASE
-                 WHEN EXISTS (SELECT 1 FROM pdi_meta.inst_run_dv_jobs dj WHERE dj.id_run = r.id_run) THEN 'Data Vault'
-                 WHEN EXISTS (SELECT 1 FROM pdi_meta.inst_run_stg_jobs sj WHERE sj.id_run = r.id_run) THEN 'Staging'
-                 WHEN rt.description = 'Test Staging' THEN 'Staging'
-                 ELSE rt.description
-               END AS run_type,
+        SELECT r.id_run, rt.description AS run_type,
                s.description AS status_desc, r.id_status,
                r.date_start, r.date_end, r.duration_in_seconds, r.error_message
         FROM pdi_meta.inst_runs r
         LEFT JOIN pdi_meta.ref_runtypes rt ON rt.id_rtyp = r.id_rtyp
         LEFT JOIN pdi_meta.ref_statuses s ON s.id_status = r.id_status
-        WHERE rt.description IN ('Data Vault', 'Test Staging')
-           OR EXISTS (SELECT 1 FROM pdi_meta.inst_run_stg_jobs sj WHERE sj.id_run = r.id_run)
-           OR EXISTS (SELECT 1 FROM pdi_meta.inst_run_dv_jobs dj WHERE dj.id_run = r.id_run)
+        WHERE rt.description IN ('Data Vault', 'Staging')
         ORDER BY r.date_start DESC
         LIMIT 50
       `);
     } catch(jobHistoryError){
       dashboardRuns = await dashQuery(`
-        SELECT r.id_run,
-               CASE WHEN rt.description = 'Test Staging' THEN 'Staging' ELSE rt.description END AS run_type,
+        SELECT r.id_run, rt.description AS run_type,
                s.description AS status_desc, r.id_status,
                r.date_start, r.date_end, r.duration_in_seconds, r.error_message
         FROM pdi_meta.inst_runs r
         LEFT JOIN pdi_meta.ref_runtypes rt ON rt.id_rtyp = r.id_rtyp
         LEFT JOIN pdi_meta.ref_statuses s ON s.id_status = r.id_status
-        WHERE rt.description IN ('Data Vault', 'Test Staging')
+        WHERE rt.description IN ('Data Vault', 'Staging')
         ORDER BY r.date_start DESC
         LIMIT 50
       `);
@@ -958,9 +967,7 @@ async function loadDashboardMetrics(){
           SELECT r.id_run
           FROM pdi_meta.inst_runs r
           LEFT JOIN pdi_meta.ref_runtypes rt ON rt.id_rtyp = r.id_rtyp
-          WHERE rt.description IN ('Data Vault', 'Test Staging')
-             OR EXISTS (SELECT 1 FROM pdi_meta.inst_run_stg_jobs sj WHERE sj.id_run = r.id_run)
-             OR EXISTS (SELECT 1 FROM pdi_meta.inst_run_dv_jobs dj WHERE dj.id_run = r.id_run)
+          WHERE rt.description IN ('Data Vault', 'Staging')
           ORDER BY r.date_start DESC
           LIMIT 20
         )
@@ -979,9 +986,7 @@ async function loadDashboardMetrics(){
           SELECT r.id_run
           FROM pdi_meta.inst_runs r
           LEFT JOIN pdi_meta.ref_runtypes rt ON rt.id_rtyp = r.id_rtyp
-          WHERE rt.description IN ('Data Vault', 'Test Staging')
-             OR EXISTS (SELECT 1 FROM pdi_meta.inst_run_stg_jobs sj WHERE sj.id_run = r.id_run)
-             OR EXISTS (SELECT 1 FROM pdi_meta.inst_run_dv_jobs dj WHERE dj.id_run = r.id_run)
+          WHERE rt.description IN ('Data Vault', 'Staging')
           ORDER BY r.date_start DESC
           LIMIT 20
         )
@@ -1211,4 +1216,3 @@ function renderDashboardDetail(el){
   }
   el.innerHTML = rows.length ? rows.join('') : `<div class="empty">No per-object detail recorded for this run.</div>`;
 }
-

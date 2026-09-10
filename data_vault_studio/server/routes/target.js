@@ -6,6 +6,8 @@ function registerTargetRoutes(parentApp, dependencies){
     connectPgWithFallback,
     openSourceConnection,
     isPackDialect,
+    packagedCredentialService,
+    audit,
   } = dependencies;
   const app = express.Router();
 
@@ -64,12 +66,14 @@ function registerTargetRoutes(parentApp, dependencies){
         await client.query("SET LOCAL statement_timeout = '120s'");
         await client.query(sql);
         await client.query('COMMIT');
+        audit('sql.deployed', { target:'postgresql', success:true });
         res.json({ ok: true });
       } catch (err) {
         await client.query('ROLLBACK').catch(() => {});
         throw err;
       }
     } catch (err) {
+      audit('sql.deployed', { target:'postgresql', success:false });
       res.status(400).json({ ok: false, error: err.message });
     } finally {
       if (client) { try { await client.end(); } catch (_) {} }
@@ -170,6 +174,9 @@ function registerTargetRoutes(parentApp, dependencies){
   
   app.post('/api/query', async (req, res) => {
     const { sql, role } = req.body || {};
+    if (req.body?.credentialRef && /\b(?:pg_(?:user_mapping|user_mappings|authid|shadow)|information_schema\.user_mapping_options|mysql\.user)\b/i.test(String(sql||''))) {
+      return res.status(400).json({ok:false,error:'Security-sensitive credential catalogs cannot be queried with a packaged credential reference.'});
+    }
     if (!isReadOnlyQueryShape(sql)) {
       return res.status(400).json({ ok: false, error: 'Only a single SELECT (or WITH … SELECT) statement is allowed on this endpoint.' });
     }
@@ -212,6 +219,51 @@ function registerTargetRoutes(parentApp, dependencies){
       if (conn) { try { await conn.end(); } catch (_) {} }
     }
   });
+  app.post('/api/demo-fdw/infrastructure', async (req,res)=>{
+    const body=req.body||{};
+    const allowed=new Set(['gatewayDatabase','serverName','gatewayCredentialRef','physicalCredentialRef']);
+    const unexpected=Object.keys(body).filter(key=>!allowed.has(key));
+    if(unexpected.length)return res.status(400).json({ok:false,error:`Unsupported demo FDW field: ${unexpected[0]}.`});
+    if(body.gatewayCredentialRef!=='internal-postgres-target'||body.physicalCredentialRef!=='demo-fdw-physical-mysql'){
+      return res.status(400).json({ok:false,error:'The fixed internal PostgreSQL and demo MySQL credential references are required.'});
+    }
+    const database=String(body.gatewayDatabase||'');
+    const serverName=String(body.serverName||'');
+    if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(database)||!/^[A-Za-z_][A-Za-z0-9_]*$/.test(serverName)){
+      return res.status(400).json({ok:false,error:'Gateway database and FDW server must be plain identifiers.'});
+    }
+    const quoteIdent=value=>`"${String(value).replace(/"/g,'""')}"`;
+    const quoteLiteral=value=>`'${String(value).replace(/'/g,"''")}'`;
+    let client;
+    let resolvedPassword='';
+    try{
+      const physical=packagedCredentialService.resolveSecret('demo-fdw-physical-mysql');
+      resolvedPassword=physical.password;
+      client=await connectPgWithFallback({credentialRef:'internal-postgres-target',database});
+      const server=quoteIdent(serverName);
+      const sql=[
+        'CREATE EXTENSION IF NOT EXISTS jdbc_fdw;',
+        `DROP SERVER IF EXISTS ${server} CASCADE;`,
+        `CREATE SERVER ${server} FOREIGN DATA WRAPPER jdbc_fdw OPTIONS (drivername 'com.mysql.cj.jdbc.Driver', url 'jdbc:mysql://mysql:3306/datavault', querytimeout '30', jarfile '/opt/jdbc-drivers/mysql-connector-j-9.7.0.jar');`,
+        `DROP USER MAPPING IF EXISTS FOR data_vault SERVER ${server};`,
+        `CREATE USER MAPPING FOR data_vault SERVER ${server} OPTIONS (username ${quoteLiteral(physical.user)}, password ${quoteLiteral(physical.password)});`,
+        `DROP USER MAPPING IF EXISTS FOR pdi_meta SERVER ${server};`,
+        `CREATE USER MAPPING FOR pdi_meta SERVER ${server} OPTIONS (username ${quoteLiteral(physical.user)}, password ${quoteLiteral(physical.password)});`,
+        `GRANT USAGE ON FOREIGN SERVER ${server} TO data_vault, pdi_meta;`,
+      ].join('\n');
+      await client.query('BEGIN');
+      await client.query("SET LOCAL lock_timeout = '10s'");
+      await client.query("SET LOCAL statement_timeout = '120s'");
+      await client.query(sql);
+      await client.query('COMMIT');
+      res.json({ok:true,serverName,database,mappings:['data_vault','pdi_meta']});
+    }catch(err){
+      if(client)await client.query('ROLLBACK').catch(()=>{});
+      const message=resolvedPassword?String(err.message||'').split(resolvedPassword).join('[redacted]'):String(err.message||'');
+      res.status(400).json({ok:false,error:message});
+    }finally{if(client){try{await client.end();}catch(_){}}}
+  });
+
   parentApp.use(app);
 }
 

@@ -7,11 +7,15 @@ function registerExternalTargetRoutes(parentApp, dependencies){
     connectPgWithFallback,
     isPackDialect,
     getDatabasePack,
+    getDatabasePackForDialect,
     runJdbcBridge,
     packNamespaceFromBody,
     firstNonBlank,
     analysisValue,
     resolveJdbcTargetProfile,
+    packagedCredentialService,
+    outboundConnectionPolicy,
+    audit,
   } = dependencies;
   const app = express.Router();
 
@@ -24,7 +28,12 @@ function registerExternalTargetRoutes(parentApp, dependencies){
       getDatabasePack(dialect);
       return dialect;
     }
-    if (['postgresql','mysql'].includes(dialect)) return dialect;
+    if (dialect==='mysql') {
+      const pack=getDatabasePackForDialect('mysql');
+      if(pack) return `pack:${pack.id}`;
+      return 'mysql';
+    }
+    if (dialect==='postgresql') return dialect;
   
     // Backward-compatibility and defence in depth: if a client accidentally
     // sends the raw id of an installed Pack (for example "sqlserver"), keep it
@@ -93,25 +102,27 @@ function registerExternalTargetRoutes(parentApp, dependencies){
     return copy;
   }
   async function openExternalTarget(body, { databaseRequired=true, multipleStatements=false }={}){
-    const dialect=externalDialect(body);
+    const connection=packagedCredentialService.resolveConnection(body||{});
+    const dialect=externalDialect(connection);
     if(isPackDialect(dialect)){
       const pack=getDatabasePack(dialect);
       return {
         dialect, pack,
-        query:async(sql)=>{const d=await runJdbcBridge(pack,body,'query',String(sql));return {rows:d.rows||[],fields:(d.fields||[]).map(name=>({name})),rowCount:Number(d.rowCount||0)};},
-        execute:async(sql)=>runJdbcBridge(pack,body,'execute',String(sql)),
+        query:async(sql)=>{const d=await runJdbcBridge(pack,connection,'query',String(sql));return {rows:d.rows||[],fields:(d.fields||[]).map(name=>({name})),rowCount:Number(d.rowCount||0)};},
+        execute:async(sql)=>runJdbcBridge(pack,connection,'execute',String(sql)),
         end:async()=>{},
       };
     }
-    const {host,port,database,user,password}=body||{};
+    const {host,port,database,user,password}=connection;
     if (!host || !user || (databaseRequired && !database)) throw new Error(`host, ${databaseRequired?'database, ':''}and user are required.`);
     if (dialect==='postgresql'){
       const client=await connectPgWithFallback({host,port:port||5432,database:database||'postgres',user,password});
       return {dialect, query:(sql,params)=>client.query(sql,params), end:()=>client.end()};
     }
+    const destination=await outboundConnectionPolicy.validateNetworkDestination({host,port,defaultPort:3306});
     const conn=await mysql.createConnection({
-      host,
-      port:port?Number(port):3306,
+      host:destination.addresses[0],
+      port:destination.port,
       database:databaseRequired?(database||undefined):undefined,
       user,
       password:password||undefined,
@@ -145,11 +156,29 @@ function registerExternalTargetRoutes(parentApp, dependencies){
     try{
       const dialect=externalDialect(req.body);
       if(isPackDialect(dialect)){
-        const pack=getDatabasePack(dialect); const ns=packNamespaceFromBody(pack,req.body);
-        const database=ns.catalog||String((req.body&&req.body.database)||''); const schema=ns.schema||'';
+        const pack=getDatabasePack(dialect);
+        const connection=packagedCredentialService.resolveConnection(req.body||{});
+        const ns=packNamespaceFromBody(pack,connection);
+        const database=ns.catalog||String((connection&&connection.database)||''); const schema=ns.schema||'';
         const provisioning=pack.provisioning&&typeof pack.provisioning==='object'?pack.provisioning:null;
         const includeProfile=!!(req.body&&req.body.includeProfile);
         const values=packProvisioningValues({database,schema});
+        if(pack.id==='mysql'){
+          const maintenance=databasePackBodyForCatalog(pack,connection,'mysql');
+          conn=await openExternalTarget(maintenance);
+          const dbCheck=await conn.query(`SELECT 1 AS found FROM information_schema.schemata WHERE schema_name = ${externalSqlLiteral(database)}`);
+          const exists=Array.isArray(dbCheck.rows)&&dbCheck.rows.length>0;
+          let identity={};
+          try{ identity=await mysqlConnectionIdentity(conn); }catch(_){}
+          await conn.end(); conn=null;
+          if(!exists)return res.json({ok:true,connected:true,exists:false,schemaExists:false,selectedDatabase:database,selectedSchema:database,pack:{id:pack.id,label:pack.label,version:pack.version},...identity});
+          let targetProfile=null;
+          if(includeProfile){
+            const analysis=await runJdbcBridge(pack,connection,'analyze','');
+            targetProfile=packTargetProfileFromAnalysis(pack,analysis);
+          }
+          return res.json({ok:true,connected:true,exists:true,schemaExists:true,selectedDatabase:database,selectedSchema:database,pack:{id:pack.id,label:pack.label,version:pack.version},targetProfile,profileIncluded:includeProfile,...identity});
+        }
         let targetError=null;
         try{
           if(includeProfile){
@@ -157,10 +186,10 @@ function registerExternalTargetRoutes(parentApp, dependencies){
             // discovers its schemas and resolves target types. The previous flow
             // opened separate JVM/JDBC sessions for database status, SELECT 1,
             // schema status and then target-profile discovery.
-            const analysis=await runJdbcBridge(pack,req.body,'analyze','');
+            const analysis=await runJdbcBridge(pack,connection,'analyze','');
             let schemaExists=packAnalysisSchemaExists(analysis,database,schema);
             if(schemaExists==null && schema&&provisioning&&provisioning.schemaExistsSql){
-              conn=await openExternalTarget(req.body);
+              conn=await openExternalTarget(connection);
               const schemaCheck=await conn.query(renderPackProvisioningSql(provisioning.schemaExistsSql,values));
               schemaExists=Array.isArray(schemaCheck.rows)&&schemaCheck.rows.length>0;
               await conn.end(); conn=null;
@@ -175,7 +204,7 @@ function registerExternalTargetRoutes(parentApp, dependencies){
           // Status-only checks use a narrow query against the selected database.
           // If a schema was selected, checking that schema also proves the
           // database is reachable, avoiding a separate SELECT 1 round trip.
-          conn=await openExternalTarget(req.body);
+          conn=await openExternalTarget(connection);
           if(schema&&provisioning&&provisioning.schemaExistsSql){
             const schemaCheck=await conn.query(renderPackProvisioningSql(provisioning.schemaExistsSql,values));
             const schemaExists=Array.isArray(schemaCheck.rows)&&schemaCheck.rows.length>0;
@@ -191,7 +220,7 @@ function registerExternalTargetRoutes(parentApp, dependencies){
         // then fall back to the maintenance catalog. Existing databases stay on
         // the one-session fast path above.
         if(provisioning&&provisioning.maintenanceCatalog&&provisioning.databaseExistsSql&&database){
-          conn=await openExternalTarget(databasePackBodyForCatalog(pack,req.body,String(provisioning.maintenanceCatalog)));
+          conn=await openExternalTarget(databasePackBodyForCatalog(pack,connection,String(provisioning.maintenanceCatalog)));
           const dbCheck=await conn.query(renderPackProvisioningSql(provisioning.databaseExistsSql,values));
           const exists=Array.isArray(dbCheck.rows)&&dbCheck.rows.length>0;
           if(!exists)return res.json({ok:true,connected:true,exists:false,schemaExists:false,selectedDatabase:database,selectedSchema:schema,pack:{id:pack.id,label:pack.label,version:pack.version}});
@@ -217,11 +246,26 @@ function registerExternalTargetRoutes(parentApp, dependencies){
     try{
       const dialect=externalDialect(req.body);
       if(isPackDialect(dialect)){
-        const pack=getDatabasePack(dialect); const ns=packNamespaceFromBody(pack,req.body);
-        const database=ns.catalog||String((req.body&&req.body.database)||''); const schema=ns.schema||'';
+        const pack=getDatabasePack(dialect);
+        const connection=packagedCredentialService.resolveConnection(req.body||{});
+        const ns=packNamespaceFromBody(pack,connection);
+        const database=ns.catalog||String((connection&&connection.database)||''); const schema=ns.schema||'';
         const provisioning=pack.provisioning&&typeof pack.provisioning==='object'?pack.provisioning:null;
+        if(pack.id==='mysql'){
+          externalIdentifier(database,'Database name');
+          conn=await openExternalTarget(databasePackBodyForCatalog(pack,connection,'mysql'));
+          const existing=await conn.query(`SELECT 1 AS found FROM information_schema.schemata WHERE schema_name = ${externalSqlLiteral(database)}`);
+          const created=!Array.isArray(existing.rows)||existing.rows.length===0;
+          if(created) await conn.execute(`CREATE DATABASE IF NOT EXISTS \`${database.replace(/`/g,'``')}\``);
+          const verify=await conn.query(`SELECT 1 AS found FROM information_schema.schemata WHERE schema_name = ${externalSqlLiteral(database)}`);
+          if(!Array.isArray(verify.rows)||verify.rows.length===0)throw new Error(`Database "${database}" was not visible after CREATE DATABASE.`);
+          const identity=await mysqlConnectionIdentity(conn).catch(()=>({}));
+          await conn.end(); conn=null;
+          const analysis=await runJdbcBridge(pack,connection,'analyze','');
+          return res.json({ok:true,created,exists:true,schemaExists:true,selectedDatabase:database,selectedSchema:database,pack:{id:pack.id,label:pack.label,version:pack.version},targetProfile:packTargetProfileFromAnalysis(pack,analysis),...identity});
+        }
         if(!provisioning||!provisioning.maintenanceCatalog||!provisioning.databaseExistsSql||!provisioning.createDatabaseSql){
-          conn=await openExternalTarget(req.body); await conn.query(String(pack.jdbc.testSql||'SELECT 1'));
+          conn=await openExternalTarget(connection); await conn.query(String(pack.jdbc.testSql||'SELECT 1'));
           return res.json({ok:true,created:false,exists:true,vendorManaged:true,selectedDatabase:database,selectedSchema:schema,message:'Database/catalog creation is administrator-managed for this Database Pack.'});
         }
         const values=packProvisioningValues({database,schema});
@@ -234,19 +278,19 @@ function registerExternalTargetRoutes(parentApp, dependencies){
           // idempotent so a race cannot create the database twice.
           let created=false, schemaCreated=false;
           if(!knownDatabaseExists){
-            conn=await openExternalTarget(databasePackBodyForCatalog(pack,req.body,String(provisioning.maintenanceCatalog)));
+            conn=await openExternalTarget(databasePackBodyForCatalog(pack,connection,String(provisioning.maintenanceCatalog)));
             await conn.execute(renderPackProvisioningSql(provisioning.ensureDatabaseSql,values));
             created=true; await conn.end(); conn=null;
           }
           if(schema && knownSchemaExists!==true && provisioning.createSchemaSql){
-            conn=await openExternalTarget(req.body);
+            conn=await openExternalTarget(connection);
             await conn.execute(renderPackProvisioningSql(provisioning.createSchemaSql,values));
             schemaCreated=true; await conn.end(); conn=null;
           }
-          const analysis=await runJdbcBridge(pack,req.body,'analyze','');
+          const analysis=await runJdbcBridge(pack,connection,'analyze','');
           let schemaExists=packAnalysisSchemaExists(analysis,database,schema);
           if(schemaExists==null && schema&&provisioning.schemaExistsSql){
-            conn=await openExternalTarget(req.body);
+            conn=await openExternalTarget(connection);
             const schemaCheck=await conn.query(renderPackProvisioningSql(provisioning.schemaExistsSql,values));
             schemaExists=Array.isArray(schemaCheck.rows)&&schemaCheck.rows.length>0;
             await conn.end(); conn=null;
@@ -258,14 +302,14 @@ function registerExternalTargetRoutes(parentApp, dependencies){
             targetProfile:packTargetProfileFromAnalysis(pack,analysis)
           });
         }
-        conn=await openExternalTarget(databasePackBodyForCatalog(pack,req.body,String(provisioning.maintenanceCatalog)));
+        conn=await openExternalTarget(databasePackBodyForCatalog(pack,connection,String(provisioning.maintenanceCatalog)));
         let check=await conn.query(renderPackProvisioningSql(provisioning.databaseExistsSql,values));
         let created=false;
         let exists=Array.isArray(check.rows)&&check.rows.length>0;
         if(!exists){
           await conn.end(); conn=null;
           try{
-            conn=await openExternalTarget(req.body);
+            conn=await openExternalTarget(connection);
             await conn.query(String(pack.jdbc.testSql||'SELECT 1'));
             exists=true;
           }catch(_){
@@ -273,13 +317,13 @@ function registerExternalTargetRoutes(parentApp, dependencies){
           }
         }
         if(!exists){
-          conn=await openExternalTarget(databasePackBodyForCatalog(pack,req.body,String(provisioning.maintenanceCatalog)));
+          conn=await openExternalTarget(databasePackBodyForCatalog(pack,connection,String(provisioning.maintenanceCatalog)));
           await conn.execute(renderPackProvisioningSql(provisioning.createDatabaseSql,values)); created=true;
           check=await conn.query(renderPackProvisioningSql(provisioning.databaseExistsSql,values));
           if(!Array.isArray(check.rows)||!check.rows.length)throw new Error(`Database "${database}" was not visible after creation.`);
           await conn.end(); conn=null;
         }
-        if(!conn)conn=await openExternalTarget(req.body);
+        if(!conn)conn=await openExternalTarget(connection);
         await conn.query(String(pack.jdbc.testSql||'SELECT 1'));
         let schemaCreated=false, schemaExists=true;
         if(schema&&provisioning.schemaExistsSql){
@@ -401,7 +445,13 @@ function registerExternalTargetRoutes(parentApp, dependencies){
       conn=await openExternalTarget(req.body);
       if(isPackDialect(dialect)){
         const pack=getDatabasePack(dialect); const result=await conn.query(String(pack.jdbc.testSql||'SELECT 1'));
-        const ns=packNamespaceFromBody(pack,req.body);
+        const connection=packagedCredentialService.resolveConnection(req.body||{});
+        const ns=packNamespaceFromBody(pack,connection);
+        if(pack.id==='mysql'){
+          const identity=await mysqlConnectionIdentity(conn).catch(()=>({}));
+          let grants=[]; try{grants=(await conn.query('SHOW GRANTS FOR CURRENT_USER()')).rows||[];}catch(_){}
+          return res.json({ok:true,pack:{id:pack.id,label:pack.label,version:pack.version},catalog:ns.catalog,schema:ns.schema||connection.database,fdw:pack.fdw,rowCount:result.rowCount||0,...identity,grants});
+        }
         return res.json({ok:true,pack:{id:pack.id,label:pack.label,version:pack.version},catalog:ns.catalog,schema:ns.schema,fdw:pack.fdw,rowCount:result.rowCount||0});
       }
       if(dialect==='mysql'){
@@ -425,6 +475,7 @@ function registerExternalTargetRoutes(parentApp, dependencies){
       conn=await openExternalTarget(req.body,{multipleStatements:true});
       if(isPackDialect(conn.dialect)){
         const result=await conn.execute(sql);
+        audit('sql.deployed', { target:'database-pack', dialect:conn.dialect, statements:result.statements||0, success:true });
         return res.json({ok:true,statements:result.statements||0});
       }
       if(conn.dialect==='postgresql'){
@@ -441,8 +492,9 @@ function registerExternalTargetRoutes(parentApp, dependencies){
       }else{
         await conn.query(sql);
       }
+      audit('sql.deployed', { target:'external', dialect:conn.dialect, success:true });
       res.json({ok:true});
-    }catch(err){res.status(400).json({ok:false,error:err.message});}
+    }catch(err){audit('sql.deployed', { target:'external', success:false });res.status(400).json({ok:false,error:err.message});}
     finally{if(conn){try{await conn.end();}catch(_){}}}
   });
   
@@ -453,19 +505,21 @@ function registerExternalTargetRoutes(parentApp, dependencies){
       const tables=Array.isArray(req.body&&req.body.tables)?req.body.tables.map(t=>externalIdentifier(t,'Table name')):[];
       if(!tables.length) return res.status(400).json({ok:false,error:'At least one table is required.'});
       if(isPackDialect(dialect)){
-        const pack=getDatabasePack(dialect); const ns=packNamespaceFromBody(pack,req.body);
+        const pack=getDatabasePack(dialect); const connection=packagedCredentialService.resolveConnection(req.body||{}); const ns=packNamespaceFromBody(pack,connection);
         const provisioning=pack.provisioning&&typeof pack.provisioning==='object'?pack.provisioning:null;
         let present;
         if(provisioning&&provisioning.tableStatusSql&&ns.schema){
           // Avoid a full JDBC schema introspection just to answer "do these
           // specific Vault tables exist?". Packs can provide a narrow catalog
           // query; generic Packs still fall back to JDBC metadata below.
-          conn=await openExternalTarget(req.body);
+          conn=await openExternalTarget(connection);
           const values=packProvisioningValues({database:ns.catalog,schema:ns.schema,tables});
           const result=await conn.query(renderPackProvisioningSql(provisioning.tableStatusSql,values));
           present=new Set((result.rows||[]).map(row=>String(row.table_name??row.TABLE_NAME??row.name??'').toLowerCase()).filter(Boolean));
         }else{
-          const raw=await runJdbcBridge(pack,req.body,'introspect',`${ns.catalog}\n${ns.schema}`);
+          const jdbcCatalog=pack.id==='mysql'?String(connection.database||ns.catalog||''):ns.catalog;
+          const jdbcSchema=pack.id==='mysql'?'':ns.schema;
+          const raw=await runJdbcBridge(pack,connection,'introspect',`${jdbcCatalog}\n${jdbcSchema}`);
           present=new Set((raw.tables||[]).map(t=>String(t.name).toLowerCase()));
         }
         const existing=tables.filter(t=>present.has(String(t).toLowerCase()));

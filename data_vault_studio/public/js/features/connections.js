@@ -1,9 +1,15 @@
 function sourceDialectOptionsHtml(){
   if(isDemoRuntime()) return '<option value="mysql" selected>MySQL Demo</option>';
-  const builtins=['postgresql','mysql'].map(k=>`<option value="${k}" ${state.vault.dialect===k?'selected':''}>${DIALECTS[k].label}</option>`).join('');
-  const packs=databasePacks.filter(p=>(!p.source||p.source.enabled!==false)&&!isBuiltinDialectPack(p)).map(p=>`<option value="pack:${p.id}" ${state.vault.dialect===`pack:${p.id}`?'selected':''}>${escapeHtml(p.label)}</option>`).join('');
+  const available=orderedDatabasePacks(databasePacks.filter(p=>(!p.source||p.source.enabled!==false)));
+  const commonIds=new Set(PREFERRED_DATABASE_PACK_IDS);
+  const optionFor=pack=>{
+    const value=databasePackDialectValue(pack);
+    return `<option value="${escapeHtml(value)}" ${state.vault.dialect===value?'selected':''}>${escapeHtml(pack.label)}</option>`;
+  };
+  const common=available.filter(pack=>commonIds.has(pack.id)).map(optionFor).join('');
+  const others=available.filter(pack=>!commonIds.has(pack.id)).map(optionFor).join('');
   const legacySqlServer=state.vault.dialect==='sqlserver' ? '<option value="sqlserver" selected disabled>SQL Server — add database type to continue</option>' : '';
-  return `<optgroup label="Built-in databases">${builtins}</optgroup><optgroup label="Database Packs">${packs}${legacySqlServer}<option value="__add_database_type__">＋ Add database type…</option></optgroup>`;
+  return `<optgroup label="Common databases">${common}</optgroup><optgroup label="Other databases">${others}${legacySqlServer}<option value="__add_database_type__">＋ Add database type…</option></optgroup>`;
 }
 
 function renderConnections(el){
@@ -18,8 +24,7 @@ function renderConnections(el){
   const disabled=demo?'disabled aria-disabled="true"':'';
   const sourceDialectOptions=sourceDialectOptionsHtml();
   const sourcePack=databasePackForDialect(v.dialect);
-  const fdwTargetDialects=demo?['mysql']:['postgresql','mysql'];
-  const fdwTargetDialectOptions=fdwTargetDialects.map(k=>`<option value="${k}" ${ext.remoteDialect===k?'selected':''}>${DIALECTS[k].label}</option>`).join('');
+  if(sourcePack) seedPackConnectionValues(sourcePack,'source');
   const sourceSchemaField=v.dialect==='mysql'
     ? `<div class="field"><label>Schema</label><input type="text" value="${escapeHtml(v.srcDatabase)}" readonly><p class="hint" style="margin-top:5px;">MySQL uses the database as its schema.</p></div>`
     : `<div class="field"><label>Schema</label><input type="text" id="f-source-schema" value="${escapeHtml(v.sourceSchema||'public')}" ${readOnly}></div>`;
@@ -34,16 +39,16 @@ function renderConnections(el){
       <div id="src-container-status"></div>
       <div class="grid cols-3">
         <div class="field"><label>Database engine</label><select id="f-dialect" ${disabled}>${sourceDialectOptions}</select>${demo?'<p class="hint" style="margin-top:6px;">Fixed to the packaged MySQL demo.</p>':''}</div>
-        <div class="field"><label>Host</label><input type="text" id="f-src-host" value="${escapeHtml(v.srcHost)}" ${readOnly}></div>
+        <div class="field"><label>Host</label><input type="text" id="f-src-host" maxlength="${pdiMetaMaxLength('connectionHost')}" value="${escapeHtml(v.srcHost)}" ${readOnly}></div>
         <div class="field"><label>Port</label><input type="text" id="f-src-port" value="${escapeHtml(v.srcPort)}" ${readOnly}></div>
       </div>
       <div class="grid cols-2 mt">
-        <div class="field"><label>Database</label><input type="text" id="f-src-db" value="${escapeHtml(v.srcDatabase)}" ${readOnly}></div>
+        <div class="field"><label>Database</label><input type="text" id="f-src-db" maxlength="${pdiMetaMaxLength('connectionDatabase')}" value="${escapeHtml(v.srcDatabase)}" ${readOnly}></div>
         ${sourceSchemaField}
       </div>
       <div class="grid cols-2 mt">
-        <div class="field"><label>Username</label><input type="text" id="f-src-user" value="${escapeHtml(v.srcUser)}" ${readOnly}></div>
-        <div class="field"><label>Password</label><input type="password" id="f-srcpass" value="${escapeHtml(v.srcPassword)}" ${readOnly} autocomplete="off"></div>
+        <div class="field"><label>Username</label><input type="text" id="f-src-user" maxlength="${pdiMetaMaxLength('connectionUser')}" value="${escapeHtml(v.srcUser)}" ${readOnly}></div>
+        <div class="field"><label>Password</label><input type="password" id="f-srcpass" value="${escapeHtml(v.srcPassword)}" ${readOnly} ${demo?'placeholder="Configured server-side in .env"':''} autocomplete="off">${demo?'<p class="hint" style="margin-top:5px;">The password remains server-side and is never returned to this page.</p>':''}</div>
       </div>
       <div id="conn-status-wrap">${renderConnStatusHtml()}</div>
       ${jdbcDriverSectionHtml(v)}
@@ -63,21 +68,21 @@ function renderConnections(el){
       <div class="grid cols-3 mt">${packConnectionFieldsHtml(sourcePack,'source')}</div>
       ${packConnectionExtrasHtml(sourcePack,'source')}
       <div id="conn-status-wrap">${renderConnStatusHtml()}</div>
+      ${['mysql','postgresql'].includes(v.dialect)?jdbcDriverSectionHtml(v):''}
     </div>`:'';
-  const sourcePanel=sourcePack?packSourcePanel:builtinSourcePanel;
+  // Demo stays deliberately locked and credential-reference based in the UI.
+  // The server still resolves the bundled MySQL Pack for the actual JDBC work.
+  const sourcePanel=demo?builtinSourcePanel:(sourcePack?packSourcePanel:builtinSourcePanel);
 
   const selectedTarget=selectedDeploymentTarget();
   const targetModeField=demo
     ? `<div class="field"><label>Deployment target</label><input type="text" value="Internal PostgreSQL" readonly><p class="hint" style="margin-top:6px;">Demo mode is locked to the packaged PostgreSQL service.</p></div>`
     : `<div class="field"><label>Deployment target</label><select id="f-target-mode">
-        <optgroup label="Built-in databases">
-          <option value="mysql" ${selectedTarget==='mysql'?'selected':''}>MySQL</option>
+        <optgroup label="PostgreSQL deployment">
           <option value="internal-postgres" ${selectedTarget==='internal-postgres'?'selected':''}>Internal PostgreSQL</option>
           <option value="postgres" ${selectedTarget==='postgres'?'selected':''}>PostgreSQL</option>
         </optgroup>
-        <optgroup label="Database Packs">
-          ${databasePackTargetOptionsHtml()}
-        </optgroup>
+        ${databasePackTargetOptionsGroupedHtml()}
       </select><p class="hint" style="margin-top:6px;">Installed Database Packs can be selected directly. For Pack targets, Studio discovers physical SQL types from JDBC metadata and uses Pack target settings only as explicit overrides.</p>${deploymentTargetGatewayNoticeHtml(selectedTarget)}</div>`;
 
   const targetPanel=targetInternal?`
@@ -92,10 +97,10 @@ function renderConnections(el){
       <div class="grid cols-4">
         <div class="field"><label>Host</label><input type="text" value="${escapeHtml(v.dvHost)}" readonly></div>
         <div class="field"><label>Port</label><input type="text" value="${escapeHtml(v.dvPort)}" readonly></div>
-        <div class="field"><label>Database name</label><input type="text" id="f-dvdb" value="${escapeHtml(v.dvDatabase)}" ${demo?'readonly':''}></div>
+        <div class="field"><label>Database name</label><input type="text" id="f-dvdb" maxlength="${pdiMetaMaxLength('connectionDatabase')}" value="${escapeHtml(v.dvDatabase)}" ${demo?'readonly':''}></div>
         <div class="field"><label>Target username</label><input type="text" value="${escapeHtml(v.dvUser)}" readonly></div>
       </div>
-      <div class="grid cols-2 mt"><div class="field"><label>Target password</label><input type="password" value="${escapeHtml(v.dvPassword)}" readonly autocomplete="off"></div></div>
+      <div class="grid cols-2 mt"><div class="field"><label>Target password</label><input type="password" value="" placeholder="Configured server-side in .env" readonly autocomplete="off"><p class="hint" style="margin-top:5px;">The password remains server-side and is never returned to this page.</p></div></div>
       <div id="target-status-wrap">${renderTargetStatusHtml()}</div>
     </div>`:`
     <div class="panel">
@@ -106,12 +111,12 @@ function renderConnections(el){
         <button class="btn primary" id="btn-connect-target">Test connection</button>
       </div>
       <div class="grid cols-3">
-        <div class="field"><label>Host</label><input type="text" id="f-dv-host" value="${escapeHtml(v.dvHost)}"></div>
+        <div class="field"><label>Host</label><input type="text" id="f-dv-host" maxlength="${pdiMetaMaxLength('connectionHost')}" value="${escapeHtml(v.dvHost)}"></div>
         <div class="field"><label>Port</label><input type="text" id="f-dv-port" value="${escapeHtml(v.dvPort||'5432')}"></div>
-        <div class="field"><label>Database name</label><input type="text" id="f-dvdb" value="${escapeHtml(v.dvDatabase)}"></div>
+        <div class="field"><label>Database name</label><input type="text" id="f-dvdb" maxlength="${pdiMetaMaxLength('connectionDatabase')}" value="${escapeHtml(v.dvDatabase)}"></div>
       </div>
       <div class="grid cols-2 mt">
-        <div class="field"><label>Username</label><input type="text" id="f-dv-user" value="${escapeHtml(v.dvUser)}"></div>
+        <div class="field"><label>Username</label><input type="text" id="f-dv-user" maxlength="${pdiMetaMaxLength('connectionUser')}" value="${escapeHtml(v.dvUser)}"></div>
         <div class="field"><label>Password</label><input type="password" id="f-dvpass" value="${escapeHtml(v.dvPassword)}" autocomplete="off"></div>
       </div>
       <div id="target-status-wrap">${renderTargetStatusHtml()}</div>
@@ -121,7 +126,8 @@ function renderConnections(el){
   let physicalTargetPanel='';
   if(ext.enabled){
     const targetPack=databasePackForDialect(ext.remoteDialect);
-    if(targetPack){
+    if(targetPack && !demo){
+      seedPackConnectionValues(targetPack,'target');
       physicalTargetPanel=`
         <div class="panel">
           <div class="panel-head" style="margin:-18px -20px 16px;"><h3>③ Physical storage target <span class="badge-count">&nbsp;·&nbsp;${escapeHtml(targetPack.label)} Pack ${escapeHtml(targetPack.version)}</span></h3></div>
@@ -174,11 +180,11 @@ function renderConnections(el){
     <div class="panel mt">
       <div class="panel-head" style="margin:-18px -20px 16px;"><h3>Naming</h3></div>
       <div class="grid cols-3">
-        <div class="field"><label>Vault short name</label><input type="text" id="f-name" value="${escapeHtml(v.name)}" placeholder="sales" ${readOnly}><p class="hint" id="f-name-warn" style="color:var(--err);margin:4px 0 0;">${identifierIssue(v.name)||''}</p></div>
-        <div class="field"><label>Staging prefix</label><input type="text" id="f-prefix" value="${escapeHtml(v.prefix)}" placeholder="sales" ${readOnly}><p class="hint" id="f-prefix-warn" style="color:var(--err);margin:4px 0 0;">${identifierIssue(v.prefix)||''}</p></div>
-        <div class="field"><label>Tenant ID literal</label><input type="text" id="f-tenant" value="${escapeHtml(v.tenantId)}" placeholder="SALES" ${readOnly}></div>
-        <div class="field"><label>Source system code</label><input type="text" id="f-cod" value="${escapeHtml(v.srcCod)}" placeholder="SALES" ${readOnly}></div>
-        <div class="field"><label>Source system description</label><input type="text" id="f-srcdesc" value="${escapeHtml(v.srcDescription)}" placeholder="sales_data" ${readOnly}></div>
+        <div class="field"><label>Vault short name</label><input type="text" id="f-name" maxlength="${pdiMetaMaxLength('vaultShortName')}" value="${escapeHtml(v.name)}" placeholder="sales" ${readOnly}><p class="field-validation" id="f-name-warn"></p></div>
+        <div class="field"><label>Staging prefix</label><input type="text" id="f-prefix" maxlength="${studioMaxLength('stagingPrefix')}" value="${escapeHtml(v.prefix)}" placeholder="sales" ${readOnly}><p class="field-validation" id="f-prefix-warn"></p></div>
+        <div class="field"><label>Tenant ID literal</label><input type="text" id="f-tenant" maxlength="${studioMaxLength('tenantId')}" value="${escapeHtml(v.tenantId)}" placeholder="SALES" ${readOnly}><p class="field-validation" id="f-tenant-warn"></p></div>
+        <div class="field"><label>Source system code</label><input type="text" id="f-cod" maxlength="${pdiMetaMaxLength('sourceSystemCode')}" value="${escapeHtml(v.srcCod)}" placeholder="SALES" ${readOnly}><p class="field-validation" id="f-cod-warn"></p></div>
+        <div class="field"><label>Source system description</label><input type="text" id="f-srcdesc" maxlength="${pdiMetaMaxLength('sourceSystemDescription')}" value="${escapeHtml(v.srcDescription)}" placeholder="sales_data" ${readOnly}><p class="field-validation" id="f-srcdesc-warn"></p></div>
       </div>
       ${demo?'<p class="hint mb0">Naming values are locked to the packaged demo project.</p>':''}
     </div>
@@ -188,14 +194,37 @@ function renderConnections(el){
     ${ext.enabled?'<div id="ext-storage-mount" class="mt"></div>':''}
     <div class="flex-between mt"><span></span><button class="btn primary" id="btn-next-connections">Next: choose tables →</button></div>`;
 
+  const namingValidation={
+    'f-name':{rule:'vaultShortName',label:'Vault short name',maxLength:pdiMetaMaxLength('vaultShortName'),reserved:true},
+    'f-prefix':{rule:'stagingPrefix',label:'Staging prefix',maxLength:studioMaxLength('stagingPrefix'),reserved:true},
+    'f-tenant':{rule:'tenantId',label:'Tenant ID literal',maxLength:studioMaxLength('tenantId')},
+    'f-cod':{rule:'sourceSystemCode',label:'Source system code',maxLength:pdiMetaMaxLength('sourceSystemCode')},
+    'f-srcdesc':{rule:'sourceSystemDescription',label:'Source system description',maxLength:pdiMetaMaxLength('sourceSystemDescription')},
+  };
+  const updateNamingValidation=(id)=>{
+    const cfg=namingValidation[id], node=el.querySelector('#'+id), message=el.querySelector('#'+id+'-warn');
+    if(!cfg||!node||!message) return true;
+    const value=node.value||'';
+    let issue=studioInputIssue(cfg.rule,value,cfg.label);
+    if(!issue&&cfg.reserved) issue=identifierIssue(value)||'';
+    const actual=Array.from(value).length;
+    if(!issue&&cfg.maxLength&&actual>cfg.maxLength) issue=`${cfg.label} is ${actual} characters; maximum ${cfg.maxLength}.`;
+    const reached=!issue&&cfg.maxLength&&actual===cfg.maxLength ? `Maximum ${cfg.maxLength} characters reached.` : '';
+    node.classList.toggle('field-invalid',!!issue);
+    message.textContent=issue||reached;
+    message.classList.toggle('limit-reached',!issue&&!!reached);
+    return !issue;
+  };
   const bindValue=(id,obj,key,{mirror='',rerender=false,clearSourceCaps=false}={})=>{
     const node=el.querySelector('#'+id); if(!node)return;
     node.addEventListener('input',e=>{
       obj[key]=e.target.value;if(mirror)obj[mirror]=e.target.value;
+      if(namingValidation[id]) updateNamingValidation(id);
       if(clearSourceCaps&&state.sourceMeta) state.sourceMeta.hopCapabilities=null;
       if(rerender){renderAll();setActiveTabViewOnly('connections');}
     });
   };
+  Object.keys(namingValidation).forEach(updateNamingValidation);
   if(!demo){
     ['name','prefix','tenantId','srcCod','srcDescription'].forEach((key,i)=>bindValue(['f-name','f-prefix','f-tenant','f-cod','f-srcdesc'][i],v,key));
     bindValue('f-src-host',v,'srcHost',{clearSourceCaps:true}); bindValue('f-src-port',v,'srcPort',{clearSourceCaps:true}); bindValue('f-src-db',v,'srcDatabase',{clearSourceCaps:true});
@@ -207,14 +236,17 @@ function renderConnections(el){
         openDatabaseTypeWizard();
         return;
       }
-      const oldPort=DIALECTS[v.dialect]&&DIALECTS[v.dialect].defaultPort;
+      const oldPack=databasePackForDialect(v.dialect);
+      const oldPort=String((oldPack&&oldPack.jdbc&&oldPack.jdbc.defaultPort)||(DIALECTS[v.dialect]&&DIALECTS[v.dialect].defaultPort)||'');
       v.dialect=e.target.value; v.sourcePreset='';
       const pack=databasePackForDialect(v.dialect);
       if(pack){
-        v.sourcePackValues={}; v.sourceCatalog='';
-        (pack.connectionFields||[]).forEach(f=>{ v.sourcePackValues[f.key]=f.default!=null?f.default:''; });
-        syncPackMappedValues(pack,'source');
-        v.sourceSchema=pack.namespace?.defaultSchema||'';
+        const nextPort=String((pack.jdbc&&pack.jdbc.defaultPort)||'');
+        if(!v.srcPort||String(v.srcPort)===oldPort)v.srcPort=nextPort;
+        v.sourcePackValues={}; v.sourcePackOptions=[]; v.sourceManualUrl=''; v.sourceCatalog='';
+        if(v.dialect==='mysql') v.sourceSchema=v.srcDatabase;
+        else if(!v.sourceSchema||v.sourceSchema===v.srcDatabase) v.sourceSchema=pack.namespace?.defaultSchema||'public';
+        seedPackConnectionValues(pack,'source',{reset:true});
       }else{
         if(!v.srcPort||v.srcPort===oldPort)v.srcPort=(DIALECTS[v.dialect]||{}).defaultPort||'';
         v.sourceSchema=v.dialect==='mysql'?v.srcDatabase:(v.sourceSchema==='dbo'?'public':(v.sourceSchema||'public'));
@@ -230,7 +262,7 @@ function renderConnections(el){
     });
   }
 
-  if(sourcePack) wirePackConnectionFields(el,sourcePack,'source');
+  if(sourcePack && !demo) wirePackConnectionFields(el,sourcePack,'source');
   const jdbcFolderInput=el.querySelector('#f-jdbc-folder'); if(jdbcFolderInput)jdbcFolderInput.addEventListener('input',e=>jdbcDriverFolder=e.target.value);
   const jdbcDeployBtn=el.querySelector('#btn-deploy-jdbc-driver'); if(jdbcDeployBtn)jdbcDeployBtn.addEventListener('click',()=>deployJdbcDriver('source'));
   detectDbInitPath(); refreshJdbcDriverStatus(); wireTargetJdbcDriverActions(el);
@@ -240,7 +272,11 @@ function renderConnections(el){
   if(internalTargetBtn)internalTargetBtn.addEventListener('click',()=>targetInternal?startAndConnectContainer('target'):testTargetConnection());
   const gatewayBtn=el.querySelector('#btn-start-fdw-postgres'); if(gatewayBtn)gatewayBtn.addEventListener('click',()=>startAndConnectContainer('target'));
   const extConnect=el.querySelector('#btn-connect-external-target'); if(extConnect)extConnect.addEventListener('click',testExternalTargetConnection);
-  el.querySelector('#btn-next-connections').addEventListener('click',()=>navigateDesignerTab('tables'));
+  el.querySelector('#btn-next-connections').addEventListener('click',()=>{
+    const invalid=Object.keys(namingValidation).filter(id=>!updateNamingValidation(id));
+    if(invalid.length){ const first=el.querySelector('#'+invalid[0]); if(first) first.focus(); return; }
+    navigateDesignerTab('tables');
+  });
 
   bindValue('f-dvdb',v,'dvDatabase');
   if(!targetInternal){bindValue('f-dv-host',v,'dvHost');bindValue('f-dv-port',v,'dvPort');bindValue('f-dv-user',v,'dvUser');bindValue('f-dvpass',v,'dvPassword');}

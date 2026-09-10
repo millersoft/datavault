@@ -155,7 +155,7 @@ function renderTables(el){
       <div class="flex-between">
         <div style="flex:1;min-width:220px;">
           <label>Quick add</label>
-          <input type="text" id="new-table-name" placeholder="table name, e.g. customers">
+          <input type="text" id="new-table-name" maxlength="${pdiMetaMaxLength('sourceTableName')}" placeholder="table name, e.g. customers">
         </div>
         <button class="btn" id="btn-add-table" style="margin-top:18px;">+ Add table</button>
       </div>
@@ -206,6 +206,8 @@ function renderTables(el){
   document.getElementById('btn-add-table').addEventListener('click', ()=>{
     const name = document.getElementById('new-table-name').value.trim();
     if (!name){ toast('Enter a table name first.','err'); return; }
+    const nameIssue=pdiMetaLengthIssue('sourceTableName',name,`Source table "${name}" name`);
+    if(nameIssue){ toast(nameIssue,'err'); return; }
     if (state.tables.some(t=>t.name===name)){ toast('That table already exists.','err'); return; }
     const t = newTable(name);
     state.tables.push(t);
@@ -220,6 +222,8 @@ function renderTables(el){
     if (!sql){ toast('Paste a CREATE TABLE statement first.','err'); return; }
     const parsed = parseCreateTable(sql);
     if (!parsed){ toast('Could not parse that statement — check the syntax.','err'); return; }
+    const parsedNameIssue=pdiMetaLengthIssue('sourceTableName',parsed.name,`Source table "${parsed.name}" name`);
+    if(parsedNameIssue){ toast(parsedNameIssue,'err'); return; }
     if (state.tables.some(t=>t.name===parsed.name)){ toast(`Table "${parsed.name}" already exists.`,'err'); return; }
     const t = newTable(parsed.name);
     t.columns = parsed.columns;
@@ -234,6 +238,8 @@ function renderTables(el){
     if (!text){ toast('Paste an information_schema export first.','err'); return; }
     const byTable = parseInfoSchemaBulk(text);
     if (!byTable || Object.keys(byTable).length===0){ toast('Could not find any rows to import.','err'); return; }
+    const invalidTableName=Object.keys(byTable).map(name=>pdiMetaLengthIssue('sourceTableName',name,`Source table "${name}" name`)).find(Boolean);
+    if(invalidTableName){ toast(`Import blocked: ${invalidTableName}`,'err'); return; }
     let added = 0, skipped = 0;
     Object.entries(byTable).forEach(([name, cols])=>{
       if (state.tables.some(t=>t.name===name)){ skipped++; return; }
@@ -395,7 +401,7 @@ function tableIncrementalConfigurationHtml(t){
 
 function renderTableDetail(el, t){
   el.innerHTML = `
-    <div class="field"><label>Description</label><input type="text" data-tf="description" value="${t.description}"></div>
+    <div class="field"><label>Description</label><input type="text" data-tf="description" maxlength="${pdiMetaMaxLength('sourceTableDescription')}" value="${t.description}"></div>
 
     ${tableIncrementalConfigurationHtml(t)}
 
@@ -434,7 +440,7 @@ function renderTableDetail(el, t){
         const schema = v.dialect==='mysql' ? v.srcDatabase : v.sourceSchema;
         const resp = await localFetch(`/api/profile-table`, {
           method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ host:v.srcHost, port:v.srcPort, database:v.srcDatabase, user:v.srcUser, password:v.srcPassword, dialect:v.dialect, schema, table:t.name, columns }),
+          body: JSON.stringify({...sourceConnectionPayload(),schema,table:t.name,columns}),
         });
         const data = await resp.json();
         if (!data.ok) throw new Error(data.error || 'Profile failed.');

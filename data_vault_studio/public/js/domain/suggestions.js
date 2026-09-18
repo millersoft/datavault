@@ -15,12 +15,23 @@ function singularizeTableName(name){
 function entityForTable(name){
   return singularizeTableName(name).toLowerCase().replace(/[^a-z0-9_]+/g,'_').replace(/^_+|_+$/g,'');
 }
+// A plain table name remains the friendly default.  If that name occurs in
+// multiple selected schemas it cannot safely imply a shared business entity,
+// so make the proposed Hub names distinct.  A modeller can still explicitly
+// approve either table as an additional feed into one shared Hub afterwards.
+function entityForSourceTable(table){
+  const name=table&&table.name;
+  const base=entityForTable(name);
+  const duplicates=includedTables().filter(t=>String(t.name).toLowerCase()===String(name||'').toLowerCase());
+  if(duplicates.length<2) return base;
+  const schema=sourceTableSchema(table);
+  return schema ? `${sqlNamePart(schema)}_${base}` : base;
+}
 // FK list per table — real constraints first, then a name-based fallback
 // (<singular>_id or <table>_id matching another included table).
 function effectiveForeignKeys(){
   const declared = (state.sourceMeta && state.sourceMeta.foreignKeys) || [];
   const tables = includedTables();
-  const byName = {}; tables.forEach(t=>{ byName[t.name] = t; });
   const result = [];
   const seen = new Set();
   // Keep a declared composite FK only when every source component is
@@ -28,24 +39,28 @@ function effectiveForeignKeys(){
   // would create a different relationship and a different hash.
   const declaredGroups = new Map();
   declared.forEach((fk,index)=>{
-    if (!byName[fk.table] || !byName[fk.refTable]) return;
+    const table=findIncludedSourceTable(fk.tableSchema,fk.table);
+    const refTable=findIncludedSourceTable(fk.refSchema,fk.refTable);
+    if (!table || !refTable) return;
     const groupKey = fk.constraintName
-      ? `${fk.table}:${fk.constraintName}`
-      : `${fk.table}:column:${fk.column}:${index}`;
+      ? `${table.id}:${fk.constraintName}`
+      : `${table.id}:column:${fk.column}:${index}`;
     if (!declaredGroups.has(groupKey)) declaredGroups.set(groupKey, []);
     declaredGroups.get(groupKey).push(fk);
   });
   declaredGroups.forEach(rows=>{
-    const table = byName[rows[0].table];
+    const table = findIncludedSourceTable(rows[0].tableSchema,rows[0].table);
     if (!rows.every(fk=>stagedColumns(table).some(c=>c.name===fk.column))) return;
     rows.forEach(fk=>{
-      const key = `${fk.table}.${fk.column}`;
+      const key = `${table.id}.${fk.column}`;
       if (seen.has(key)) return;
       seen.add(key);
       result.push({
         table:fk.table,
+        tableId:table.id,
         column:fk.column,
         refTable:fk.refTable,
+        refTableId:findIncludedSourceTable(fk.refSchema,fk.refTable).id,
         refColumn:fk.refColumn||'',
         constraintName:fk.constraintName||'',
         ordinalPosition:fk.ordinalPosition==null?null:Number(fk.ordinalPosition),
@@ -55,17 +70,20 @@ function effectiveForeignKeys(){
   // Fallback inference by column name, only for columns not already covered.
   tables.forEach(t=>{
     stagedColumns(t).forEach(c=>{
-      const key = `${t.name}.${c.name}`;
+      const key = `${t.id}.${c.name}`;
       if (seen.has(key)) return;
       const m = c.name.match(/^(.*)_id$/i);
       if (!m || !m[1]) return;
       if (c.pk && stagedColumns(t).filter(x=>x.pk).length===1) return;
       const base = m[1].toLowerCase();
-      const target = tables.find(x=> x.name!==t.name && (x.name.toLowerCase()===base || entityForTable(x.name)===base));
+      const candidates=tables.filter(x=> x.id!==t.id && (x.name.toLowerCase()===base || entityForTable(x.name)===base));
+      // Do not infer across duplicate names/entities: this needs modeller
+      // input, whereas a JDBC-declared FK above carries schema identity.
+      const target=candidates.length===1 ? candidates[0] : null;
       if (target){
         const targetPk = stagedColumns(target).find(x=>x.pk);
         seen.add(key);
-        result.push({ table:t.name, column:c.name, refTable:target.name, refColumn:targetPk?targetPk.name:'', constraintName:`inferred:${c.name}`, ordinalPosition:1 });
+        result.push({ table:t.name, tableId:t.id, column:c.name, refTable:target.name, refTableId:target.id, refColumn:targetPk?targetPk.name:'', constraintName:`inferred:${c.name}`, ordinalPosition:1 });
       }
     });
   });
@@ -74,7 +92,7 @@ function effectiveForeignKeys(){
 const AUDIT_COLUMN_RE = /^(created?_(at|on|date|by)|updated?_(at|on|date|by)|modified_(at|on|date|by)|last_update[d]?(_at)?|deleted_(at|on)|row_version|etl_.*)$/i;
 
 function foreignKeyRoleName(fk){
-  const refEntity = entityForTable(fk && fk.refTable);
+  const refEntity = entityForSourceTable(findTable(fk && fk.refTableId) || {name:fk && fk.refTable});
   const col = sqlNamePart(fk && fk.column);
   const role = col.endsWith('_id') ? col.slice(0, -3) : col;
   return role || refEntity || 'related';
@@ -92,7 +110,7 @@ function foreignKeyGroupRole(columns, refEntity){
   return common.join('_')||refEntity||stems[0];
 }
 function groupForeignKeysForTable(table, allForeignKeys){
-  const rows=(allForeignKeys||effectiveForeignKeys()).filter(f=>f.table===table.name);
+  const rows=(allForeignKeys||effectiveForeignKeys()).filter(f=>f.tableId===table.id);
   const groups=new Map();
   rows.forEach((f,index)=>{
     const key=f.constraintName ? `${f.refTable}:${f.constraintName}` : `${f.refTable}:column:${f.column}:${index}`;
@@ -106,9 +124,10 @@ function groupForeignKeysForTable(table, allForeignKeys){
       table:table.name,
       columns:rows.map(r=>r.column),
       refTable:first.refTable,
+      refTableId:first.refTableId,
       refColumns:rows.map(r=>r.refColumn||''),
-      refEntity:entityForTable(first.refTable),
-      role:foreignKeyGroupRole(rows.map(r=>r.column),entityForTable(first.refTable)),
+      refEntity:entityForSourceTable(findTable(first.refTableId) || {name:first.refTable}),
+      role:foreignKeyGroupRole(rows.map(r=>r.column),entityForSourceTable(findTable(first.refTableId) || {name:first.refTable})),
       constraintName:first.constraintName||'',
       rows,
     };
@@ -129,14 +148,14 @@ function binaryRelationshipEntity(ownEntity, refEntity, role){
 // columns on a relationship table are assigned to a Link Satellite.
 function tableRelationshipPlan(t, allForeignKeys){
   const allFks = allForeignKeys || effectiveForeignKeys();
-  const foreignKeys = allFks.filter(f=>f.table===t.name).map(f=>({
+  const foreignKeys = allFks.filter(f=>f.tableId===t.id).map(f=>({
     table:f.table,
     column:f.column,
     refTable:f.refTable,
     refColumn:f.refColumn||'',
     constraintName:f.constraintName||'',
     ordinalPosition:f.ordinalPosition==null?null:f.ordinalPosition,
-    refEntity:entityForTable(f.refTable),
+    refEntity:entityForSourceTable(findTable(f.refTableId) || {name:f.refTable}),
     role:foreignKeyRoleName(f),
   }));
   const foreignKeyGroups=groupForeignKeysForTable(t,allFks);
@@ -145,14 +164,18 @@ function tableRelationshipPlan(t, allForeignKeys){
   const primaryKeyComplete=allPrimaryKeyColumns.length===selectedPrimaryKeyColumns.length;
   const primaryKeyColumns=primaryKeyComplete?selectedPrimaryKeyColumns:[];
   const fkColumns=new Set(foreignKeyGroups.flatMap(g=>g.columns));
-  const primaryKeyIsRelationship=primaryKeyColumns.length>0&&primaryKeyColumns.every(c=>fkColumns.has(c.name));
+  // An entity-extension table can use its parent key as both its PK and an
+  // FK (AdventureWorks Sales.Store.BusinessEntityID is exactly that), while
+  // also carrying other foreign keys.  Only a *composite* PK made entirely of
+  // FKs is enough evidence that the table itself is a relationship/link.
+  const primaryKeyIsRelationship=primaryKeyColumns.length>=2&&primaryKeyColumns.every(c=>fkColumns.has(c.name));
   const relationshipTable=foreignKeyGroups.length>=2&&(allPrimaryKeyColumns.length===0||primaryKeyIsRelationship);
   const ownKeyColumns=relationshipTable?[]:primaryKeyColumns.slice();
   const ownKey=ownKeyColumns.length===1?ownKeyColumns[0]:null;
   const type=relationshipTable?'relationship':(foreignKeyGroups.length?'entity_with_relationships':'entity');
   const attributes=stagedColumns(t).filter(c=>!c.pk&&!fkColumns.has(c.name));
   const groups=[];
-  const ownEntity=entityForTable(t.name);
+  const ownEntity=entityForSourceTable(t);
 
   if(relationshipTable){
     groups.push({
@@ -164,6 +187,7 @@ function tableRelationshipPlan(t, allForeignKeys){
         columns:f.columns.slice(),
         role:f.role,
         refTable:f.refTable,
+        refTableId:f.refTableId,
         refColumns:f.refColumns.slice(),
       })),
       attributes,
@@ -174,7 +198,7 @@ function tableRelationshipPlan(t, allForeignKeys){
       entity:binaryRelationshipEntity(ownEntity,f.refEntity,f.role),
       pairs:[
         {hub:ownEntity,column:ownKeyColumns[0].name,columns:ownKeyColumns.map(c=>c.name),role:ownEntity,refTable:t.name,own:true},
-        {hub:f.refEntity,column:f.columns[0],columns:f.columns.slice(),role:f.role,refTable:f.refTable,refColumns:f.refColumns.slice()},
+        {hub:f.refEntity,column:f.columns[0],columns:f.columns.slice(),role:f.role,refTable:f.refTable,refTableId:f.refTableId,refColumns:f.refColumns.slice()},
       ],
       attributes:[],
       foreignKey:f,
@@ -222,10 +246,10 @@ function aiLinkMatchesRelationshipPlan(proposal){
   }
   return { ok:true, group };
 }
-function hubForSourceTable(tableName){
+function hubForSourceTable(tableName, tableId){
   return state.hubs.find(h=>{
     const source = findTable(h.tableId);
-    return source && source.name===tableName;
+    return source && (tableId ? source.id===tableId : source.name===tableName);
   }) || null;
 }
 function uniqueLinkEntity(base){
@@ -250,7 +274,7 @@ function ensurePlannedVaultStructure(){
   plans.forEach(plan=>{
     if (!plan.ownKeyColumns.length || plan.type==='relationship') return;
     if (hubForPlan(plan)) return;
-    const r = addHubProgrammatic(plan.ownEntity, plan.table.name, plan.ownKeyColumns.map(c=>c.name), true);
+    const r = addHubProgrammatic(plan.ownEntity, plan.table, plan.ownKeyColumns.map(c=>c.name), true);
     if (r.ok) hubsAdded++; else if (!/already exists/.test(r.reason)) skipped.push(r.reason);
   });
 
@@ -259,7 +283,7 @@ function ensurePlannedVaultStructure(){
       if (findLinkForRelationshipGroup(plan.table, group)) return;
       const pairs = [];
       for (const pair of group.pairs){
-        const hub = pair.own ? hubForPlan(plan) : hubForSourceTable(pair.refTable);
+        const hub = pair.own ? hubForPlan(plan) : hubForSourceTable(pair.refTable, pair.refTableId);
         if (!hub){
           skipped.push(`"${plan.table.name}": no Hub is available for relationship role "${pair.role}"`);
           return;
@@ -269,7 +293,7 @@ function ensurePlannedVaultStructure(){
       const baseEntity = group.kind==='relationship_table'
         ? group.entity
         : binaryRelationshipEntity(pairs[0].hub, pairs[1].hub, group.foreignKey && group.foreignKey.role);
-      const r = addLinkProgrammatic(uniqueLinkEntity(baseEntity), plan.table.name, pairs);
+      const r = addLinkProgrammatic(uniqueLinkEntity(baseEntity), plan.table, pairs);
       if (r.ok) linksAdded++; else skipped.push(r.reason);
     });
   });
@@ -467,7 +491,7 @@ function suggestModelFromKeys(){
   // foreign-key relationships.
   plans.forEach(plan=>{
     if (plan.type==='relationship'||!plan.ownKeyColumns.length) return;
-    const r=addHubProgrammatic(plan.ownEntity,plan.table.name,plan.ownKeyColumns.map(c=>c.name),true);
+    const r=addHubProgrammatic(plan.ownEntity,plan.table,plan.ownKeyColumns.map(c=>c.name),true);
     if(r.ok) hubs++; else if(!/already exists/.test(r.reason)) skipped.push(r.reason);
   });
 
@@ -479,14 +503,14 @@ function suggestModelFromKeys(){
       if (findLinkForRelationshipGroup(plan.table, group)) return;
       const pairs = [];
       for (const pair of group.pairs){
-        const hub = pair.own ? hubForPlan(plan) : hubForSourceTable(pair.refTable);
+        const hub = pair.own ? hubForPlan(plan) : hubForSourceTable(pair.refTable, pair.refTableId);
         if (!hub){ skipped.push(`"${plan.table.name}": no Hub is available for relationship role "${pair.role}"`); return; }
         pairs.push({ hub:hub.entity, column:pair.column, columns:pair.columns||[pair.column], role:pair.role });
       }
       const baseEntity = group.kind==='relationship_table'
         ? group.entity
         : binaryRelationshipEntity(pairs[0].hub, pairs[1].hub, group.foreignKey && group.foreignKey.role);
-      const r = addLinkProgrammatic(uniqueLinkEntity(baseEntity), plan.table.name, pairs);
+      const r = addLinkProgrammatic(uniqueLinkEntity(baseEntity), plan.table, pairs);
       if (r.ok) links++; else skipped.push(r.reason);
     });
   });
@@ -520,7 +544,7 @@ function suggestModelFromKeys(){
       if (!link){ skipped.push(`"${plan.table.name}": relationship attributes could not be placed because its Link is missing`); return; }
       const existing = state.linkSats.find(s=>s.linkId===link.id && s.tableId===plan.table.id && (s.concern||'')==='');
       if (existing){ satAttrsAdded += extendSatWithNewAttrs(existing, plan.table, attrs); return; }
-      const r = addLinkSatProgrammatic(link.entity, '', plan.table.name, link.entity, attrs);
+      const r = addLinkSatProgrammatic(link.entity, '', plan.table, link.entity, attrs);
       if (r.ok) linkSats++; else skipped.push(r.reason);
       return;
     }
@@ -528,7 +552,7 @@ function suggestModelFromKeys(){
     if (!hub) return;
     const existing = state.hubSats.find(s=>s.hubId===hub.id && s.tableId===plan.table.id && (s.concern||'')==='');
     if (existing){ satAttrsAdded += extendSatWithNewAttrs(existing, plan.table, attrs); return; }
-    const r = addHubSatProgrammatic(hub.entity, '', plan.table.name, hub.entity, attrs);
+    const r = addHubSatProgrammatic(hub.entity, '', plan.table, hub.entity, attrs);
     if (r.ok) hubSats++; else skipped.push(r.reason);
   });
 
@@ -556,4 +580,3 @@ function runSuggestFromKeys(targetTab){
   }
   if (summary.skipped.length) console.info('Suggest-from-keys skipped:', summary.skipped);
 }
-

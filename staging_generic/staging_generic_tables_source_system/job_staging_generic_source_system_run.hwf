@@ -3,8 +3,8 @@
   <name>job_staging_generic_source_system_run</name>
   <name_sync_with_filename>Y</name_sync_with_filename>
   <description>Staging all tables for a source systemProduction in a run</description>
-  <extended_description>This job loads all staging tables for a given source systems.
-A run is of type par_id_rtyp is created.
+<extended_description>This job loads all staging tables for a given source systems using the active
+run of type par_id_rtyp, which must be created and closed by its caller.
 
 NB: The parameters par_id_srcsys and par_id_rtyp must be a right 'combination'. The description of the run type should be the staging of the given sourec system.</extended_description>
   <workflow_version>1.2</workflow_version>
@@ -17,7 +17,7 @@ NB: The parameters par_id_srcsys and par_id_rtyp must be a right 'combination'. 
     <parameter>
       <name>par_id_rtyp</name>
       <default_value/>
-      <description>Runtype to create. Table ref_runtypes contains valid options. Must be the staging runtype for the given source system. </description>
+      <description>Active run type. Table ref_runtypes contains valid options. Must be the staging runtype for the given source system. </description>
     </parameter>
     <parameter>
       <name>par_id_srcsys</name>
@@ -58,36 +58,6 @@ NB: The parameters par_id_srcsys and par_id_rtyp must be a right 'combination'. 
       <parallel>N</parallel>
       <xloc>288</xloc>
       <yloc>416</yloc>
-      <attributes_hac/>
-    </action>
-    <action>
-      <name>end_run of type 'par_id_rtyp'</name>
-      <description>End the current ETL run with status 2 (succesfully completed).</description>
-      <type>SQL</type>
-      <attributes/>
-      <connection>pdi_meta</connection>
-      <sendOneStatement>N</sendOneStatement>
-      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_end_run(2,NULL,${par_id_rtyp})</sql>
-      <sqlfromfile>N</sqlfromfile>
-      <useVariableSubstitution>Y</useVariableSubstitution>
-      <parallel>N</parallel>
-      <xloc>960</xloc>
-      <yloc>416</yloc>
-      <attributes_hac/>
-    </action>
-    <action>
-      <name>create_new_run of type 'par_id_rtyp'</name>
-      <description>Create a new ETL run of type 1.</description>
-      <type>SQL</type>
-      <attributes/>
-      <connection>pdi_meta</connection>
-      <sendOneStatement>N</sendOneStatement>
-      <sql>${PROP_DATABASE_CALL_PROCEDURE_SYNTAX} prc_create_new_run(${par_id_rtyp},0,${par_subruntype})</sql>
-      <sqlfromfile>N</sqlfromfile>
-      <useVariableSubstitution>Y</useVariableSubstitution>
-      <parallel>N</parallel>
-      <xloc>288</xloc>
-      <yloc>128</yloc>
       <attributes_hac/>
     </action>
     <action>
@@ -162,29 +132,15 @@ var_subruntype	${par_subruntype}	Valid in the current job
   </actions>
   <hops>
     <hop>
-      <from>end_run of type 'par_id_rtyp'</from>
-      <to>Success</to>
-      <enabled>Y</enabled>
-      <evaluation>Y</evaluation>
-      <unconditional>N</unconditional>
-    </hop>
-    <hop>
       <from>START</from>
-      <to>create_new_run of type 'par_id_rtyp'</to>
+      <to>Set var_id_rtyp and var_subruntype</to>
       <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>Y</unconditional>
     </hop>
     <hop>
       <from>job_staging_generic_source_system_tables</from>
-      <to>end_run of type 'par_id_rtyp'</to>
-      <enabled>Y</enabled>
-      <evaluation>Y</evaluation>
-      <unconditional>N</unconditional>
-    </hop>
-    <hop>
-      <from>create_new_run of type 'par_id_rtyp'</from>
-      <to>Set var_id_rtyp and var_subruntype</to>
+      <to>Success</to>
       <enabled>Y</enabled>
       <evaluation>Y</evaluation>
       <unconditional>N</unconditional>

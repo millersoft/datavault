@@ -19,7 +19,7 @@ function renderLinksSub(el){
     <div class="panel">
       <div class="grid cols-2">
         <div class="field"><label>Relationship name</label><input type="text" id="link-entity" placeholder="customer_order"></div>
-        <div class="field"><label>Source table <span class="hint">(table containing the relationship)</span></label><select id="link-table">${tables.map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+        <div class="field"><label>Source table <span class="hint">(table containing the relationship)</span></label><select id="link-table">${tables.map(t=>`<option value="${t.id}">${sourceTableLabel(t)}</option>`).join('')}</select></div>
       </div>
       <div class="panel-head" style="margin:14px -20px 0;"><h3>Connected hubs</h3></div>
       <p class="hint">Choose the staged source key column or columns for each role. Composite references use source-column order.</p>
@@ -107,7 +107,7 @@ function renderLinksList(el){
         <div class="ehead-left">
           <span class="entity-marker link"></span>
           <span class="entity-name">${linkNameOf(l.entity)}</span>
-          <span class="entity-meta">${hubNames} · from <span class="mono">${t?t.name:'?'}</span></span>
+          <span class="entity-meta">${hubNames} · from <span class="mono">${t?sourceTableLabel(t):'?'}</span></span>
         </div>
         <button class="btn small danger" data-del-link="${l.id}">Delete</button>
       </div>
@@ -145,7 +145,7 @@ function renderLinkEditForm(el,l){
   el.innerHTML = `
     <div class="grid cols-2">
       <div class="field"><label>Relationship name</label><input type="text" id="edit-link-entity" value="${l.entity}"></div>
-      <div class="field"><label>Source table</label><select id="edit-link-table">${includedTables().map(t=>`<option value="${t.id}" ${t.id===l.tableId?'selected':''}>${t.name}</option>`).join('')}</select></div>
+      <div class="field"><label>Source table</label><select id="edit-link-table">${includedTables().map(t=>`<option value="${t.id}" ${t.id===l.tableId?'selected':''}>${sourceTableLabel(t)}</option>`).join('')}</select></div>
     </div>
     <div class="panel-head" style="margin:14px -20px 0;"><h3>Connected hubs</h3></div>
     <p class="hint">Choose the staged source key column or columns for each role.</p>
@@ -206,4 +206,3 @@ function renderEditLinkHubRows(el,l){
   });
   wrap.querySelectorAll('[data-deledlr]').forEach(b=>b.addEventListener('click',()=>{editLinkDraftHubs.splice(Number(b.dataset.deledlr),1);renderEditLinkHubRows(el,l);}));
 }
-

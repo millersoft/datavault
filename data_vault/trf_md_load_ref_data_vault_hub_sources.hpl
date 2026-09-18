@@ -244,6 +244,8 @@ on              stg_srctab.source_system      = ref_srcsys.description
 inner join      ref_source_tables               ref_srctab
 on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
 and             stg_srctab.table_name         = ref_srctab.table_name
+and             coalesce(stg_srctab.source_schema,'') = coalesce(ref_srctab.source_schema,'')
+and             stg_srctab.staging_table_name = ref_srctab.staging_table_name
 -- inner join		ref_record_source				ref_rs
 -- on				ref_rs.source_name			  = ref_srcsys.cod_srcsys
 where           stg_hubs.hub_source_business_key is not null

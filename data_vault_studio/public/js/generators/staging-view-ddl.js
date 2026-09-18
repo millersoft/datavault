@@ -35,8 +35,11 @@ function buildStagingViewColumns(table){
 function buildStagingColumns(table){ return buildStagingViewColumns(table); }
 
 function buildStagingViewSql(table){
-  const base=`staging.${stagingTableName(table.name)}`;
-  const view=`staging.${stagingViewName(table.name)}`;
+  // Keep the complete table identity here. Passing only table.name loses the
+  // selected source schema and makes a generated view point at the legacy
+  // unqualified staging table.
+  const base=`staging.${stagingTableName(table)}`;
+  const view=`staging.${stagingViewName(table)}`;
   const selectItems=buildStagingBaseColumns(table).map(c=>`b.${c.name} AS ${c.name}`);
   const emitted=new Set(selectItems.map(x=>x.split(/\s+AS\s+/i).pop()));
   table.derivations.filter(d=>d.kind==='hash'||d.kind==='both').forEach(d=>{

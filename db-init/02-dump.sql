@@ -74,46 +74,26 @@ SELECT format('ALTER ROLE pdi_meta IN DATABASE %I SET search_path = pdi_meta, pg
 SELECT format('ALTER ROLE staging IN DATABASE %I SET search_path = staging, pg_catalog, public', :'target_database')\gexec
 SELECT format('ALTER ROLE data_vault IN DATABASE %I SET search_path = data_vault, pg_catalog, public', :'target_database')\gexec
 
--- Grant full access on every target schema to all runtime roles.
-GRANT ALL ON SCHEMA pdi_meta   TO pdi_meta, staging, data_vault;
-GRANT ALL ON SCHEMA staging    TO pdi_meta, staging, data_vault;
-GRANT ALL ON SCHEMA data_vault TO pdi_meta, staging, data_vault;
+-- Least-privilege cross-schema access. The schema-owning login retains full
+-- control of its own schema; peers receive only the runtime access they need.
+-- data_vault and pdi_meta read staging; staging and pdi_meta read Vault
+-- objects; data_vault invokes one pdi_meta helper (granted explicitly after
+-- the function is restored).
+GRANT USAGE ON SCHEMA staging    TO pdi_meta, data_vault;
+GRANT USAGE ON SCHEMA data_vault TO pdi_meta, staging;
+GRANT USAGE ON SCHEMA pdi_meta   TO data_vault;
 
--- Set default privileges for objects created by the bootstrap user in each schema.
--- Note: ROUTINES covers both functions and procedures (PostgreSQL 11+)
-ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault;
+-- Routines are executable by PUBLIC by default in PostgreSQL. New routines
+-- must be private unless their caller is granted EXECUTE explicitly.
+ALTER DEFAULT PRIVILEGES IN SCHEMA pdi_meta   REVOKE EXECUTE ON ROUTINES FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   REVOKE EXECUTE ON ROUTINES FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    REVOKE EXECUTE ON ROUTINES FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault REVOKE EXECUTE ON ROUTINES FROM PUBLIC;
 
-ALTER DEFAULT PRIVILEGES IN SCHEMA staging    GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES IN SCHEMA staging    GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES IN SCHEMA staging    GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES IN SCHEMA staging    GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA data_vault GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES IN SCHEMA data_vault GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES IN SCHEMA data_vault GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES IN SCHEMA data_vault GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault;
-
--- Set default privileges for objects created by each schema-owning role itself.
--- This is the key fix: without FOR ROLE, triggers, tables, and functions created
--- by e.g. the staging role are NOT covered by the defaults above, causing
--- permission denied errors when pdi_meta procedures/triggers access them.
-ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES FOR ROLE pdi_meta   IN SCHEMA pdi_meta   GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault;
-
-ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON TABLES    TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON SEQUENCES TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON ROUTINES  TO pdi_meta, staging, data_vault;
-ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT ALL ON TYPES     TO pdi_meta, staging, data_vault;
+-- Preserve the directional read paths for future objects created by their
+-- schema-owning runtime roles.
+ALTER DEFAULT PRIVILEGES FOR ROLE staging    IN SCHEMA staging    GRANT SELECT ON TABLES TO pdi_meta, data_vault;
+ALTER DEFAULT PRIVILEGES FOR ROLE data_vault IN SCHEMA data_vault GRANT SELECT ON TABLES TO pdi_meta, staging;
 
 SET search_path = pdi_meta, pg_catalog;
 
@@ -1429,8 +1409,8 @@ CREATE FUNCTION trg_ref_source_tables_after_d() RETURNS trigger
     LANGUAGE plpgsql
     AS $$ 
 BEGIN
- insert into pdi_meta.ref_source_tables_hist (id_srctab,id_srcsys,table_name,description,staging_table_name,ind_stage_this_table,ind_staging_is_incremental,increment_date_column,staging_load_group_order,staging_sql_override,process_in_subruntypes,hist_date_insert,dml_operation)
- VALUES (OLD.id_srctab,OLD.id_srcsys,OLD.table_name,OLD.description,OLD.staging_table_name,OLD.ind_stage_this_table,OLD.ind_staging_is_incremental,OLD.increment_date_column,OLD.staging_load_group_order,OLD.staging_sql_override,OLD.process_in_subruntypes,now(),'D');
+ insert into pdi_meta.ref_source_tables_hist (id_srctab,id_srcsys,source_schema,table_name,description,staging_table_name,ind_stage_this_table,ind_staging_is_incremental,increment_date_column,staging_load_group_order,staging_sql_override,process_in_subruntypes,hist_date_insert,dml_operation)
+ VALUES (OLD.id_srctab,OLD.id_srcsys,OLD.source_schema,OLD.table_name,OLD.description,OLD.staging_table_name,OLD.ind_stage_this_table,OLD.ind_staging_is_incremental,OLD.increment_date_column,OLD.staging_load_group_order,OLD.staging_sql_override,OLD.process_in_subruntypes,now(),'D');
  RETURN OLD; END; $$;
 
 
@@ -1444,8 +1424,8 @@ CREATE FUNCTION trg_ref_source_tables_after_i() RETURNS trigger
     LANGUAGE plpgsql
     AS $$ 
 BEGIN
- insert into pdi_meta.ref_source_tables_hist (id_srctab,id_srcsys,table_name,description,staging_table_name,ind_stage_this_table,ind_staging_is_incremental,increment_date_column,staging_load_group_order,staging_sql_override,process_in_subruntypes,hist_date_insert,dml_operation)
- VALUES (NEW.id_srctab,NEW.id_srcsys,NEW.table_name,NEW.description,NEW.staging_table_name,NEW.ind_stage_this_table,NEW.ind_staging_is_incremental,NEW.increment_date_column,NEW.staging_load_group_order,NEW.staging_sql_override,NEW.process_in_subruntypes,now(),'I');
+ insert into pdi_meta.ref_source_tables_hist (id_srctab,id_srcsys,source_schema,table_name,description,staging_table_name,ind_stage_this_table,ind_staging_is_incremental,increment_date_column,staging_load_group_order,staging_sql_override,process_in_subruntypes,hist_date_insert,dml_operation)
+ VALUES (NEW.id_srctab,NEW.id_srcsys,NEW.source_schema,NEW.table_name,NEW.description,NEW.staging_table_name,NEW.ind_stage_this_table,NEW.ind_staging_is_incremental,NEW.increment_date_column,NEW.staging_load_group_order,NEW.staging_sql_override,NEW.process_in_subruntypes,now(),'I');
  RETURN NEW; END; $$;
 
 
@@ -1459,8 +1439,8 @@ CREATE FUNCTION trg_ref_source_tables_after_u() RETURNS trigger
     LANGUAGE plpgsql
     AS $$ 
 BEGIN
- insert into pdi_meta.ref_source_tables_hist (id_srctab,id_srcsys,table_name,description,staging_table_name,ind_stage_this_table,ind_staging_is_incremental,increment_date_column,staging_load_group_order,staging_sql_override,process_in_subruntypes,hist_date_insert,dml_operation)
- VALUES (NEW.id_srctab,NEW.id_srcsys,NEW.table_name,NEW.description,NEW.staging_table_name,NEW.ind_stage_this_table,NEW.ind_staging_is_incremental,NEW.increment_date_column,NEW.staging_load_group_order,NEW.staging_sql_override,NEW.process_in_subruntypes,now(),'U');
+ insert into pdi_meta.ref_source_tables_hist (id_srctab,id_srcsys,source_schema,table_name,description,staging_table_name,ind_stage_this_table,ind_staging_is_incremental,increment_date_column,staging_load_group_order,staging_sql_override,process_in_subruntypes,hist_date_insert,dml_operation)
+ VALUES (NEW.id_srctab,NEW.id_srcsys,NEW.source_schema,NEW.table_name,NEW.description,NEW.staging_table_name,NEW.ind_stage_this_table,NEW.ind_staging_is_incremental,NEW.increment_date_column,NEW.staging_load_group_order,NEW.staging_sql_override,NEW.process_in_subruntypes,now(),'U');
  RETURN NEW; END; $$;
 
 
@@ -3097,6 +3077,7 @@ ALTER TABLE ref_source_systems_hist OWNER TO pdi_meta;
 CREATE TABLE ref_source_tables (
     id_srctab integer NOT NULL,
     id_srcsys integer NOT NULL,
+    source_schema character varying(128),
     table_name character varying(256),
     description character varying(128),
     staging_table_name character varying(128),
@@ -3119,6 +3100,7 @@ CREATE TABLE ref_source_tables_hist (
     id_srctab integer NOT NULL,
     hist_date_insert timestamp without time zone NOT NULL,
     id_srcsys integer NOT NULL,
+    source_schema character varying(128),
     table_name character varying(256),
     description character varying(128),
     staging_table_name character varying(128),
@@ -3547,7 +3529,8 @@ CREATE TABLE stg_management_source_tables (
     increment_date_column character varying(256),
     staging_load_group_order integer,
     staging_sql_override character varying(8192),
-    process_in_subruntypes character varying(128)
+    process_in_subruntypes character varying(128),
+    source_schema character varying(128)
 );
 
 
@@ -4372,7 +4355,7 @@ COPY ref_source_systems_hist (id_srcsys, hist_date_insert, cod_srcsys, descripti
 -- Data for Name: ref_source_tables; Type: TABLE DATA; Schema: pdi_meta; Owner: pdi_meta
 --
 
-COPY ref_source_tables (id_srctab, id_srcsys, table_name, description, staging_table_name, ind_stage_this_table, ind_staging_is_incremental, increment_date_column, staging_load_group_order, staging_sql_override, process_in_subruntypes) FROM stdin;
+COPY ref_source_tables (id_srctab, id_srcsys, source_schema, table_name, description, staging_table_name, ind_stage_this_table, ind_staging_is_incremental, increment_date_column, staging_load_group_order, staging_sql_override, process_in_subruntypes) FROM stdin;
 \.
 
 
@@ -4380,7 +4363,7 @@ COPY ref_source_tables (id_srctab, id_srcsys, table_name, description, staging_t
 -- Data for Name: ref_source_tables_hist; Type: TABLE DATA; Schema: pdi_meta; Owner: pdi_meta
 --
 
-COPY ref_source_tables_hist (id_srctab, hist_date_insert, id_srcsys, table_name, description, staging_table_name, dml_operation, ind_stage_this_table, ind_staging_is_incremental, increment_date_column, staging_load_group_order, staging_sql_override, process_in_subruntypes) FROM stdin;
+COPY ref_source_tables_hist (id_srctab, hist_date_insert, id_srcsys, source_schema, table_name, description, staging_table_name, dml_operation, ind_stage_this_table, ind_staging_is_incremental, increment_date_column, staging_load_group_order, staging_sql_override, process_in_subruntypes) FROM stdin;
 \.
 
 
@@ -4561,7 +4544,7 @@ COPY stg_management_source_systems (id_srcsys, cod_srcsys, description, source_c
 -- Data for Name: stg_management_source_tables; Type: TABLE DATA; Schema: pdi_meta; Owner: pdi_meta
 --
 
-COPY stg_management_source_tables (source_system, table_name, table_description, staging_table_name, source_concat, ind_stage_this_table, ind_staging_is_incremental, increment_date_column, staging_load_group_order, staging_sql_override, process_in_subruntypes) FROM stdin;
+COPY stg_management_source_tables (source_system, table_name, table_description, staging_table_name, source_concat, ind_stage_this_table, ind_staging_is_incremental, increment_date_column, staging_load_group_order, staging_sql_override, process_in_subruntypes, source_schema) FROM stdin;
 \.
 
 
@@ -6289,6 +6272,47 @@ ALTER FUNCTION staging.gen_lnk_qry_w_as(f1 text, f2 text, OUT text) OWNER TO sta
 
 RESET ROLE;
 SET search_path = pdi_meta, pg_catalog;
+
+-- This function is the one permitted cross-schema routine call.
+SET ROLE pdi_meta;
+-- History tables use the business-row id plus hist_date_insert as their
+-- primary key. now() is transaction-stable in PostgreSQL, so a metadata
+-- pipeline that updates the same row twice in one transaction attempts to
+-- write the same history key twice. Rebuild all history trigger functions
+-- with a per-call timestamp for fresh bootstraps.
+DO $$
+DECLARE
+    routine record;
+    routine_definition text;
+BEGIN
+    FOR routine IN
+        SELECT p.oid
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'pdi_meta'
+          AND p.proname LIKE E'trg\\_%\\_after\\_%' ESCAPE E'\\'
+          AND pg_get_functiondef(p.oid) LIKE '%_hist%'
+    LOOP
+        routine_definition := pg_get_functiondef(routine.oid);
+        IF routine_definition LIKE '%now()%' THEN
+            EXECUTE replace(routine_definition, 'now()', 'clock_timestamp()');
+        END IF;
+    END LOOP;
+END
+$$;
+
+-- The Vault design-validation transformation reads these metadata relations.
+-- It needs the connection name for existence checks, never its credentials.
+GRANT SELECT ON TABLE pdi_meta.stg_management_source_systems,
+                      pdi_meta.stg_management_hubs,
+                      pdi_meta.stg_management_links,
+                      pdi_meta.stg_management_satellites,
+                      pdi_meta.stg_management_link_satellites
+    TO data_vault;
+GRANT SELECT (name) ON TABLE pdi_meta.ref_connections TO data_vault;
+GRANT EXECUTE ON FUNCTION pdi_meta.prc_create_error_table(character varying, character varying) TO data_vault;
+
+RESET ROLE;
 
 --
 -- PostgreSQL database dump complete

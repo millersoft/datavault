@@ -569,11 +569,108 @@ describe('profile-driven staging nullability', () => {
     const path = require('node:path');
     const server = readServerSources();
     const html = readFrontendSources();
-    assert.match(html, /const data = await fetchIntrospection\(true\)/);
+    assert.match(html, /fetchIntrospection\(true,schema\)/);
     assert.match(html, /async function runDriftCheck\(\)[\s\S]*?const data = await fetchIntrospection\(\)/);
     assert.match(server, /profileConstraintSensitiveColumns/);
     assert.match(server, /table\.columns\.filter\(c => c\.pk === true \|\| c\.nullable === false\)/);
     assert.match(server, /expressions = \['COUNT\(\*\) AS total_rows'\]/);
+  });
+});
+
+describe('multi-schema source identity', () => {
+  test('repairs the Hub hash for an approved shared source feed', () => {
+    const result=app.eval(`(function(){
+      startNewProject(true);
+      const sales=newTable('Store'); sales.schema='Sales'; sales.columns=[Object.assign(newColumn('BusinessEntityID','integer'),{pk:true,nullable:false})];
+      const test=newTable('Store'); test.schema='Test'; test.columns=[Object.assign(newColumn('BusinessEntityID','integer'),{pk:true,nullable:false})];
+      state.tables=[sales,test];
+      state.hubs=[{id:'hub_store',entity:'store',tableId:sales.id,pkColId:sales.columns[0].id,keyColIds:[sales.columns[0].id],sourceFeeds:[{tableId:sales.id,keyColIds:[sales.columns[0].id]},{tableId:test.id,keyColIds:[test.columns[0].id]}],statusSat:true}];
+      const hub=state.hubs[0];
+      return {repaired:ensureHubFeedHash(test,hub),hasHash:tableHasHubHashOnTable(test,hub),derivations:test.derivations};
+    })()`);
+    assert.equal(result.repaired,true);
+    assert.equal(result.hasHash,true);
+    assert.deepStrictEqual(result.derivations.map(d=>[d.entity,d.column,d.kind]),[['store','BusinessEntityID','both']]);
+  });
+
+  test('models an entity whose single-column PK is also a foreign key', () => {
+    const result=app.eval(`(function(){
+      startNewProject(true);
+      const businessEntity=newTable('BusinessEntity'); businessEntity.schema='Person'; businessEntity.columns=[Object.assign(newColumn('BusinessEntityID','integer'),{pk:true,nullable:false})];
+      const salesPerson=newTable('SalesPerson'); salesPerson.schema='Sales'; salesPerson.columns=[Object.assign(newColumn('BusinessEntityID','integer'),{pk:true,nullable:false})];
+      const store=newTable('Store'); store.schema='Sales'; store.columns=[
+        Object.assign(newColumn('BusinessEntityID','integer'),{pk:true,nullable:false}),
+        newColumn('Name','varchar(50)'), newColumn('SalesPersonID','integer'),
+        newColumn('Demographics','xml'), newColumn('rowguid','uniqueidentifier'), newColumn('ModifiedDate','datetime')
+      ];
+      state.tables=[businessEntity,salesPerson,store];
+      state.sourceMeta.foreignKeys=[
+        {tableSchema:'Sales',table:'Store',column:'BusinessEntityID',refSchema:'Person',refTable:'BusinessEntity',refColumn:'BusinessEntityID'},
+        {tableSchema:'Sales',table:'Store',column:'SalesPersonID',refSchema:'Sales',refTable:'SalesPerson',refColumn:'BusinessEntityID'},
+      ];
+      const summary=suggestModelFromKeys();
+      const hub=state.hubs.find(h=>h.tableId===store.id);
+      const sat=state.hubSats.find(s=>s.tableId===store.id);
+      return {summary,hub:hub&&hub.entity,attrs:sat&&sat.attrs.map(a=>findCol(store,a.colId).name),errors:validateModel().errors};
+    })()`);
+    assert.equal(result.hub,'store');
+    assert.deepStrictEqual(result.attrs.sort(),['Demographics','ModifiedDate','Name','rowguid']);
+    assert.ok(!result.errors.some(e=>/Store/.test(e)),JSON.stringify(result.errors));
+  });
+
+  test('suggests a separate model for same-named tables from different schemas', () => {
+    const result=app.eval(`(function(){
+      startNewProject(true);
+      const sales=newTable('Store'); sales.schema='Sales'; sales.columns=[Object.assign(newColumn('BusinessEntityID','integer'),{pk:true,nullable:false}),newColumn('Name','varchar(50)')];
+      const purchasing=newTable('Store'); purchasing.schema='Purchasing'; purchasing.columns=[Object.assign(newColumn('StoreID','integer'),{pk:true,nullable:false}),newColumn('Name','varchar(50)')];
+      state.tables=[sales,purchasing];
+      const summary=suggestModelFromKeys();
+      return {summary,hubs:state.hubs.map(h=>h.tableId),sats:state.hubSats.map(s=>s.tableId),errors:validateModel().errors};
+    })()`);
+    assert.equal(result.summary.hubs,2);
+    assert.deepStrictEqual(new Set(result.hubs),new Set(result.sats));
+    assert.ok(!result.errors.some(e=>/Store/.test(e)),JSON.stringify(result.errors));
+  });
+
+  test('keeps duplicate source table names separate in workbook and extraction SQL', () => {
+    const result=app.eval(`(function(){
+      startNewProject(true);
+      state.vault.name='multi'; state.vault.prefix='m'; state.vault.srcDescription='AdventureWorks'; state.vault.sourceSchema='dbo';
+      const sales=newTable('Customer'); sales.schema='Sales'; sales.columns=[newColumn('CustomerID','integer')];
+      const person=newTable('Customer'); person.schema='Person'; person.columns=[newColumn('CustomerID','integer')];
+      state.tables=[sales,person];
+      return { rows:buildWorkbookRows().source_tables, sql:[buildOverride(sales),buildOverride(person)], names:[stagingViewName(sales),stagingViewName(person)] };
+    })()`);
+    assert.equal(result.rows.length,2);
+    assert.notEqual(result.rows[0][3],result.rows[1][3]);
+    assert.deepStrictEqual(result.rows.map(r=>r[11]),['Sales','Person']);
+    assert.match(result.sql[0],/Sales\.Customer/);
+    assert.match(result.sql[1],/Person\.Customer/);
+  });
+
+  test('builds each schema-qualified staging view over its matching base table', () => {
+    const ddl=app.eval(`(function(){
+      startNewProject(true); state.vault.prefix='aw';
+      const t=newTable('BillOfMaterials'); t.schema='Production'; t.columns=[newColumn('BillOfMaterialsID','integer')];
+      state.tables=[t]; return buildStagingDdl();
+    })()`);
+    assert.match(ddl,/CREATE TABLE IF NOT EXISTS staging\.stg_aw_production_billofmaterials/i);
+    assert.match(ddl,/FROM staging\.stg_aw_production_billofmaterials b/i);
+    assert.doesNotMatch(ddl,/FROM staging\.stg_aw_billofmaterials b/i);
+  });
+
+  test('emits one approved shared-hub feed per source table', () => {
+    const result=app.eval(`(function(){
+      startNewProject(true);
+      state.vault.name='multi'; state.vault.prefix='m'; state.vault.srcDescription='AdventureWorks';
+      const sales=newTable('Customer'); sales.schema='Sales'; sales.columns=[newColumn('CustomerID','integer')];
+      const person=newTable('Customer'); person.schema='Person'; person.columns=[newColumn('CustomerID','integer')];
+      state.tables=[sales,person];
+      state.hubs=[{id:'hub_customer',entity:'customer',description:'',tableId:sales.id,pkColId:sales.columns[0].id,keyColIds:[sales.columns[0].id],sourceFeeds:[{tableId:sales.id,keyColIds:[sales.columns[0].id]},{tableId:person.id,keyColIds:[person.columns[0].id]}],statusSat:true}];
+      return buildWorkbookRows().hubs;
+    })()`);
+    assert.equal(result.length,2);
+    assert.deepStrictEqual(result.map(r=>r[4]),['AdventureWorks.Sales.Customer','AdventureWorks.Person.Customer']);
   });
 });
 

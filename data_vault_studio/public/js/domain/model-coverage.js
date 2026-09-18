@@ -18,7 +18,7 @@ function stagingHashRequirementMessage(){
   if (!tables.length) return 'Include at least one source table before continuing.';
   const missing = stagingTablesMissingHashColumns();
   if (!missing.length) return '';
-  const names = missing.slice(0, 4).map(t=>t.name);
+  const names = missing.slice(0, 4).map(sourceTableLabel);
   const remainder = missing.length - names.length;
   const tableList = names.join(', ') + (remainder>0 ? ` and ${remainder} more` : '');
   return `Create hash columns for ${tableList} using Detect Hash Keys or AI Assist before continuing.`;
@@ -28,7 +28,7 @@ function stagingUncoveredTables(){
 }
 function vaultUncoveredTables(){
   const used = new Set();
-  state.hubs.forEach(h=>used.add(h.tableId));
+  state.hubs.forEach(h=>hubSourceFeeds(h).forEach(feed=>used.add(feed.tableId)));
   state.links.forEach(l=>used.add(l.tableId));
   state.hubSats.concat(state.linkSats).forEach(s=>used.add(s.tableId));
   return includedTables().filter(t=> stagedColumns(t).length>0 && !used.has(t.id));
@@ -79,7 +79,7 @@ function openCoverageModal(tab){
       ${uncovered.length ? `
       <div class="panel" style="margin-bottom:12px;">
         <div class="panel-head" style="margin:-18px -20px 10px;"><h3>${tab==='staging' ? 'Tables with no key derivations' : 'Tables not in the vault model'} <span class="badge-count">&nbsp;·&nbsp;${uncovered.length}</span></h3></div>
-        <p class="hint mb0">${uncovered.map(t=>`<span class="mono">${escapeHtml(t.name)}</span> (${t.columns.length} cols)`).join(' · ')}</p>
+        <p class="hint mb0">${uncovered.map(t=>`<span class="mono">${escapeHtml(sourceTableLabel(t))}</span> (${t.columns.length} cols)`).join(' · ')}</p>
         ${tab==='staging' ? `<p class="hint mb0" style="margin-top:6px;">Staged, but without key derivations the load has no keys to build.</p>` : ''}
       </div>` : ''}
       ${unmapped.length ? `
@@ -106,4 +106,3 @@ function openCoverageModal(tab){
   document.getElementById('coverage-suggest').addEventListener('click', ()=>{ close(); runSuggestFromKeys(tab); });
   document.getElementById('coverage-ai').addEventListener('click', ()=>{ close(); openAiModal(tab==='staging' ? 'staging' : 'vault'); });
 }
-

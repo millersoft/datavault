@@ -206,7 +206,7 @@ function renderStaging(el){
             </label>
             <span class="entity-marker sat"></span>
             <span class="entity-name">${escapeHtml(t.name)}</span>
-            <span class="entity-meta">→ staging.<span class="mono">${escapeHtml(stagingViewName(t.name))}</span> · ${stagedColumns(t).length} of ${t.columns.length} columns · ${t.derivations.length} key derivation(s)</span>
+            <span class="entity-meta">→ staging.<span class="mono">${escapeHtml(stagingViewName(t))}</span> · ${stagedColumns(t).length} of ${t.columns.length} columns · ${t.derivations.length} key derivation(s)</span>
           </div>
           <span class="entity-meta">${open?'Collapse':'Expand'}</span>
         </div>
@@ -290,8 +290,8 @@ function renderStagingTable(el, t){
       </div>
       <div>
         <div class="panel-head" style="margin:0 0 0 0;"><h3>Staging DDL</h3></div>
-        <p class="hint">The physical table mirrors selected source columns. The engine uses the writable <span class="mono">${escapeHtml(stagingViewName(t.name))}</span> view, which adds BK/hash/tenant metadata in PostgreSQL.</p>
-        <pre class="code">${escapeHtml(ddlFromColumns(`staging.${stagingTableName(t.name)}`, buildStagingBaseColumns(t)) + '\n\n' + buildStagingViewSql(t))}</pre>
+        <p class="hint">The physical table mirrors selected source columns. The engine uses the writable <span class="mono">${escapeHtml(stagingViewName(t))}</span> view, which adds BK/hash/tenant metadata in PostgreSQL.</p>
+        <pre class="code">${escapeHtml(ddlFromColumns(`staging.${stagingTableName(t)}`, buildStagingBaseColumns(t)) + '\n\n' + buildStagingViewSql(t))}</pre>
       </div>
     </div>
   `;
@@ -348,6 +348,5 @@ function refreshStagingPreview(el, t){
     if (ta && document.activeElement !== ta) ta.value = buildOverride(t);
   }
   const pre = el.querySelector('pre.code');
-  if (pre) pre.textContent = ddlFromColumns(`staging.${stagingTableName(t.name)}`, buildStagingBaseColumns(t)) + '\n\n' + buildStagingViewSql(t);
+  if (pre) pre.textContent = ddlFromColumns(`staging.${stagingTableName(t)}`, buildStagingBaseColumns(t)) + '\n\n' + buildStagingViewSql(t);
 }
-

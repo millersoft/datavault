@@ -42,6 +42,7 @@ function registerSourceRoutes(parentApp, dependencies){
         // SELECT 1 and then a second JVM for the same connection's metadata.
         const analysis=await runJdbcBridge(pack,connection,'analyze','');
         const ns=packNamespaceFromBody(pack,connection);
+        const requestedSchema=String((req.body&&req.body.schema)||'').trim();
         const currentCatalog=firstNonBlank(ns.catalog,analysis.currentCatalog);
         const currentSchema=firstNonBlank(ns.schema,analysis.currentSchema);
         const schemas=(analysis.schemas||[])
@@ -428,8 +429,11 @@ function registerSourceRoutes(parentApp, dependencies){
       try {
         const {pack,connection}=resolvedPack;
         const ns=packNamespaceFromBody(pack,connection);
+        // A schema selected in Studio scopes this metadata request only; it
+        // does not mutate the saved connection's legacy default schema.
+        const requestedSchema=String((req.body&&req.body.schema)||'').trim();
         const jdbcCatalog=requestedDialect==='mysql'?String(connection.database||''):ns.catalog;
-        const jdbcSchema=requestedDialect==='mysql'?'':ns.schema;
+        const jdbcSchema=requestedDialect==='mysql'?'':(requestedSchema||ns.schema);
         const raw=await runJdbcBridge(pack,connection,'introspect',`${jdbcCatalog}
 ${jdbcSchema}`);
         const data=applyPackSemanticTypes(pack,raw);
@@ -439,7 +443,7 @@ ${jdbcSchema}`);
           const values=connection&&connection.packValues&&typeof connection.packValues==='object'?connection.packValues:{};
           const effectiveSchema=requestedDialect==='mysql'
             ? firstNonBlank(connection.database,values.database,data.catalog,data.schema)
-            : firstNonBlank(ns.schema,data.schema,'public');
+            : firstNonBlank(requestedSchema,ns.schema,data.schema,'public');
           const conn=jdbcSourceConnection(pack,connection,requestedDialect==='postgres'?'postgresql':requestedDialect);
           if(req.body&&req.body.profileColumns===true){
             // Keep all automatic profiling on the one JDBC connection opened by
@@ -467,7 +471,7 @@ ${jdbcSchema}`);
         // JDBC getTypeInfo(); a richer jdbc-type-info profile is captured by the
         // connection test and the browser preserves it when present.
         const sourceCapabilities=sourceHopCapabilitiesFromTables(data.tables||[]);
-        return res.json({ ok:true, catalog:data.catalog||ns.catalog, schema:data.schema||ns.schema, tables:data.tables||[], foreignKeys:data.foreignKeys||[], sourceCapabilities, profileSummary:{attemptedColumns:0,profiledColumns:0,warnings:[],infos:['JDBC metadata was used for declared keys and nullability. Where source constraints are incomplete, review the model manually or use AI Assist.']}, pack:{id:pack.id,label:pack.label,version:pack.version} });
+        return res.json({ ok:true, catalog:data.catalog||ns.catalog, schema:data.schema||requestedSchema||ns.schema, tables:data.tables||[], foreignKeys:data.foreignKeys||[], sourceCapabilities, profileSummary:{attemptedColumns:0,profiledColumns:0,warnings:[],infos:['JDBC metadata was used for declared keys and nullability. Where source constraints are incomplete, review the model manually or use AI Assist.']}, pack:{id:pack.id,label:pack.label,version:pack.version} });
       } catch(err){ return res.status(400).json({ok:false,error:err.message}); }
     }
     const schema = (req.body && req.body.schema) || ((req.body && req.body.dialect) === 'mysql' ? (req.body.database || '') : 'public');

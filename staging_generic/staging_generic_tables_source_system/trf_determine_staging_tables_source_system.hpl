@@ -118,7 +118,7 @@ staging_table_name</logmessage>
     <sql>SELECT          srctab.id_srctab                                 as par_record_source_id
 ,               srctab.table_name                                as par_source_table_name
 ,               srctab.staging_table_name                        as par_staging_table_name
-,               coalesce(srctab.staging_sql_override,concat('SELECT * FROM ', srctab.table_name,' WHERE 1=1 ')) as par_source_sql
+,               coalesce(srctab.staging_sql_override,concat('SELECT * FROM ',case when coalesce(srctab.source_schema,'')='' then '' else concat(srctab.source_schema,'.') end,srctab.table_name,' WHERE 1=1 ')) as par_source_sql
 ,               case         when srctab.ind_staging_is_incremental = 1 then concat('AND ',srctab.increment_date_column, ' >= ','''',coalesce(incr_overrule.staging_load_from_overrule,'${var_stg_load_from}'),'''')
                              else ''
                 end                                              as par_source_table_where_clause

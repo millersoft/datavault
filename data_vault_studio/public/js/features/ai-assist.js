@@ -504,23 +504,37 @@ function renderAiLogOnly(){
 }
 
 /* Programmatic model builders, shared by AI import */
-function addHubProgrammatic(entity, tableName, pkColumnName, statusSat){
+// Deterministic suggestions already have the selected table object. Preserve
+// it through the builders: bare names are unsafe when schemas share a name.
+function resolveIncludedTable(tableRef){
+  if (tableRef && typeof tableRef==='object' && tableRef.id){
+    const table=findTable(tableRef.id);
+    return table&&table.included!==false ? table : null;
+  }
+  return findIncludedTableByName(tableRef);
+}
+function programmaticTableLabel(tableRef, table){
+  return table ? sourceTableLabel(table) : String(tableRef||'');
+}
+function addHubProgrammatic(entity, tableRef, pkColumnName, statusSat){
   entity = sqlNamePart(entity);
-  const table = findIncludedTableByName(tableName);
-  if (!table) return { ok:false, reason:`included table "${tableName}" not found` };
+  const table = resolveIncludedTable(tableRef);
+  const tableLabel=programmaticTableLabel(tableRef,table);
+  if (!table) return { ok:false, reason:`included table "${tableLabel}" not found` };
   const names = (Array.isArray(pkColumnName) ? pkColumnName : [pkColumnName]).filter(Boolean);
   const cols = names.map(name=>stagedColumns(table).find(c=>c.name===name));
-  if (!names.length || cols.some(c=>!c)) return { ok:false, reason:`business-key column(s) "${names.join(', ')}" not found on "${tableName}"` };
+  if (!names.length || cols.some(c=>!c)) return { ok:false, reason:`business-key column(s) "${names.join(', ')}" not found on "${tableLabel}"` };
   if (state.hubs.some(h=>h.entity===entity)) return { ok:false, reason:`hub "${entity}" already exists` };
   ensureKeyDerivation(table, entity, names, 'both');
-  const hub = { id: uid('hub'), entity, description:'', tableId: table.id, pkColId: cols[0].id, keyColIds: cols.map(c=>c.id), statusSat: statusSat!==false };
+  const hub = { id: uid('hub'), entity, description:'', tableId: table.id, pkColId: cols[0].id, keyColIds: cols.map(c=>c.id), sourceFeeds:[{tableId:table.id,keyColIds:cols.map(c=>c.id)}], statusSat: statusSat!==false };
   state.hubs.push(hub);
   return { ok:true, hub };
 }
-function addLinkProgrammatic(entity, tableName, hubColPairs){
+function addLinkProgrammatic(entity, tableRef, hubColPairs){
   entity = sqlNamePart(entity);
-  const table = findIncludedTableByName(tableName);
-  if (!table) return { ok:false, reason:`included table "${tableName}" not found` };
+  const table = resolveIncludedTable(tableRef);
+  const tableLabel=programmaticTableLabel(tableRef,table);
+  if (!table) return { ok:false, reason:`included table "${tableLabel}" not found` };
   const rows = [];
   for (const p of hubColPairs){
     const hub = state.hubs.find(h=>h.entity===p.hub);
@@ -544,6 +558,8 @@ function addLinkProgrammatic(entity, tableName, hubColPairs){
 }
 function stagedSourceColumnsForHub(table, hub){
   if(!table||!hub) return [];
+  const feed=hubSourceFeeds(hub).find(f=>f.tableId===table.id);
+  if(feed) return (feed.keyColIds||[]).map(id=>findStagedColumn(table,id)).filter(Boolean);
   const hubTable=findTable(hub.tableId);
   const hubKeys=hubKeyCols(hub);
   if(table.id===hub.tableId) return hubKeyColIds(hub).map(id=>findStagedColumn(table,id)).filter(Boolean);
@@ -580,9 +596,10 @@ function repairAllSatelliteParentDerivations(){
   });
   return repaired;
 }
-function addHubSatProgrammatic(entity, concern, tableName, hubEntity, attributes){
+function addHubSatProgrammatic(entity, concern, tableRef, hubEntity, attributes){
   entity = sqlNamePart(entity); concern = concern ? sqlNamePart(concern) : '';
-  const table = findIncludedTableByName(tableName);
+  const table = resolveIncludedTable(tableRef);
+  const tableLabel=programmaticTableLabel(tableRef,table);
   const hub = state.hubs.find(h=>h.entity===hubEntity);
   if (!table || !hub) return { ok:false, reason:`hub satellite "${entity}": table or hub not found` };
   const normalizedConcern = concern || '';
@@ -590,7 +607,7 @@ function addHubSatProgrammatic(entity, concern, tableName, hubEntity, attributes
     return { ok:false, reason:`hub satellite for "${hubEntity}"${normalizedConcern?` (concern "${normalizedConcern}")`:''} already exists` };
   }
   const parentSourceCols = stagedSourceColumnsForHub(table, hub);
-  if (!parentSourceCols.length) return { ok:false, reason:`hub satellite "${entity}": no staged source column(s) on "${tableName}" can identify hub "${hubEntity}"` };
+  if (!parentSourceCols.length) return { ok:false, reason:`hub satellite "${entity}": no staged source column(s) on "${tableLabel}" can identify hub "${hubEntity}"` };
   ensureKeyDerivation(table, hub.entity, parentSourceCols.map(c=>c.name), 'hash');
   const attrs = attributes.map(a=>{
     const col = stagedColumns(table).find(c=>c.name===a.column);
@@ -602,9 +619,9 @@ function addHubSatProgrammatic(entity, concern, tableName, hubEntity, attributes
   state.hubSats.push({ id: uid('sat'), entity, concern: normalizedConcern, description:'', hubId: hub.id, tableId: table.id, attrs });
   return { ok:true };
 }
-function addLinkSatProgrammatic(entity, concern, tableName, linkEntity, attributes){
+function addLinkSatProgrammatic(entity, concern, tableRef, linkEntity, attributes){
   entity = sqlNamePart(entity); concern = concern ? sqlNamePart(concern) : '';
-  const table = findIncludedTableByName(tableName);
+  const table = resolveIncludedTable(tableRef);
   const link = state.links.find(l=>l.entity===linkEntity);
   if (!table || !link) return { ok:false, reason:`link satellite "${entity}": table or link not found` };
   const normalizedConcern = concern || '';
@@ -690,7 +707,7 @@ function ensureVaultAttributeCoverage(){
       if (!link){ skipped.push(`"${table.name}": ${missing.length} staged attribute(s) need a link before they can be placed`); return; }
       let sat = state.linkSats.find(x=>x.linkId===link.id && x.tableId===table.id);
       if (!sat){
-        const r = addLinkSatProgrammatic(link.entity, '', table.name, link.entity, attrs);
+        const r = addLinkSatProgrammatic(link.entity, '', table, link.entity, attrs);
         if (r.ok){ satsCreated++; attrsAdded += missing.length; } else skipped.push(r.reason);
         return;
       }
@@ -706,7 +723,7 @@ function ensureVaultAttributeCoverage(){
     }
     const hub = state.hubs.find(h=>h.tableId===table.id) || state.hubs.find(h=>h.entity===entityForTable(table.name));
     if (!hub){ skipped.push(`"${table.name}": ${missing.length} staged attribute(s) need a hub before they can be placed`); return; }
-    const r = addHubSatProgrammatic(hub.entity, '', table.name, hub.entity, attrs);
+    const r = addHubSatProgrammatic(hub.entity, '', table, hub.entity, attrs);
     if (r.ok){ satsCreated++; attrsAdded += missing.length; } else skipped.push(r.reason);
   });
   return { attrsAdded, satsCreated, skipped };
@@ -749,4 +766,3 @@ function applyAiModel(json){
     skipped,
   };
 }
-

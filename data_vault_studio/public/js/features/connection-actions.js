@@ -95,7 +95,7 @@ async function testSourceConnection(){
       // MySQL has no separate schema concept — a "schema" in
       // information_schema terms literally IS the database. Nothing to
       // discover; just keep them in lockstep.
-      v.sourceSchema = v.srcDatabase;
+      v.sourceSchema = v.srcDatabase; v.sourceSchemas=[v.srcDatabase];
     } else {
       // Database Pack connection testing already performs one JDBC metadata
       // pass, so reuse the namespaces returned by that request instead of
@@ -103,15 +103,17 @@ async function testSourceConnection(){
       const applyNamespaceDiscovery=(schemaData)=>{
         if(!schemaData||schemaData.ok===false)return;
         discoveredSchemas=schemaData.schemas||[]; discoveredCatalogs=schemaData.catalogs||[];
+        const schemaNames=discoveredSchemas.map(x=>typeof x==='object'?x.schema:x).filter(Boolean);
         const pack=databasePackForDialect(v.dialect);
         if(pack){
           const values=packConnectionValues('source');
           const catalogField=(pack.connectionFields||[]).find(f=>f.mapsTo==='catalog');
           const schemaField=(pack.connectionFields||[]).find(f=>f.mapsTo==='schema');
           if(catalogField && !values[catalogField.key] && discoveredCatalogs.length) values[catalogField.key]=discoveredCatalogs[0];
-          if(schemaField && !values[schemaField.key] && discoveredSchemas.length) values[schemaField.key]=discoveredSchemas[0];
+          if(schemaField && !values[schemaField.key] && schemaNames.length) values[schemaField.key]=schemaNames[0];
           syncPackMappedValues(pack,'source');
-        }else if(discoveredSchemas.length && !discoveredSchemas.includes(v.sourceSchema)) v.sourceSchema=discoveredSchemas[0];
+        }else if(schemaNames.length && !schemaNames.includes(v.sourceSchema)) v.sourceSchema=schemaNames[0];
+        if(!Array.isArray(v.sourceSchemas)||!v.sourceSchemas.length) v.sourceSchemas=schemaNames.includes(v.sourceSchema)?[v.sourceSchema]:(schemaNames.length?[schemaNames[0]]:[]);
         if(discoveredSchemas.length||discoveredCatalogs.length) toast(`Discovered ${discoveredCatalogs.length} catalog(s) and ${discoveredSchemas.length} schema(s).`, 'ok');
       };
       if(databasePackForDialect(v.dialect) && (Array.isArray(data.schemas)||Array.isArray(data.catalogs))){

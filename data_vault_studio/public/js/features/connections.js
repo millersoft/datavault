@@ -12,6 +12,17 @@ function sourceDialectOptionsHtml(){
   return `<optgroup label="Common databases">${common}</optgroup><optgroup label="Other databases">${others}${legacySqlServer}<option value="__add_database_type__">＋ Add database type…</option></optgroup>`;
 }
 
+function sourceSchemaPickerHtml(v, readOnly=''){
+  if (v.dialect==='mysql') return '';
+  const known=(discoveredSchemas||[]).map(x=>typeof x==='object' ? x.schema : x).filter(Boolean);
+  if (!known.length) return `<p class="hint mt">Test the source connection to discover schemas for multi-schema import.</p>`;
+  const selected=new Set((Array.isArray(v.sourceSchemas)&&v.sourceSchemas.length?v.sourceSchemas:[v.sourceSchema]).filter(Boolean));
+  return `<div class="field mt"><label>Schemas to import <span class="hint">(one source connection)</span></label>
+    <select id="f-source-schemas" multiple size="${Math.min(8,Math.max(3,known.length))}" ${readOnly}>
+      ${known.map(schema=>`<option value="${escapeHtml(String(schema))}" ${selected.has(String(schema))?'selected':''}>${escapeHtml(String(schema))}</option>`).join('')}
+    </select><p class="hint" style="margin-top:5px;">Select one or more schemas. Each table remains schema-qualified in the mapping workbook.</p></div>`;
+}
+
 function renderConnections(el){
   const v=state.vault;
   const ext=state.externalTables;
@@ -51,6 +62,7 @@ function renderConnections(el){
         <div class="field"><label>Password</label><input type="password" id="f-srcpass" value="${escapeHtml(v.srcPassword)}" ${readOnly} ${demo?'placeholder="Configured server-side in .env"':''} autocomplete="off">${demo?'<p class="hint" style="margin-top:5px;">The password remains server-side and is never returned to this page.</p>':''}</div>
       </div>
       <div id="conn-status-wrap">${renderConnStatusHtml()}</div>
+      ${sourceSchemaPickerHtml(v, readOnly)}
       ${jdbcDriverSectionHtml(v)}
     </div>`;
   const sourceHop=sourcePack?resolveHopDatabaseType(sourcePack):null;
@@ -68,6 +80,7 @@ function renderConnections(el){
       <div class="grid cols-3 mt">${packConnectionFieldsHtml(sourcePack,'source')}</div>
       ${packConnectionExtrasHtml(sourcePack,'source')}
       <div id="conn-status-wrap">${renderConnStatusHtml()}</div>
+      ${sourceSchemaPickerHtml(v)}
       ${['mysql','postgresql'].includes(v.dialect)?jdbcDriverSectionHtml(v):''}
     </div>`:'';
   // Demo stays deliberately locked and credential-reference based in the UI.
@@ -229,6 +242,12 @@ function renderConnections(el){
     ['name','prefix','tenantId','srcCod','srcDescription'].forEach((key,i)=>bindValue(['f-name','f-prefix','f-tenant','f-cod','f-srcdesc'][i],v,key));
     bindValue('f-src-host',v,'srcHost',{clearSourceCaps:true}); bindValue('f-src-port',v,'srcPort',{clearSourceCaps:true}); bindValue('f-src-db',v,'srcDatabase',{clearSourceCaps:true});
     bindValue('f-source-schema',v,'sourceSchema',{clearSourceCaps:true}); bindValue('f-src-user',v,'srcUser',{clearSourceCaps:true}); bindValue('f-srcpass',v,'srcPassword',{clearSourceCaps:true});
+    const schemas=el.querySelector('#f-source-schemas');
+    if(schemas) schemas.addEventListener('change',()=>{
+      v.sourceSchemas=selectedValues(schemas);
+      if(v.sourceSchemas.length) v.sourceSchema=v.sourceSchemas[0];
+      if(state.sourceMeta) state.sourceMeta.hopCapabilities=null;
+    });
     const dialect=el.querySelector('#f-dialect');
     if(dialect) dialect.addEventListener('change',e=>{
       if(e.target.value==='__add_database_type__'){
@@ -293,4 +312,3 @@ function renderConnections(el){
     renderExternalSub(document.getElementById('ext-storage-mount'));
   }
 }
-

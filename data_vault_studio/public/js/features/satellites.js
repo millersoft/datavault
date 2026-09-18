@@ -18,7 +18,7 @@ function renderSatsSub(el){
       </div>
       <div class="grid cols-3 mt">
         <div class="field"><label>Concern <span class="hint">(suffix, optional)</span></label><input type="text" id="sat-concern" placeholder="profile"></div>
-        <div class="field"><label>Source table</label><select id="sat-table">${includedTables().map(t=>`<option value="${t.id}">${t.name}</option>`).join('')}</select></div>
+        <div class="field"><label>Source table</label><select id="sat-table">${includedTables().map(t=>`<option value="${t.id}">${sourceTableLabel(t)}</option>`).join('')}</select></div>
         <div class="field"><label>Key status</label><div id="sat-key-status" class="hint" style="margin-top:9px;"></div></div>
       </div>
       <div class="panel-head" style="margin:14px -20px 0;"><h3>Attributes</h3></div>
@@ -51,6 +51,7 @@ function renderSatsSub(el){
     const table = findTable(tableId);
     if (satKind==='hub'){
       const hub = findHub(entity);
+      ensureHubFeedHash(table,hub);
       if (!tableHasHubHashOnTable(table, hub)){
         toast(`Table "${table.name}" has no hash key derivation for "${hub.entity}" — add one in the Tables tab first.`,'err'); return;
       }
@@ -64,7 +65,7 @@ function renderSatsSub(el){
       state.hubSats.push({ id: uid('sat'), entity: hub.entity, concern, description:'', hubId: hub.id, tableId, attrs });
     } else {
       const link = findLink(entity);
-      const missing = link.hubs.filter(h=>!tableHasLinkHubHash(table, h, link));
+      const missing = link.hubs.filter(h=>!ensureLinkHubHash(table, h, link));
       if (missing.length){
         toast(`Table "${table.name}" is missing hash keys for this link's hubs — add derivations in the Tables tab.`,'err'); return;
       }
@@ -102,12 +103,13 @@ function updateSatKeyStatus(el){
   if (!parentId || !table){ statusEl.textContent=''; return; }
   if (satKind==='hub'){
     const hub = findHub(parentId);
+    ensureHubFeedHash(table,hub);
     statusEl.innerHTML = tableHasHubHashOnTable(table, hub)
       ? `<span style="color:var(--ok)">${hashColumnNameForHub(table,hub)} available</span>`
       : `<span style="color:var(--err)">no hash key for "${hub.entity}" on this table</span>`;
   } else {
     const link = findLink(parentId);
-    const ok = link.hubs.every(h=>tableHasLinkHubHash(table, h, link));
+    const ok = link.hubs.every(h=>ensureLinkHubHash(table, h, link));
     statusEl.innerHTML = ok ? `<span style="color:var(--ok)">all hub keys available</span>` : `<span style="color:var(--err)">missing one or more hub hash keys</span>`;
   }
 }
@@ -234,7 +236,7 @@ function renderSatsList(el){
         <div class="ehead-left">
           <span class="entity-marker sat"></span>
           <span class="entity-name">${name}</span>
-          <span class="entity-meta">${s.attrs.length} attrs · from <span class="mono">${t?t.name:'?'}</span> · ${s.kind==='hub'?'hub sat':'link sat'}</span>
+          <span class="entity-meta">${s.attrs.length} attrs · from <span class="mono">${t?sourceTableLabel(t):'?'}</span> · ${s.kind==='hub'?'hub sat':'link sat'}</span>
         </div>
         <button class="btn small danger" data-del-sat="${s.id}" data-sat-kind="${s.kind}">Delete</button>
       </div>
@@ -281,7 +283,7 @@ function renderSatEditForm(el, s){
     <div class="grid cols-3">
       <div class="field"><label>${isHubSat?'Parent hub':'Parent link'}</label><select id="edit-sat-parent">${parentOptions}</select></div>
       <div class="field"><label>Concern</label><input type="text" id="edit-sat-concern" value="${s.concern||''}" placeholder="profile"></div>
-      <div class="field"><label>Source table</label><select id="edit-sat-table">${includedTables().map(t=>`<option value="${t.id}" ${t.id===s.tableId?'selected':''}>${t.name}</option>`).join('')}</select></div>
+      <div class="field"><label>Source table</label><select id="edit-sat-table">${includedTables().map(t=>`<option value="${t.id}" ${t.id===s.tableId?'selected':''}>${sourceTableLabel(t)}</option>`).join('')}</select></div>
     </div>
     <div id="edit-sat-key-status" class="hint mt"></div>
     <div class="panel-head" style="margin:14px -20px 0;"><h3>Attributes</h3></div>
@@ -299,12 +301,13 @@ function renderSatEditForm(el, s){
     if (!table || !parentId){ statusEl.textContent=''; return; }
     if (isHubSat){
       const hub = findHub(parentId);
+      ensureHubFeedHash(table,hub);
       statusEl.innerHTML = tableHasHubHashOnTable(table, hub)
         ? `<span style="color:var(--ok)">${hashColumnNameForHub(table,hub)} available</span>`
         : `<span style="color:var(--err)">no hash key for "${hub.entity}" on this table</span>`;
     } else {
       const link = findLink(parentId);
-      const ok = link.hubs.every(h=>tableHasLinkHubHash(table, h, link));
+      const ok = link.hubs.every(h=>ensureLinkHubHash(table, h, link));
       statusEl.innerHTML = ok ? `<span style="color:var(--ok)">all hub keys available</span>` : `<span style="color:var(--err)">missing one or more hub hash keys</span>`;
     }
   };
@@ -336,7 +339,7 @@ function renderSatEditForm(el, s){
       sat.hubId = parentId; sat.entity = hub.entity; sat.concern = concern; sat.tableId = tableId; sat.attrs = attrs;
     } else {
       const link = findLink(parentId);
-      const missing = link.hubs.filter(h=>!tableHasLinkHubHash(table, h, link));
+      const missing = link.hubs.filter(h=>!ensureLinkHubHash(table, h, link));
       if (missing.length){ toast(`Table "${table.name}" is missing hash keys for this link's hubs.`,'err'); return; }
       const sat = state.linkSats.find(x=>x.id===s.id);
       sat.linkId = parentId; sat.entity = link.entity; sat.concern = concern; sat.tableId = tableId; sat.attrs = attrs;
@@ -366,4 +369,3 @@ function renderEditSatAttrRows(el){
     b.addEventListener('click', ()=>{ editSatAttrDraft.splice(Number(b.dataset.deleditar),1); renderEditSatAttrRows(el); });
   });
 }
-

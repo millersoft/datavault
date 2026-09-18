@@ -49,7 +49,7 @@ function validateModel(){
   if (v.dialect==='sqlserver') errors.push('This project still uses the legacy built-in SQL Server source. Install the SQL Server database type with + Add database type; Studio will migrate the connection values automatically.');
   if (state.hubs.length===0) warnings.push('No hubs defined yet.');
   const stagingTableCounts={};
-  tables.forEach(t=>{const name=stagingViewName(t.name);stagingTableCounts[name]=(stagingTableCounts[name]||0)+1;});
+  tables.forEach(t=>{const name=stagingViewName(t);stagingTableCounts[name]=(stagingTableCounts[name]||0)+1;});
   Object.entries(stagingTableCounts).filter(([,count])=>count>1).forEach(([name,count])=>errors.push(`${count} source tables resolve to the same staging table name "${name}". Set distinct source/target names before export.`));
   findDuplicateSatelliteGroups().forEach(group=>{
     const s = group[0];
@@ -61,22 +61,25 @@ function validateModel(){
     [
       ['sourceTableName', t.name, `Source table "${t.name}" name`],
       ['sourceTableDescription', t.description || '', `Source table "${t.name}" description`],
-      ['stagingTableName', stagingViewName(t.name), `Generated staging table name for "${t.name}"`],
-      ['sourceConcat', sourceConcat(t.name), `Generated source_concat for "${t.name}"`],
+      ['stagingTableName', stagingViewName(t), `Generated staging table name for "${sourceTableLabel(t)}"`],
+      ['sourceConcat', sourceConcat(t), `Generated source_concat for "${sourceTableLabel(t)}"`],
       ['incrementDateColumn', t.incrementCol || '', `Increment date column for "${t.name}"`],
       ['stagingSqlOverride', effectiveOverride(t), `Staging SQL override for "${t.name}"`],
     ].forEach(([fieldKey,value,label])=>{ const issue=pdiMetaLengthIssue(fieldKey,value,label); if(issue) errors.push(issue); });
+    const schemaIssue=pdiMetaLengthIssue('sourceSchema',sourceTableSchema(t),`Source schema for "${sourceTableLabel(t)}"`); if(schemaIssue) errors.push(schemaIssue);
     if (t.columns.length===0) warnings.push(`Table "${t.name}" has no columns.`);
     if (t.columns.length>0 && stagedColumns(t).length===0) errors.push(`Table "${t.name}" is included but has no columns selected for staging. Select at least one column or exclude the table on the Tables page.`);
     const legacyOverrideOutputs=customOverrideDerivedOutputColumns(t);
-    if(legacyOverrideOutputs.length) errors.push(`Table "${t.name}" has a custom staging SQL override that returns PostgreSQL-derived view column(s): ${legacyOverrideOutputs.join(', ')}. Reset the override to auto or remove those output aliases; v0.2 computes them in staging.${stagingViewName(t.name)}.`);
+    if(legacyOverrideOutputs.length) errors.push(`Table "${sourceTableLabel(t)}" has a custom staging SQL override that returns PostgreSQL-derived view column(s): ${legacyOverrideOutputs.join(', ')}. Reset the override to auto or remove those output aliases; v0.2 computes them in staging.${stagingViewName(t)}.`);
     const allPk=(t.columns||[]).filter(c=>c.pk);
     const selectedPk=allPk.filter(isColumnStaged);
     if (selectedPk.length>0 && selectedPk.length<allPk.length){
       const missing=allPk.filter(c=>!isColumnStaged(c)).map(c=>c.name);
       errors.push(`Table "${t.name}" has only part of its primary key selected for staging. Include ${missing.join(' + ')} or exclude the full key/table before modelling.`);
     }
-    const declared=(state.sourceMeta&&state.sourceMeta.foreignKeys||[]).filter(f=>f.table===t.name&&f.constraintName);
+    const declared=(state.sourceMeta&&state.sourceMeta.foreignKeys||[]).filter(f=>
+      f.table===t.name && f.constraintName &&
+      (!f.tableSchema || String(f.tableSchema).toLowerCase()===String(sourceTableSchema(t)).toLowerCase()));
     const fkGroups={}; declared.forEach(f=>{(fkGroups[f.constraintName]||(fkGroups[f.constraintName]=[])).push(f);});
     Object.entries(fkGroups).forEach(([constraint,rows])=>{
       const selected=rows.filter(f=>stagedColumns(t).some(c=>c.name===f.column));
@@ -127,7 +130,7 @@ function validateModel(){
       const hub = findHub(h.hubId);
       const cols = table ? linkHubCols(table, h) : [];
       if (!hub) { errors.push(`Link "${l.entity}" references a missing hub.`); return; }
-      if (table && !tableHasLinkHubHash(table, h, l)) errors.push(`Link "${l.entity}" is missing a hash key for hub "${hub.entity}" using source column(s) "${cols.map(c=>c.name).join(' + ')||'?'}" on "${table.name}".`);
+      if (table && !ensureLinkHubHash(table, h, l)) errors.push(`Link "${l.entity}" is missing a hash key for hub "${hub.entity}" using source column(s) "${cols.map(c=>c.name).join(' + ')||'?'}" on "${table.name}".`);
     });
   });
   state.hubSats.concat(state.linkSats).forEach(s=>{
@@ -154,7 +157,7 @@ function validateModel(){
   }
   const uncoveredTables = vaultUncoveredTables();
   if (uncoveredTables.length){
-    const sample = uncoveredTables.slice(0,20).map(t=>t.name).join(', ');
+    const sample = uncoveredTables.slice(0,20).map(sourceTableLabel).join(', ');
     errors.push(`${uncoveredTables.length} included table(s) with staged columns are not represented in the Vault model: ${sample}${uncoveredTables.length>20?' …':''}. Add a Hub, Link or Satellite, or exclude the table.`);
   }
   if (state.externalTables.enabled){
@@ -189,6 +192,3 @@ function validateModel(){
   }
   return { errors, warnings };
 }
-
-
-

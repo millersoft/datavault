@@ -1,4 +1,4 @@
-async function fetchIntrospection(profileColumns=false){
+async function fetchIntrospection(profileColumns=false, requestedSchema=''){
   const v = state.vault;
   const effectiveSchema = v.dialect==='mysql' ? v.srcDatabase : v.sourceSchema;
   // The bundled demo intentionally keeps its MySQL password server-side.
@@ -11,7 +11,11 @@ async function fetchIntrospection(profileColumns=false){
   // PostgreSQL-oriented sourceSchema state (normally "public"). When a pack
   // has no explicit catalog/schema, the JDBC bridge scopes metadata to the
   // catalog/schema of the connection opened by the pack URL.
-  if(!packBody){ body.schema=effectiveSchema; body.catalog=v.sourceCatalog||body.catalog||''; }
+  // A selected schema always scopes this request, including Database Packs.
+  // The server passes it to JDBC metadata rather than relying on the
+  // connection's preferred/default schema.
+  body.schema=requestedSchema || effectiveSchema;
+  if(!packBody) body.catalog=v.sourceCatalog||body.catalog||'';
   body.profileColumns=profileColumns;
   const resp = await localFetch(`/api/introspect`, {
     method: 'POST', headers: { 'Content-Type':'application/json' },
@@ -37,12 +41,12 @@ function captureSourceMeta(data){
   if (Array.isArray(data.foreignKeys)) {
     const preserved=(state.sourceMeta.foreignKeys||[]).filter(f=>['manual','ai'].includes(f.provenance));
     const incoming=data.foreignKeys.map(f=>({...f,provenance:f.provenance||'declared'}));
-    const key=f=>[f.table,f.column,f.refTable,f.refColumn].map(x=>String(x||'').toLowerCase()).join('|');
+    const key=f=>[f.tableSchema,f.table,f.column,f.refSchema,f.refTable,f.refColumn].map(x=>String(x||'').toLowerCase()).join('|');
     const seen=new Set(incoming.map(key));
     state.sourceMeta.foreignKeys=incoming.concat(preserved.filter(f=>!seen.has(key(f))));
   }
   const counts = {};
-  (data.tables||[]).forEach(t=>{ if (t.approxRows!=null) counts[t.name] = t.approxRows; });
+  (data.tables||[]).forEach(t=>{ if (t.approxRows!=null) counts[sourceTableIdentity(t)] = t.approxRows; });
   state.sourceMeta.approxRows = counts;
 }
 
@@ -90,15 +94,26 @@ async function introspectDatabase(){
   const btn = document.getElementById('btn-introspect');
   if (btn){ btn.disabled = true; btn.textContent = 'Detecting Source Tables…'; }
   try {
-    const data = await fetchIntrospection(true);
+    const selectedSchemas=v.dialect==='mysql' ? [v.srcDatabase] : ((v.sourceSchemas&&v.sourceSchemas.length)?v.sourceSchemas:[effectiveSchema]);
+    const results=[];
+    for(const schema of selectedSchemas) results.push(await fetchIntrospection(true,schema));
+    const data={
+      tables:results.flatMap(x=>(x.tables||[]).map(t=>({...t,schema:t.schema||x.schema||''}))),
+      foreignKeys:results.flatMap(x=>(x.foreignKeys||[]).map(f=>({
+        ...f, tableSchema:f.tableSchema||x.schema||'', refSchema:f.refSchema||x.schema||'',
+      }))),
+      sourceCapabilities:results[0]&&results[0].sourceCapabilities,
+      profileSummary:{warnings:results.flatMap(x=>(x.profileSummary&&x.profileSummary.warnings)||[]),infos:results.flatMap(x=>(x.profileSummary&&x.profileSummary.infos)||[])},
+    };
     const invalidTableName=(data.tables||[]).map(t=>pdiMetaLengthIssue('sourceTableName',t.name,`Source table "${t.name}" name`)).find(Boolean);
     if(invalidTableName) throw new Error(`Source schema cannot be imported into PDI metadata: ${invalidTableName}`);
     captureSourceMeta(data);
     let added = 0, updated = 0, viewsFound = 0, viewsAutoExcluded = 0, incrementalDetected = 0;
-    data.tables.forEach(rt=>{
+    results.forEach(result=>(result.tables||[]).forEach(rt=>{
+      rt.schema=result.schema||'';
       const objectType = normalizeSourceObjectType(rt.objectType);
       if (objectType==='view') viewsFound++;
-      const existing = state.tables.find(t=>t.name===rt.name);
+      const existing = state.tables.find(t=>t.name===rt.name && sourceTableSchema(t)===rt.schema);
       if (existing){
         // Older saved projects predate object types and may have reporting
         // views included only because introspection treated them as tables.
@@ -140,7 +155,7 @@ async function introspectDatabase(){
         });
         updated++;
       } else {
-        const t = newTable(rt.name);
+        const t = newTable(rt.name); t.schema=rt.schema;
         t.objectType = objectType;
         t.included = objectType!=='view';
         if (objectType==='view') viewsAutoExcluded++;
@@ -153,12 +168,12 @@ async function introspectDatabase(){
         state.tables.push(t);
         added++;
       }
-    });
+    }));
     if (FEATURE_INCREMENTAL){
-      data.tables.forEach(rt=>{
-        const table = state.tables.find(t=>t.name===rt.name);
+      results.forEach(result=>(result.tables||[]).forEach(rt=>{
+        const table = state.tables.find(t=>t.name===rt.name && sourceTableSchema(t)===(result.schema||''));
         if (table && table.included!==false && autoConfigureIncrementalColumn(table)) incrementalDetected++;
-      });
+      }));
     }
     if (viewsAutoExcluded) pruneDownstreamModel({ dropExcluded:true });
     const declaredCount=(state.sourceMeta.foreignKeys||[]).filter(f=>f.provenance==='declared').length;
@@ -169,7 +184,7 @@ async function introspectDatabase(){
     renderAll(); setActiveTabViewOnly('tables');
     const location = isDatabasePackDialect(v.dialect)
       ? [data.catalog||v.srcDatabase, data.schema].filter(Boolean).join('.')
-      : (v.dialect==='mysql' ? v.srcDatabase : `${v.srcDatabase}.${effectiveSchema}`);
+      : (v.dialect==='mysql' ? v.srcDatabase : `${v.srcDatabase}.${selectedSchemas.join(', ')}`);
     const tableCount = data.tables.length - viewsFound;
     const viewSummary = viewsFound ? ` and ${viewsFound} view(s)${viewsAutoExcluded?` (${viewsAutoExcluded} left unselected)`:''}` : '';
     const ps = data.profileSummary || {};

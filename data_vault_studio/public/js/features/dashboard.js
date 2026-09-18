@@ -76,7 +76,7 @@ function dashboardStagingJobMatchesTable(row, table){
   // its writable view as table-specific evidence of a successful source run.
   const target=normalizedDashboardTableName(row.target_table_name);
   if (!target) return false;
-  return [stagingTableName(table.name), stagingViewName(table.name)]
+  return [stagingTableName(table), stagingViewName(table)]
     .map(normalizedDashboardTableName)
     .includes(target);
 }

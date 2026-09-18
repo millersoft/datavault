@@ -56,7 +56,7 @@ function buildOverride(table){
   // hashes and tenant metadata are derived by the PostgreSQL staging view so
   // every source database produces identical Vault key bytes.
   const selectItems=sourceSqlColumnSelectItems(table);
-  return 'select\n  ' + selectItems.join(',\n  ') + `\nfrom ${sourceSqlQualifiedName(sourceSqlEffectiveSchema(), table.name)} src\nwhere 1=1`;
+  return 'select\n  ' + selectItems.join(',\n  ') + `\nfrom ${sourceSqlQualifiedName(sourceTableSchema(table) || sourceSqlEffectiveSchema(), table.name)} src\nwhere 1=1`;
 }
 
 function effectiveOverride(table){
@@ -72,4 +72,3 @@ function customOverrideDerivedOutputColumns(table){
   const derived=buildStagingViewColumns(table).filter(c=>c.derived).map(c=>c.name);
   return derived.filter(name=>new RegExp(`\\b${String(name).replace(/[.*+?^${}()|[\\]\\]/g,'\\$&')}\\b`,'i').test(selectPart));
 }
-

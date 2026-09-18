@@ -140,7 +140,7 @@
       <parameters>
         <parameter>
           <name>par_id_rtyp</name>
-          <value>2</value>
+          <value>${par_id_rtyp}</value>
         </parameter>
         <parameter>
           <name>par_id_srcsys</name>
@@ -160,42 +160,6 @@
       <parallel>N</parallel>
       <xloc>496</xloc>
       <yloc>368</yloc>
-      <attributes_hac/>
-    </action>
-    <action>
-      <name>job_stg_load_file_directory_generic (id_srcfile_directory= 1)</name>
-      <description/>
-      <type>WORKFLOW</type>
-      <attributes/>
-      <add_date>N</add_date>
-      <add_time>N</add_time>
-      <create_parent_folder>N</create_parent_folder>
-      <exec_per_row>N</exec_per_row>
-      <filename>${PROJECT_HOME}/staging_generic/staging_generic_files_in_directory/job_stg_load_file_directory_generic.hwf</filename>
-      <loglevel>Nothing</loglevel>
-      <parameters>
-        <parameter>
-          <name>id_srcfile_directory</name>
-          <value>1</value>
-        </parameter>
-        <parameter>
-          <name>par_id_rtyp</name>
-          <value>3</value>
-        </parameter>
-        <parameter>
-          <name>par_subruntype</name>
-          <value>${par_subruntype}</value>
-        </parameter>
-        <pass_all_parameters>N</pass_all_parameters>
-      </parameters>
-      <params_from_previous>N</params_from_previous>
-      <run_configuration>local</run_configuration>
-      <set_append_logfile>N</set_append_logfile>
-      <set_logfile>N</set_logfile>
-      <wait_until_finished>Y</wait_until_finished>
-      <parallel>N</parallel>
-      <xloc>496</xloc>
-      <yloc>496</yloc>
       <attributes_hac/>
     </action>
     <action>
@@ -348,13 +312,6 @@
     </hop>
     <hop>
       <from>job_staging_generic_source_system_run (Sakila, id_srcsys = 1)</from>
-      <to>job_stg_load_file_directory_generic (id_srcfile_directory= 1)</to>
-      <enabled>Y</enabled>
-      <evaluation>Y</evaluation>
-      <unconditional>N</unconditional>
-    </hop>
-    <hop>
-      <from>job_stg_load_file_directory_generic (id_srcfile_directory= 1)</from>
       <to>end_run of type 'par_id_rtyp'</to>
       <enabled>Y</enabled>
       <evaluation>Y</evaluation>
@@ -369,13 +326,6 @@
     </hop>
     <hop>
       <from>job_staging_generic_source_system_run (Sakila, id_srcsys = 1)</from>
-      <to>end_run (error)</to>
-      <enabled>Y</enabled>
-      <evaluation>N</evaluation>
-      <unconditional>N</unconditional>
-    </hop>
-    <hop>
-      <from>job_stg_load_file_directory_generic (id_srcfile_directory= 1)</from>
       <to>end_run (error)</to>
       <enabled>Y</enabled>
       <evaluation>N</evaluation>

@@ -2,7 +2,7 @@
    TABLES TAB
    ========================================================================= */
 function newTable(name){
-  return { id: uid('tbl'), name: name||'', objectType:'table', description:'', included:true, incremental:false, incrementCol:'',
+  return { id: uid('tbl'), name: name||'', schema:'', objectType:'table', description:'', included:true, incremental:false, incrementCol:'',
            incrementalReady:false, incrementalReadyRunId:null, incrementalReadyAfterRunId:0, incrementalReadyAt:'', incrementalConfiguredAt:'',
            incrementalConfigPending:false, incrementalDeploymentPending:false, incrementalAutoDetectDismissed:false,
            loadGroup: 2000, columns: [], derivations: [], customOverride: null };
@@ -119,7 +119,7 @@ function renderTables(el){
 
     <div class="panel" style="display:flex;align-items:center;gap:10px;">
       <span class="entity-marker sat" style="background:var(--sat);border-radius:2px;"></span>
-      <span class="mono" style="font-size:12.5px;">${escapeHtml((isDatabasePackDialect(v.dialect)?(v.sourceCatalog||v.srcDatabase):v.srcDatabase) || '(namespace not set)')}${v.dialect==='mysql' ? '' : (()=>{const s=isDatabasePackDialect(v.dialect)?sourceSqlEffectiveSchema():(v.sourceSchema||'public');return s?`<span style="color:var(--muted)">.${escapeHtml(s)}</span>`:'';})()}</span>
+      <span class="mono" style="font-size:12.5px;">${escapeHtml((isDatabasePackDialect(v.dialect)?(v.sourceCatalog||v.srcDatabase):v.srcDatabase) || '(namespace not set)')}${v.dialect==='mysql' ? '' : (()=>{const schemas=(v.sourceSchemas&&v.sourceSchemas.length?v.sourceSchemas:[isDatabasePackDialect(v.dialect)?sourceSqlEffectiveSchema():(v.sourceSchema||'public')]).filter(Boolean);return schemas.length?`<span style="color:var(--muted)">.${escapeHtml(schemas.join(', '))}</span>`:'';})()}</span>
       <span class="hint" style="margin-left:auto;">${DIALECTS[v.dialect].label} · set on the Connections step</span>
     </div>
 
@@ -137,7 +137,7 @@ function renderTables(el){
 
     <div class="flex-between" style="margin-bottom:8px;">
       <h3 style="font-family:var(--font-display);font-size:12.5px;margin:0;text-transform:uppercase;letter-spacing:.2px;color:var(--muted);">
-        Source objects in this schema <span class="badge-count">&nbsp;·&nbsp;${includedCount} of ${state.tables.length} included</span>
+        Source objects in selected schemas <span class="badge-count">&nbsp;·&nbsp;${includedCount} of ${state.tables.length} included</span>
       </h3>
       <div>
         ${state.tables.length>0 ? `
@@ -300,8 +300,8 @@ function renderTablesList(el){
             <input type="checkbox" data-include="${t.id}" ${included?'checked':''}>
           </label>
           <span class="entity-marker sat" style="background:var(--muted);border-radius:2px;"></span>
-          <span class="entity-name">${t.name}</span>
-          <span class="entity-meta">${t.columns.length} cols${isSourceView(t)?' · view':''}${(state.sourceMeta && state.sourceMeta.approxRows && state.sourceMeta.approxRows[t.name]!=null) ? ` · ~${Number(state.sourceMeta.approxRows[t.name]).toLocaleString()} rows` : ''} · staging → <span class="mono">${stagingViewName(t.name)}</span> ${included?'':'· <span class=\"tag\">excluded</span>'}</span>
+          <span class="entity-name">${escapeHtml(sourceTableLabel(t))}</span>
+          <span class="entity-meta">${t.columns.length} cols${isSourceView(t)?' · view':''}${(state.sourceMeta && state.sourceMeta.approxRows && state.sourceMeta.approxRows[sourceTableIdentity(t)]!=null) ? ` · ~${Number(state.sourceMeta.approxRows[sourceTableIdentity(t)]).toLocaleString()} rows` : ''} · staging → <span class="mono">${stagingViewName(t)}</span> ${included?'':'· <span class=\"tag\">excluded</span>'}</span>
         </div>
         <div>
           <button class="btn small danger" data-del-table="${t.id}">Delete</button>
@@ -571,4 +571,3 @@ function renderDerivRows(el, t, container){
 }
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-

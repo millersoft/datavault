@@ -312,6 +312,8 @@ on              stg_srctab.source_system      = ref_srcsys.description
 inner join      ref_source_tables               ref_srctab
 on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
 and             stg_srctab.table_name         = ref_srctab.table_name
+and             coalesce(stg_srctab.source_schema,'') = coalesce(ref_srctab.source_schema,'')
+and             stg_srctab.staging_table_name = ref_srctab.staging_table_name
 inner join      ref_data_vault_hubs             ref_hub_1
 on              stg_links.hub_1               = ref_hub_1.hub_name
 and             dv.id_data_vault              = ref_hub_1.id_data_vault

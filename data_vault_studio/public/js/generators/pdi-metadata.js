@@ -51,7 +51,9 @@ const SHEET_HEADERS = {
   data_vault: ['id_data_vault','data_vault_name','data_vault_description','ind_current'],
   connections: ['name','description'],
   source_systems: ['id_srcsys','cod_srcsys','description','source_connection','staging_connection','staging_days_to_load_default','ind_archive_staging_tables'],
-  source_tables: ['source_system','table_name','table_description','staging_table_name','source_concat','ind_stage_this_table','ind_staging_is_incremental','increment_date_column','staging_load_group_order','staging_sql_override','process_in_subruntypes'],
+  // Keep the legacy column positions stable for hand-authored workbooks;
+  // source_schema is additive at the end and is resolved by header name.
+  source_tables: ['source_system','table_name','table_description','staging_table_name','source_concat','ind_stage_this_table','ind_staging_is_incremental','increment_date_column','staging_load_group_order','staging_sql_override','process_in_subruntypes','source_schema'],
   hubs: ['hub_name','hub_description','hub_key','hub_business_key','hub_source','hub_source_hash_key','hub_source_business_key','hub_source_surrogate_key','hub_source_order','ind_current','ind_last_seen_dts','ind_status_sat','process_in_subruntypes'],
   links: (()=>{
     const h = ['link_name','link_key','link_description','ind_current','source_concat','link_source_order'];
@@ -73,4 +75,3 @@ const SHEET_HEADERS = {
   // header-only unless future metadata notes are added.
   Sheet10: ['notes'],
 };
-

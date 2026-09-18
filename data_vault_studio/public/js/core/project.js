@@ -72,7 +72,7 @@ function projectLimitIssues(candidate){
     const name=String((t && t.name)||'');
     add('sourceTableName',name,`Source table "${name}" name`);
     add('sourceTableDescription',t && t.description,`Source table "${name}" description`);
-    add('sourceConcat',`${v.srcDescription||''}.${name}`,`Generated source_concat for "${name}"`);
+    add('sourceConcat',sourceConcat(t),`Generated source_concat for "${sourceTableLabel(t)}"`);
     add('incrementDateColumn',t && t.incrementCol,`Increment date column for "${name}"`);
     if(t && typeof t.customOverride==='string') add('stagingSqlOverride',t.customOverride,`Custom staging SQL override for "${name}"`);
   });
@@ -105,6 +105,7 @@ function loadProjectFromFile(file){
       if (!state.sourceMeta) state.sourceMeta = { foreignKeys: [], approxRows: {}, relationshipSuggestions: [], hopCapabilities: null }; // older project files predate this field
       if (!state.sourceMeta.relationshipSuggestions) state.sourceMeta.relationshipSuggestions=[];
       if (!state.vault.sourcePackValues) state.vault.sourcePackValues={};
+      if (!Array.isArray(state.vault.sourceSchemas)) state.vault.sourceSchemas=state.vault.sourceSchema?[state.vault.sourceSchema]:[];
       if (state.vault.sourceCatalog==null) state.vault.sourceCatalog='';
       if (!state.externalTables.packValues) state.externalTables.packValues={};
       const migratedLegacySqlServer=migrateLegacySqlServerSourceToPack();
@@ -152,7 +153,7 @@ function startNewProject(skipConfirm){
   importedProjectConnectionsRequireConfirmation = false;
   confirmedImportedConnectionTargets.clear();
   Object.assign(state.vault, {
-    name:'', prefix:'', sourceSchema:'public', sourceCatalog:'', sourcePackValues:{}, tenantId:'', dialect:'postgresql',
+    name:'', prefix:'', sourceSchema:'public', sourceSchemas:[], sourceCatalog:'', sourcePackValues:{}, tenantId:'', dialect:'postgresql',
     sourcePreset:'', targetPreset:'',
     hashAlgorithm:'sha256',
     vaultDbName:'', vaultDescription:'', srcCod:'', srcDescription:'',
@@ -198,4 +199,3 @@ document.getElementById('file-load-project').addEventListener('change', (e)=>{
   if (e.target.files[0]) loadProjectFromFile(e.target.files[0]);
   e.target.value = '';
 });
-

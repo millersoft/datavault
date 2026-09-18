@@ -71,11 +71,21 @@
         <field>table_name</field>
         <name>table_name</name>
       </key>
+      <key>
+        <condition>=</condition>
+        <field>source_schema</field>
+        <name>source_schema</name>
+      </key>
       <schema/>
       <table>ref_source_tables</table>
       <value>
         <name>id_srcsys</name>
         <rename>id_srcsys</rename>
+        <update>N</update>
+      </value>
+      <value>
+        <name>source_schema</name>
+        <rename>source_schema</rename>
         <update>N</update>
       </value>
       <value>
@@ -145,7 +155,8 @@
     <connection>pdi_meta</connection>
     <execute_each_row>N</execute_each_row>
     <limit>0</limit>
-    <sql>select          ref_srcsys.id_srcsys
+<sql>select          ref_srcsys.id_srcsys
+,               stg_srctab.source_schema
 ,               stg_srctab.table_name
 ,               stg_srctab.table_description  as description
 ,               stg_srctab.staging_table_name  
@@ -164,6 +175,7 @@ select 1
 from   ref_source_tables                                 srctab_bestaand
 where  stg_srctab.table_name                           = srctab_bestaand.table_name
 and    ref_srcsys.id_srcsys                            = srctab_bestaand.id_srcsys
+and    coalesce(stg_srctab.source_schema,'')           = coalesce(srctab_bestaand.source_schema,'')
 and    coalesce(stg_srctab.table_description,'')         = coalesce(srctab_bestaand.description,'')
 and    coalesce(stg_srctab.staging_table_name,'')        = coalesce(srctab_bestaand.staging_table_name,'')
 and    coalesce(stg_srctab.ind_stage_this_table,0)       = coalesce(srctab_bestaand.ind_stage_this_table,0)

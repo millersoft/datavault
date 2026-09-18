@@ -368,6 +368,8 @@ on              stg_srctab.source_system      = ref_srcsys.description
 inner join      ref_source_tables               ref_srctab
 on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
 and             stg_srctab.table_name         = ref_srctab.table_name
+and             coalesce(stg_srctab.source_schema,'') = coalesce(ref_srctab.source_schema,'')
+and             stg_srctab.staging_table_name = ref_srctab.staging_table_name
 inner join      ref_data_vault_hub_satellites   hsats
 on              stg_sat.sat_name              = hsats.sat_name
 and             ref_hubs.id_data_vault_hub    = hsats.id_data_vault_hub
@@ -397,6 +399,8 @@ on              stg_srctab.source_system      = ref_srcsys.description
 inner join      ref_source_tables               ref_srctab
 on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
 and             stg_srctab.table_name         = ref_srctab.table_name
+and             coalesce(stg_srctab.source_schema,'') = coalesce(ref_srctab.source_schema,'')
+and             stg_srctab.staging_table_name = ref_srctab.staging_table_name
 inner join      ref_data_vault_link_satellites  lsats
 on              stg_sat.sat_name              = lsats.sat_name
 and             ref_links.id_data_vault_link  = lsats.id_data_vault_link
@@ -461,6 +465,8 @@ on              stg_srctab.source_system      = ref_srcsys.description
 inner join      ref_source_tables               ref_srctab
 on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
 and             stg_srctab.table_name         = ref_srctab.table_name
+and             coalesce(stg_srctab.source_schema,'') = coalesce(ref_srctab.source_schema,'')
+and             stg_srctab.staging_table_name = ref_srctab.staging_table_name
 inner join      ref_data_vault_links            ref_links
 on              stg_links.link_name           = ref_links.link_name
 and             ref_links.id_data_vault       = dv.id_data_vault
@@ -504,6 +510,8 @@ on              stg_srctab.source_system      = ref_srcsys.description
 inner join      ref_source_tables               ref_srctab
 on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
 and             stg_srctab.table_name         = ref_srctab.table_name
+and             coalesce(stg_srctab.source_schema,'') = coalesce(ref_srctab.source_schema,'')
+and             stg_srctab.staging_table_name = ref_srctab.staging_table_name
 where           stg_lnka.ind_current          = 1
 and             ref_links.id_data_vault_link  = ref_data_vault_link_attributes.id_data_vault_link
 and             ref_srctab.id_srctab          = ref_data_vault_link_attributes.record_source_id
@@ -537,6 +545,8 @@ on              stg_srctab.source_system      = ref_srcsys.description
 inner join      ref_source_tables               ref_srctab
 on              ref_srcsys.id_srcsys          = ref_srctab.id_srcsys
 and             stg_srctab.table_name         = ref_srctab.table_name
+and             coalesce(stg_srctab.source_schema,'') = coalesce(ref_srctab.source_schema,'')
+and             stg_srctab.staging_table_name = ref_srctab.staging_table_name
 where           stg_hubs.hub_source_business_key is not null
 and             ref_hubs.id_data_vault_hub       = ref_data_vault_hub_sources.id_data_vault_hub
 and             ref_srctab.id_srctab             = ref_data_vault_hub_sources.record_source_id       

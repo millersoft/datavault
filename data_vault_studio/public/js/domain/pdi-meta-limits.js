@@ -125,6 +125,15 @@ const PDI_META_LIMITS = Object.freeze({
         { table:'ref_source_tables_hist', column:'table_name', expectedMaxLength:256 },
       ]),
     }),
+    sourceSchema: Object.freeze({
+      label: 'Source schema', maxLength: 128,
+      workbookColumns: Object.freeze([{ sheet:'source_tables', column:'source_schema' }]),
+      dbColumns: Object.freeze([
+        { table:'stg_management_source_tables', column:'source_schema', expectedMaxLength:128 },
+        { table:'ref_source_tables', column:'source_schema', expectedMaxLength:128 },
+        { table:'ref_source_tables_hist', column:'source_schema', expectedMaxLength:128 },
+      ]),
+    }),
     sourceTableDescription: Object.freeze({
       label: 'Source table description',
       maxLength: 128,

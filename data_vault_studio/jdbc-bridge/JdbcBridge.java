@@ -183,8 +183,10 @@ public final class JdbcBridge {
         while(rs.next()){
           Map<String,Object> fk=new LinkedHashMap<>();
           fk.put("table",rs.getString("FKTABLE_NAME"));
+          fk.put("tableSchema",rsString(rs,"FKTABLE_SCHEM"));
           fk.put("column",rs.getString("FKCOLUMN_NAME"));
           fk.put("refTable",rs.getString("PKTABLE_NAME"));
+          fk.put("refSchema",rsString(rs,"PKTABLE_SCHEM"));
           fk.put("refColumn",rs.getString("PKCOLUMN_NAME"));
           fk.put("constraintName",rsString(rs,"FK_NAME"));
           fk.put("ordinalPosition",rsInt(rs,"KEY_SEQ"));

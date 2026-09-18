@@ -78,6 +78,16 @@ function derivationPreferenceScore(table,d){
   if(d&&d.role) score+=5;
   return score;
 }
+// A shared-Hub feed is an explicit modeller decision.  It is stronger than
+// the ordinary PK/FK heuristics used for an individual source table, because
+// a clone can legitimately have the same key columns while its local table
+// identity (or parent FK) differs from the Hub it is approved to feed.
+function isApprovedSharedHubFeed(table, entity){
+  const target=sqlNamePart(entity||'');
+  return !!(table&&target&&(state.hubs||[]).some(h=>
+    h.entity===target && hubSourceFeeds(h).some(feed=>feed.tableId===table.id)
+  ));
+}
 // Convert any caller (AI, deterministic suggestion, manual edit or saved
 // project) to one canonical derivation shape. A declared/inferred FK decides
 // the target Hub; the source-column role is stored separately and controls
@@ -92,10 +102,11 @@ function canonicalDerivationSpec(table, entity, columns, kind='hash', role=''){
   const own=names.length && sameColumnList(plan.ownKeyColumns.map(c=>c.name),names);
   let canonicalEntity=sqlNamePart(entity || (own?plan.ownEntity:(fk?fk.refEntity:plan.ownEntity)));
   let canonicalRole=role ? sqlNamePart(role) : '';
+  const approvedSharedFeed=isApprovedSharedHubFeed(table,canonicalEntity);
 
   // A known source relationship is authoritative. AI may suggest a role-like
   // label as the target entity, but that must never create a second Hub.
-  if(requestedKind==='hash'){
+  if(requestedKind==='hash'&&!approvedSharedFeed){
     if(fk){
       canonicalEntity=sqlNamePart(fk.refEntity);
       canonicalRole=sqlNamePart(fk.role);
@@ -110,7 +121,7 @@ function canonicalDerivationSpec(table, entity, columns, kind='hash', role=''){
       }
     }
   }
-  if(own && requestedKind!=='hash'){
+  if(own && requestedKind!=='hash'&&!approvedSharedFeed){
     canonicalEntity=sqlNamePart(plan.ownEntity);
     canonicalRole=sqlNamePart(plan.ownEntity);
   }
@@ -257,6 +268,18 @@ function tableHasLinkHubHash(table, linkHub, link){
   const derivationEntity = linkHubDerivationEntity(link, linkHub);
   return !!(table && hub && cols.length && tableHasHashForColumns(table, derivationEntity, cols.map(c=>c.name), linkHub.role || linkHubRoleFromSource(table,linkHub)));
 }
+// Links carry a hash for every Hub role.  Recreate it for legacy or
+// incrementally-edited models before the link is validated or used by a
+// Satellite, just as approved shared Hub feeds repair their parent hash.
+function ensureLinkHubHash(table, linkHub, link){
+  const hub=linkHub&&findHub(linkHub.hubId);
+  const cols=table&&linkHub?linkHubCols(table,linkHub):[];
+  if(!table||!hub||!cols.length) return false;
+  const entity=linkHubDerivationEntity(link,linkHub);
+  const role=linkHub.role||linkHubRoleFromSource(table,linkHub);
+  ensureKeyDerivation(table,entity,cols.map(c=>c.name),'hash',role);
+  return tableHasLinkHubHash(table,linkHub,link);
+}
 function sqlNamePart(s){
   return String(s || '')
     .trim()
@@ -299,12 +322,35 @@ function hubKeyColIds(hub){
   if (Array.isArray(hub.keyColIds) && hub.keyColIds.length) return hub.keyColIds.slice();
   return hub.pkColId ? [hub.pkColId] : [];
 }
+// A hub has one canonical source for backward compatibility, and may have
+// additional modeller-approved source feeds.  Each feed carries its own
+// column IDs because the same business key can have different column IDs (or
+// names) in another schema.
+function hubSourceFeeds(hub){
+  if (!hub) return [];
+  if (Array.isArray(hub.sourceFeeds) && hub.sourceFeeds.length) return hub.sourceFeeds;
+  return [{tableId:hub.tableId,keyColIds:hubKeyColIds(hub)}];
+}
+// A modeller-approved source feed must always be able to emit the parent
+// Hub's hash.  Old projects and earlier shared-feed UI flows can contain the
+// feed row without its derivation, so repair that small piece of staging
+// metadata wherever the feed is consumed.
+function ensureHubFeedHash(table, hub){
+  const feed=(hubSourceFeeds(hub)||[]).find(f=>table&&f.tableId===table.id);
+  if(!feed) return false;
+  const cols=(feed.keyColIds||[]).map(id=>findStagedColumn(table,id)).filter(Boolean);
+  if(!hub||!cols.length) return false;
+  ensureKeyDerivation(table,hub.entity,cols.map(c=>c.name),'both');
+  return tableHasHashForColumns(table,hub.entity,cols.map(c=>c.name),hub.entity);
+}
 function hubKeyCols(hub){
   const table = hub && findTable(hub.tableId);
   return hubKeyColIds(hub).map(id=>findCol(table,id)).filter(Boolean);
 }
 function hashColumnNameForHub(table, hub){
-  const cols = table && hub && table.id!==hub.tableId ? stagedSourceColumnsForHub(table,hub) : hubKeyCols(hub);
+  const feed=(hubSourceFeeds(hub)||[]).find(f=>table&&f.tableId===table.id);
+  const cols = feed ? (feed.keyColIds||[]).map(id=>findStagedColumn(table,id)).filter(Boolean)
+    : (table && hub && table.id!==hub.tableId ? stagedSourceColumnsForHub(table,hub) : hubKeyCols(hub));
   return hashColumnNameFromDerivations(table, hub ? hub.entity : '', cols.map(c=>c.name), hub ? hub.entity : '');
 }
 function linkHubColIds(linkHub){
@@ -384,4 +430,3 @@ function linkHubRowsIssue(entity, table, rows){
   const duplicate = names.find((name, i)=>name && names.indexOf(name)!==i);
   return duplicate ? `link "${entity}" would generate duplicate column "${duplicate}"; use distinct source-role columns` : '';
 }
-

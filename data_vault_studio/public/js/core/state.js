@@ -10,7 +10,7 @@ function hashSqlType(){ return hashAlgo()==='sha256' ? 'BYTEA' : `VARCHAR(${hash
 
 const state = {
   vault: {
-    name: '', prefix: '', sourceSchema: 'public', sourceCatalog: '', sourcePackValues: {}, tenantId: '', dialect: 'postgresql',
+    name: '', prefix: '', sourceSchema: 'public', sourceSchemas: [], sourceCatalog: '', sourcePackValues: {}, tenantId: '', dialect: 'postgresql',
     sourcePreset: '', // '' manual | 'demo' packaged MySQL sakila container
     targetPreset: '', // '' external | 'internal' packaged Postgres container
     vaultDbName: '', vaultDescription: '', srcCod: '', srcDescription: '',
@@ -276,6 +276,15 @@ function findStagedColumn(table, colId){
 function findIncludedTableByName(name){
   return includedTables().find(t=>t.name===name);
 }
+// A bare table name is intentionally not enough once a source exposes more
+// than one schema.  Returning null for an ambiguous legacy reference is safer
+// than attaching a relationship to an arbitrary same-named table.
+function findIncludedSourceTable(schema, name){
+  const candidates=includedTables().filter(t=>String(t.name).toLowerCase()===String(name||'').toLowerCase());
+  const requested=String(schema||'').toLowerCase();
+  if (requested) return candidates.find(t=>String(sourceTableSchema(t)).toLowerCase()===requested) || null;
+  return candidates.length===1 ? candidates[0] : null;
+}
 function pruneDownstreamModel(options = {}){
   // Keeps the vault model consistent with the Tables and Staging tabs. This
   // removes objects that depend on tables that were deleted/excluded or on
@@ -299,7 +308,12 @@ function pruneDownstreamModel(options = {}){
 
   state.hubs = state.hubs.filter(h=>{
     const table = findTable(h.tableId);
-    return validTableIds.has(h.tableId) && hubKeyColIds(h).length>0 && hubKeyColIds(h).every(id=>!!findStagedColumn(table,id));
+    const feeds=hubSourceFeeds(h).filter(feed=>{
+      const source=findTable(feed.tableId);
+      return validTableIds.has(feed.tableId) && (feed.keyColIds||[]).length>0 && (feed.keyColIds||[]).every(id=>!!findStagedColumn(source,id));
+    });
+    if (feeds.length) h.sourceFeeds=feeds;
+    return validTableIds.has(h.tableId) && hubKeyColIds(h).length>0 && hubKeyColIds(h).every(id=>!!findStagedColumn(table,id)) && feeds.length>0;
   });
   const validHubIds = new Set(state.hubs.map(h=>h.id));
 
@@ -396,9 +410,16 @@ function ensureTableTargetNames(table){
 function targetColumnName(col){
   return col ? (col.targetName || targetIdentifierBase(col.name)) : '';
 }
-function stagingTableName(tableName){ return targetIdentifierBase(`stg_${state.vault.prefix}_${tableName}`,'staging_table'); }
-function stagingViewName(tableName){ return targetIdentifierBase(`${stagingTableName(tableName)}_vw`,'staging_view'); }
-function sourceConcat(tableName){ return `${state.vault.srcDescription}.${tableName}`; }
+function sourceTableSchema(table){ return String((table && table.schema) || '').trim(); }
+function sourceTableLabel(table){ return `${sourceTableSchema(table) ? `${sourceTableSchema(table)}.` : ''}${table && table.name || ''}`; }
+function sourceTableIdentity(table){ return `${sourceTableSchema(table).toLowerCase()}\u0000${String(table && table.name || '').toLowerCase()}`; }
+function stagingTableName(table){
+  const name=typeof table==='string' ? table : (table && table.name);
+  const schema=typeof table==='string' ? '' : sourceTableSchema(table);
+  return targetIdentifierBase(`stg_${state.vault.prefix}_${schema ? `${schema}_` : ''}${name}`,'staging_table');
+}
+function stagingViewName(table){ return targetIdentifierBase(`${stagingTableName(table)}_vw`,'staging_view'); }
+function sourceConcat(table){ return `${state.vault.srcDescription}.${sourceTableLabel(typeof table==='string'?{name:table}:table)}`; }
 
 /* toast */
 function toast(msg, kind, action){
@@ -419,4 +440,3 @@ function toast(msg, kind, action){
   const life = action ? 8000 : 3600;
   setTimeout(()=>{ el.style.opacity='0'; el.style.transition='opacity .3s'; setTimeout(()=>el.remove(),300); }, life);
 }
-

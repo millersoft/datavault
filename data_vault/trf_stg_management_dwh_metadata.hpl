@@ -1521,6 +1521,14 @@
         <trim_type>none</trim_type>
         <type>String</type>
       </field>
+      <field>
+        <length>-1</length>
+        <name>source_schema</name>
+        <precision>-1</precision>
+        <repeat>N</repeat>
+        <trim_type>none</trim_type>
+        <type>String</type>
+      </field>
     </fields>
     <file>
       <file_required>N</file_required>

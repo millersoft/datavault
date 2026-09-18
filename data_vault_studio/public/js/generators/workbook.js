@@ -13,22 +13,22 @@ function buildWorkbookRows(){
   rows.source_systems = [[1, v.srcCod, v.srcDescription, `${v.name}_source`, `${v.name}_staging`, incrementalDaysToLoadDefault(), 0]];
 
   rows.source_tables = includedTables().map(t=>[
-    v.srcDescription, t.name, t.description, stagingViewName(t.name), sourceConcat(t.name),
+    v.srcDescription, t.name, t.description, stagingViewName(t), sourceConcat(t),
     // Keep the configured incremental column in metadata independently of the
     // runtime toggle. The user controls ind_staging_is_incremental directly in
     // Data Vault Hub; previous staging history is informational only.
-    1, incrementalActive(t)?1:0, FEATURE_INCREMENTAL&&incrementalConfigured(t)?(t.incrementCol||''):'', t.loadGroup, effectiveOverride(t), '',
+    1, incrementalActive(t)?1:0, FEATURE_INCREMENTAL&&incrementalConfigured(t)?(t.incrementCol||''):'', t.loadGroup, effectiveOverride(t), '', sourceTableSchema(t),
   ]);
 
-  rows.hubs = state.hubs.map(h=>{
-    const table = findTable(h.tableId);
-    return [ hubName(h.entity), h.description, hubKey(h.entity), businessKeyColumnName(h.entity), sourceConcat(table.name),
+  rows.hubs = state.hubs.flatMap(h=>hubSourceFeeds(h).map(feed=>{
+    const table = findTable(feed.tableId);
+    return [ hubName(h.entity), h.description, hubKey(h.entity), businessKeyColumnName(h.entity), sourceConcat(table),
       hashColumnNameForHub(table, h), businessKeyColumnName(h.entity), '', 1, 1, 0, h.statusSat?1:0, '' ];
-  });
+  }));
 
   rows.links = state.links.map(l=>{
     const table = findTable(l.tableId);
-    const row = [ linkNameOf(l.entity), linkKeyOf(l.entity), l.description, 1, sourceConcat(table.name), 1 ];
+    const row = [ linkNameOf(l.entity), linkKeyOf(l.entity), l.description, 1, sourceConcat(table), 1 ];
     for (let i=0;i<10;i++){
       const h = l.hubs[i];
       if (h){
@@ -52,7 +52,7 @@ function buildWorkbookRows(){
       const col = findCol(table, a.colId);
       if (i===0){
         rows.hub_satellites.push([ satName(s.entity,s.concern), 'sat_key', s.description, hubName(hub.entity), 1,
-          sourceConcat(table.name), hashColumnNameForHub(table, hub), 1, col?targetColumnName(col):'', a.target, 0, '' ]);
+          sourceConcat(table), hashColumnNameForHub(table, hub), 1, col?targetColumnName(col):'', a.target, 0, '' ]);
       } else {
         rows.hub_satellites.push([ '', '', '', '', '', '', '', i+1, col?targetColumnName(col):'', a.target, 0, '' ]);
       }
@@ -65,7 +65,7 @@ function buildWorkbookRows(){
     s.attrs.forEach((a,i)=>{
       const col = findCol(table, a.colId);
       if (i===0){
-        const row = [ lsatName(s.entity,s.concern), 'sat_key', s.description, linkNameOf(link.entity), 1, sourceConcat(table.name) ];
+        const row = [ lsatName(s.entity,s.concern), 'sat_key', s.description, linkNameOf(link.entity), 1, sourceConcat(table) ];
         for (let j=0;j<10;j++){ const h=link.hubs[j]; row.push(h?hashColumnNameForLinkHub(table, h, link):''); }
         for (let j=0;j<5;j++) row.push('');
         row.push(1, col?targetColumnName(col):'', a.target, '');

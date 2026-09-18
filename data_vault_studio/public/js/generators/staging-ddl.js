@@ -135,8 +135,8 @@ function buildStagingDdl(){
   parts.push('SET ROLE staging;');
   parts.push('');
   includedTables().forEach(t=>{
-    const baseName=`staging.${stagingTableName(t.name)}`;
-    const viewName=`staging.${stagingViewName(t.name)}`;
+    const baseName=`staging.${stagingTableName(t)}`;
+    const viewName=`staging.${stagingViewName(t)}`;
     const baseCols=buildStagingBaseColumns(t);
     parts.push(`-- ${t.name} -> ${viewName} (engine relation); base table ${baseName}`);
     parts.push(ddlFromColumns(baseName, baseCols));
@@ -153,7 +153,7 @@ function buildStagingDdl(){
 function expectedStagingObjects(){
   const objects=[];
   includedTables().forEach(t=>{
-    const base=stagingTableName(t.name), view=stagingViewName(t.name);
+    const base=stagingTableName(t), view=stagingViewName(t);
     objects.push({schema:'staging',name:base.toLowerCase(),columns:buildStagingBaseColumns(t).map(c=>({name:c.name.toLowerCase(),type:c.type})),createSql:ddlFromColumns(`staging.${base}`,buildStagingBaseColumns(t)),foreign:false,relationKind:'r',indexes:[],obsoleteColumns:[]});
     objects.push({schema:'staging',name:view.toLowerCase(),columns:buildStagingViewColumns(t).map(c=>({name:c.name.toLowerCase(),type:c.type})),createSql:buildStagingViewSql(t),foreign:false,relationKind:'v',indexes:[],obsoleteColumns:[]});
   });

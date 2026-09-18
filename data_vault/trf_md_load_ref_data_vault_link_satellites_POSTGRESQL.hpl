@@ -424,6 +424,8 @@ inner join pdi_meta.ref_source_systems ref_srcsys
 inner join pdi_meta.ref_source_tables ref_srctab
         on ref_srcsys.id_srcsys = ref_srctab.id_srcsys
        and stg_srctab.table_name = ref_srctab.table_name
+       and coalesce(stg_srctab.source_schema,'') = coalesce(ref_srctab.source_schema,'')
+       and stg_srctab.staging_table_name = ref_srctab.staging_table_name
 
 left outer join pdi_meta.ref_data_vault_hubs ref_hubs_1
         on ref_links.id_data_vault_hub_1 = ref_hubs_1.id_data_vault_hub

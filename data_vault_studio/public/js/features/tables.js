@@ -173,8 +173,8 @@ function renderTables(el){
 
 
     <div class="flex-between mt">
-      <button class="btn ghost" id="btn-back-tables">← Back to connections</button>
-      <button class="btn primary" id="btn-next-tables">Next: staging →</button>
+      <button class="btn ghost" id="btn-back-tables">← Back to Connections</button>
+      <button class="btn primary" id="btn-next-tables">Next: Staging →</button>
     </div>
   `;
 

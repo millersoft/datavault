@@ -67,6 +67,12 @@ const state = {
   links: [],    // {id,entity,description,tableId,hubs:[{hubId,colId,colIds,role}]}
   hubSats: [],  // {id,entity,concern,description,hubId,tableId,attrs:[{colId,target}]}
   linkSats: [], // {id,entity,concern,description,linkId,tableId,attrs:[{colId,target}]}
+  // Studio Plus curated/business datasets. SQL is stored as a read-only SELECT body;
+  // deployment wraps it in target-dialect CREATE/ALTER VIEW DDL.
+  businessViews: [], // legacy key retained for project compatibility: {id,name,label,type,materialization,description,sourceObjects,sql,status,deployedAt,deployedMaterialization,lastError}
+  businessVaultObjects: [], // optional Studio Plus acceleration helpers: PIT / Bridge physical tables deployed after the Raw Vault
+  reports: [], // Studio Plus saved reports: managed report definitions, generated SQL/rendering, source Business Models and lifecycle metadata
+  studioPlus: { goal: '', plan: null }, // Studio Plus planning goal and the last AI plan (with its selections) so they survive reloads
 };
 
 // Demo mode starts with the packaged services. Production mode starts with

@@ -27,7 +27,7 @@ function saveProject(){
 function projectStateShapeIssue(candidate){
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return 'Project state must be an object.';
   if (!candidate.vault || typeof candidate.vault !== 'object' || Array.isArray(candidate.vault)) return 'Project state is missing its vault settings.';
-  for (const key of ['tables','hubs','links','hubSats','linkSats']){
+  for (const key of ['tables','hubs','links','hubSats','linkSats','businessViews','businessVaultObjects','reports']){
     if (candidate[key] != null && !Array.isArray(candidate[key])) return `Project field "${key}" must be an array.`;
     if (Array.isArray(candidate[key]) && candidate[key].some(item=>!item || typeof item!=='object' || Array.isArray(item))) return `Project field "${key}" contains an invalid item.`;
   }
@@ -103,6 +103,11 @@ function loadProjectFromFile(file){
       importedProjectConnectionsRequireConfirmation = true;
       confirmedImportedConnectionTargets.clear();
       if (!state.sourceMeta) state.sourceMeta = { foreignKeys: [], approxRows: {}, relationshipSuggestions: [], hopCapabilities: null }; // older project files predate this field
+      if (!Array.isArray(state.businessViews)) state.businessViews=[];
+      if (!Array.isArray(state.businessVaultObjects)) state.businessVaultObjects=[];
+      if (!Array.isArray(state.reports)) state.reports=[];
+      if (!state.studioPlus || typeof state.studioPlus!=='object' || Array.isArray(state.studioPlus)) state.studioPlus={ goal:'', plan:null };
+      if (typeof studioPlusResetSession==='function') studioPlusResetSession();
       if (!state.sourceMeta.relationshipSuggestions) state.sourceMeta.relationshipSuggestions=[];
       if (!state.vault.sourcePackValues) state.vault.sourcePackValues={};
       if (!Array.isArray(state.vault.sourceSchemas)) state.vault.sourceSchemas=state.vault.sourceSchema?[state.vault.sourceSchema]:[];
@@ -162,7 +167,8 @@ function startNewProject(skipConfirm){
     dvHost:'localhost', dvPort:'5432', dvDatabase:'', dvUser:'', dvPassword:'', vaultPassword:'',
   });
   enforceRuntimeConnections(true);
-  state.tables = []; state.hubs = []; state.links = []; state.hubSats = []; state.linkSats = [];
+  state.tables = []; state.hubs = []; state.links = []; state.hubSats = []; state.linkSats = []; state.businessViews = []; state.businessVaultObjects = []; state.reports = []; state.studioPlus = { goal:'', plan:null };
+  if (typeof studioPlusResetSession==='function') studioPlusResetSession();
   state.sourceMeta = { foreignKeys: [], approxRows: {}, relationshipSuggestions: [], hopCapabilities: null };
   Object.assign(state.externalTables, {
     enabled:false, serverName:'', drivername:'', url:'', jarfile:'',
@@ -184,6 +190,7 @@ function startNewProject(skipConfirm){
 document.getElementById('btn-new-project').addEventListener('click', ()=> startNewProject(false));
 document.getElementById('btn-save-project').addEventListener('click', saveProject);
 document.getElementById('btn-load-project').addEventListener('click', ()=> document.getElementById('file-load-project').click());
+document.getElementById('btn-import-hopper').addEventListener('click', openHopperImport);
 
 function syncThemeSwitchInput(){
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';

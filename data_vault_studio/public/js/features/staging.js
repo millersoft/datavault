@@ -137,11 +137,11 @@ function renderStaging(el){
     ${tables.length===0 ? `<div class="empty mt">No included tables. Return to Tables to select at least one.</div>` : `<div id="staging-tables"></div>`}
 
     <div class="flex-between mt">
-      <button class="btn ghost" id="btn-back-staging">← Back to tables</button>
+      <button class="btn ghost" id="btn-back-staging">← Back to Tables</button>
       <div style="display:flex;align-items:center;gap:12px;">
         <span class="hint mb0" id="staging-confirm-status"></span>
         <button class="btn primary" id="btn-confirm-staging">Confirm Changes</button>
-        <button class="btn primary" id="btn-next-staging">Next: vault model →</button>
+        <button class="btn primary" id="btn-next-staging">Next: Vault model →</button>
       </div>
     </div>
   `;

@@ -8,6 +8,9 @@ LICENSE_MARKER="${LICENSE_STATE_DIR}/license.accepted"
 ACCEPT_LICENSE="${ACCEPT_LICENSE:-false}"
 DEMO_MODE="${DEMO_MODE:-false}"
 WAIT_FOR_MYSQL="${WAIT_FOR_MYSQL:-false}"
+DATABASE_READY_TIMEOUT_SECONDS="${DATABASE_READY_TIMEOUT_SECONDS:-300}"
+DATABASE_READY_RETRY_INTERVAL_SECONDS="${DATABASE_READY_RETRY_INTERVAL_SECONDS:-2}"
+DATABASE_READY_CONNECT_TIMEOUT_SECONDS="${DATABASE_READY_CONNECT_TIMEOUT_SECONDS:-5}"
 
 log() {
   printf '%s\n' "$*"
@@ -28,6 +31,46 @@ is_truthy() {
       ;;
   esac
 }
+
+validate_positive_integer() {
+  local name="$1"
+  local value="$2"
+
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    fail "$name must be a positive integer; got '$value'."
+  fi
+}
+
+wait_for_tcp_service() {
+  local host="$1"
+  local port="$2"
+  local service_name="$3"
+  local started_at now elapsed remaining sleep_seconds
+
+  started_at="$(date +%s)"
+
+  until nc -z -w "$DATABASE_READY_CONNECT_TIMEOUT_SECONDS" "$host" "$port"; do
+    now="$(date +%s)"
+    elapsed=$((now - started_at))
+
+    if (( elapsed >= DATABASE_READY_TIMEOUT_SECONDS )); then
+      fail "Timed out after ${DATABASE_READY_TIMEOUT_SECONDS}s waiting for ${service_name} at ${host}:${port}. Check the host and port, or increase DATABASE_READY_TIMEOUT_SECONDS."
+    fi
+
+    remaining=$((DATABASE_READY_TIMEOUT_SECONDS - elapsed))
+    sleep_seconds="$DATABASE_READY_RETRY_INTERVAL_SECONDS"
+    if (( sleep_seconds > remaining )); then
+      sleep_seconds="$remaining"
+    fi
+
+    echo "Waiting for ${service_name} at ${host}:${port} (${elapsed}s elapsed; timeout ${DATABASE_READY_TIMEOUT_SECONDS}s)..."
+    sleep "$sleep_seconds"
+  done
+}
+
+validate_positive_integer "DATABASE_READY_TIMEOUT_SECONDS" "$DATABASE_READY_TIMEOUT_SECONDS"
+validate_positive_integer "DATABASE_READY_RETRY_INTERVAL_SECONDS" "$DATABASE_READY_RETRY_INTERVAL_SECONDS"
+validate_positive_integer "DATABASE_READY_CONNECT_TIMEOUT_SECONDS" "$DATABASE_READY_CONNECT_TIMEOUT_SECONDS"
 
 resolve_config_value() {
   local value="${1:-}"
@@ -217,19 +260,13 @@ TARGET_DB_PORT="$(get_hop_env_value "data_vault_port_number")"
 TARGET_DB_HOST="${TARGET_DB_HOST:-${DB_HOST:-postgres}}"
 TARGET_DB_PORT="${TARGET_DB_PORT:-${DB_PORT:-5432}}"
 
-echo "=== Waiting for PostgreSQL target ==="
-until nc -z "$TARGET_DB_HOST" "$TARGET_DB_PORT"; do
-  echo "Waiting for PostgreSQL at $TARGET_DB_HOST:$TARGET_DB_PORT..."
-  sleep 2
-done
-echo "PostgreSQL target is ready!"
+echo "=== Waiting for target database ==="
+wait_for_tcp_service "$TARGET_DB_HOST" "$TARGET_DB_PORT" "target database"
+echo "Target database is ready!"
 
 if is_truthy "$WAIT_FOR_MYSQL"; then
   echo "=== Waiting for bundled MySQL demo source ==="
-  until nc -z "$MYSQL_HOST" "$MYSQL_PORT"; do
-    echo "Waiting for MySQL at $MYSQL_HOST:$MYSQL_PORT..."
-    sleep 2
-  done
+  wait_for_tcp_service "$MYSQL_HOST" "$MYSQL_PORT" "MySQL demo source"
   echo "MySQL demo source is ready!"
 else
   echo "Skipping bundled MySQL wait because demo mode is disabled."
@@ -242,7 +279,10 @@ chmod -R 777 /tmp/hop-config 2>/dev/null || true
 
 PROJECT_CONFIG_FILE="/app/project-config.json"
 ENV_TEMPLATE_FILE="/app/postgres-environment.json"
-ENV_RESOLVED_FILE="/tmp/postgres-environment.json"
+ENV_RUNTIME_DIR="$(mktemp -d /tmp/datavault-hop-env.XXXXXX)"
+ENV_RESOLVED_FILE="${ENV_RUNTIME_DIR}/postgres-environment.json"
+chmod 700 "$ENV_RUNTIME_DIR"
+trap 'rm -rf "$ENV_RUNTIME_DIR"' EXIT
 
 # Project
 if [ -f "$PROJECT_CONFIG_FILE" ]; then
@@ -258,23 +298,19 @@ else
 fi
 
 # Environment
-if [ -f "$ENV_RESOLVED_FILE" ]; then
-  echo "Resolved environment config already exists at $ENV_RESOLVED_FILE. Skipping Hop environment creation."
-else
-  echo "Resolved environment config not found. Creating $ENV_RESOLVED_FILE."
+# Hop does not recursively expand arbitrary OS environment variables stored as
+# environment JSON values, so render a protected runtime config before hop-run.
+echo "Resolving Hop environment secrets into $ENV_RESOLVED_FILE."
+/app/render-hop-environment.sh "$ENV_TEMPLATE_FILE" "$ENV_RESOLVED_FILE"
 
-  sed "s|\${VAULT_PASSWORD}|${VAULT_PASSWORD}|g; s|\${SOURCE_PASSWORD}|${SOURCE_PASSWORD}|g" \
-    "$ENV_TEMPLATE_FILE" > "$ENV_RESOLVED_FILE"
+echo "Creating Hop environment from resolved config."
 
-  echo "Creating Hop environment."
-
-  $HOP_HOME/hop-conf.sh \
-    --environment-create \
-    --environment "$ENV_NAME" \
-    --environment-project dv-latest \
-    --environment-purpose Development \
-    --environment-config-files "$ENV_RESOLVED_FILE"
-fi
+$HOP_HOME/hop-conf.sh \
+  --environment-create \
+  --environment "$ENV_NAME" \
+  --environment-project dv-latest \
+  --environment-purpose Development \
+  --environment-config-files "$ENV_RESOLVED_FILE"
 
 echo "=== Running Hop ETL ==="
 

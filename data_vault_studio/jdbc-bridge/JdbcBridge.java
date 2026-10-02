@@ -146,12 +146,21 @@ public final class JdbcBridge {
     // selected by the live connection when Studio did not explicitly supply one.
     if(effectiveCatalog==null){ try{ effectiveCatalog=emptyToNull(conn.getCatalog()); }catch(Exception ignored){} }
     if(effectiveSchema==null){ try{ effectiveSchema=emptyToNull(conn.getSchema()); }catch(Exception ignored){} }
+    // getTables/getColumns treat "_" and "%" as wildcards. A Raw Vault schema
+    // named data_vault must not also match dataXvault. Key lookups below use
+    // exact names, so only the pattern calls are escaped, and only for
+    // PostgreSQL where backslash is the LIKE escape.
+    String product="";
+    try{ product=String.valueOf(md.getDatabaseProductName()); }catch(Exception ignored){}
+    String patternSchema=product.toLowerCase(Locale.ROOT).contains("postgres")?jdbcLikeLiteral(effectiveSchema):effectiveSchema;
+    introspectProgress("tables", effectiveSchema, 0, 0, 0);
     Map<String,String> objectTypes=new LinkedHashMap<>();
-    try(ResultSet rs=md.getTables(effectiveCatalog, effectiveSchema, "%", new String[]{"TABLE","VIEW"})){
+    try(ResultSet rs=md.getTables(effectiveCatalog, patternSchema, "%", new String[]{"TABLE","VIEW"})){
       while(rs.next()) objectTypes.put(rs.getString("TABLE_NAME"), rs.getString("TABLE_TYPE"));
     }
+    introspectProgress("columns", effectiveSchema, objectTypes.size(), 0, 0);
     Map<String,List<Map<String,Object>>> columns=new LinkedHashMap<>();
-    try(ResultSet rs=md.getColumns(effectiveCatalog, effectiveSchema, "%", "%")){
+    try(ResultSet rs=md.getColumns(effectiveCatalog, patternSchema, "%", "%")){
       while(rs.next()){
         String table=rs.getString("TABLE_NAME");
         Map<String,Object> c=new LinkedHashMap<>();
@@ -170,31 +179,39 @@ public final class JdbcBridge {
         objectTypes.putIfAbsent(table,"TABLE");
       }
     }
-    for(String table: new ArrayList<>(columns.keySet())){
-      Set<String> pks=new HashSet<>();
-      try(ResultSet rs=md.getPrimaryKeys(effectiveCatalog, effectiveSchema, table)){
-        while(rs.next()) pks.add(rs.getString("COLUMN_NAME"));
-      } catch(Exception ignored){}
+    int columnCount=0;
+    for(List<Map<String,Object>> cols:columns.values()) columnCount+=cols.size();
+    introspectProgress("keys", effectiveSchema, columns.size(), columnCount, 0);
+    // One schema-wide key lookup when the driver actually returns keys.
+    // SQL Server's getPrimaryKeys(catalog, schema, null) calls sp_pkeys with
+    // a null table and comes back empty without throwing. Trusting that
+    // empty result clears every primary key, so Detect Hash Keys then has
+    // nothing to hash. An empty bulk result falls back to one call per table.
+    Map<String,Set<String>> bulkPrimaryKeys=readPrimaryKeys(md, effectiveCatalog, effectiveSchema, null, columns.keySet());
+    Map<String,Set<String>> pkByTable;
+    if(bulkPrimaryKeys!=null && !bulkPrimaryKeys.isEmpty()) pkByTable=bulkPrimaryKeys;
+    else {
+      pkByTable=new LinkedHashMap<>();
+      for(String table: new ArrayList<>(columns.keySet())){
+        Map<String,Set<String>> one=readPrimaryKeys(md, effectiveCatalog, effectiveSchema, table, null);
+        if(one!=null) pkByTable.putAll(one);
+      }
+    }
+    for(String table: columns.keySet()){
+      Set<String> pks=pkByTable.getOrDefault(table, Collections.emptySet());
       for(Map<String,Object> c:columns.get(table)) if(pks.contains(String.valueOf(c.get("name")))) c.put("pk",true);
     }
-    List<Map<String,Object>> fks=new ArrayList<>();
-    for(String table: new ArrayList<>(columns.keySet())){
-      try(ResultSet rs=md.getImportedKeys(effectiveCatalog, effectiveSchema, table)){
-        while(rs.next()){
-          Map<String,Object> fk=new LinkedHashMap<>();
-          fk.put("table",rs.getString("FKTABLE_NAME"));
-          fk.put("tableSchema",rsString(rs,"FKTABLE_SCHEM"));
-          fk.put("column",rs.getString("FKCOLUMN_NAME"));
-          fk.put("refTable",rs.getString("PKTABLE_NAME"));
-          fk.put("refSchema",rsString(rs,"PKTABLE_SCHEM"));
-          fk.put("refColumn",rs.getString("PKCOLUMN_NAME"));
-          fk.put("constraintName",rsString(rs,"FK_NAME"));
-          fk.put("ordinalPosition",rsInt(rs,"KEY_SEQ"));
-          fk.put("provenance","declared");
-          fks.add(fk);
-        }
-      } catch(Exception ignored){}
+    List<Map<String,Object>> bulkForeignKeys=readImportedKeys(md, effectiveCatalog, effectiveSchema, null, columns.keySet());
+    List<Map<String,Object>> fks;
+    if(bulkForeignKeys!=null && !bulkForeignKeys.isEmpty()) fks=bulkForeignKeys;
+    else {
+      fks=new ArrayList<>();
+      for(String table: new ArrayList<>(columns.keySet())){
+        List<Map<String,Object>> one=readImportedKeys(md, effectiveCatalog, effectiveSchema, table, null);
+        if(one!=null) fks.addAll(one);
+      }
     }
+    introspectProgress("done", effectiveSchema, columns.size(), columnCount, fks.size());
     StringBuilder b=new StringBuilder("{\"ok\":true,\"catalog\":"+q(effectiveCatalog)+",\"schema\":"+q(effectiveSchema)+",\"tables\":[");
     boolean firstT=true;
     for(Map.Entry<String,List<Map<String,Object>>> e:columns.entrySet()){
@@ -225,6 +242,52 @@ public final class JdbcBridge {
   }
 
   private static String emptyToNull(String s){ return s==null || s.isEmpty() ? null : s; }
+
+  private static void introspectProgress(String phase, String schema, int tables, int columns, int foreignKeys){
+    System.err.println("dvs-introspect phase="+phase+" schema="+(schema==null?"":schema)+" tables="+tables+" columns="+columns+" foreignKeys="+foreignKeys);
+  }
+  private static String jdbcLikeLiteral(String exact){
+    if(exact==null) return null;
+    return exact.replace("\\","\\\\").replace("%","\\%").replace("_","\\_");
+  }
+  // Null means the driver rejected the call. An empty map or list means the
+  // schema really has no keys, so the caller must not fall back to per-table
+  // queries. A named table is stored under the name Studio asked for, because
+  // some drivers omit or rewrite TABLE_NAME on a single-table lookup.
+  private static Map<String,Set<String>> readPrimaryKeys(DatabaseMetaData md, String catalog, String schema, String table, Set<String> known){
+    Map<String,Set<String>> found=new LinkedHashMap<>();
+    try(ResultSet rs=md.getPrimaryKeys(catalog, schema, table)){
+      while(rs.next()){
+        String name=table!=null?table:rs.getString("TABLE_NAME");
+        String column=rs.getString("COLUMN_NAME");
+        if(name==null || column==null) continue;
+        if(known!=null && !known.contains(name)) continue;
+        found.computeIfAbsent(name,k->new HashSet<>()).add(column);
+      }
+      return found;
+    }catch(Exception ignored){ return null; }
+  }
+  private static List<Map<String,Object>> readImportedKeys(DatabaseMetaData md, String catalog, String schema, String table, Set<String> known){
+    List<Map<String,Object>> found=new ArrayList<>();
+    try(ResultSet rs=md.getImportedKeys(catalog, schema, table)){
+      while(rs.next()){
+        String name=rs.getString("FKTABLE_NAME");
+        if(known!=null && (name==null || !known.contains(name))) continue;
+        Map<String,Object> fk=new LinkedHashMap<>();
+        fk.put("table",name);
+        fk.put("tableSchema",rsString(rs,"FKTABLE_SCHEM"));
+        fk.put("column",rs.getString("FKCOLUMN_NAME"));
+        fk.put("refTable",rs.getString("PKTABLE_NAME"));
+        fk.put("refSchema",rsString(rs,"PKTABLE_SCHEM"));
+        fk.put("refColumn",rs.getString("PKCOLUMN_NAME"));
+        fk.put("constraintName",rsString(rs,"FK_NAME"));
+        fk.put("ordinalPosition",rsInt(rs,"KEY_SEQ"));
+        fk.put("provenance","declared");
+        found.add(fk);
+      }
+      return found;
+    }catch(Exception ignored){ return null; }
+  }
 
   private static String queryResult(Connection conn, String sql) throws Exception {
     try(Statement st=conn.createStatement()){

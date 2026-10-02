@@ -166,6 +166,16 @@ function Invoke-ComposeStep {
     }
 }
 
+function Add-ResourceComposeOverride {
+    # Studio creates this ignored local file for user-selected container limits.
+    # It layers over the tracked Compose definition without mutating it.
+    $resourceFile = Join-Path $ScriptRoot "docker-compose.resources.yaml"
+    if (Test-Path -LiteralPath $resourceFile -PathType Leaf) {
+        $separator = [IO.Path]::PathSeparator
+        $env:COMPOSE_FILE = "$($env:COMPOSE_FILE)${separator}docker-compose.resources.yaml"
+    }
+}
+
 function Assert-LicenseFileExists {
     if (!(Test-Path -LiteralPath $LicenseFile -PathType Leaf)) {
         throw "License file not found at '$LicenseFile'. Create a LICENSE file next to docker-compose.yaml, then run .\start.ps1 --build again."
@@ -299,6 +309,11 @@ function Reset-License {
 
 $ComposeCommand = Get-ComposeCommand
 
+# Direct launcher commands such as `stop hop` and `ps` must use the same
+# effective project as Studio-managed starts.
+$env:COMPOSE_FILE = "docker-compose.yaml"
+Add-ResourceComposeOverride
+
 # Avoid Compose's attached-mode helper menu competing with normal logs.
 if (-not $env:COMPOSE_MENU) {
     $env:COMPOSE_MENU = "false"
@@ -363,6 +378,7 @@ switch ($Subcommand) {
 
         $ComposeFileSeparator = [IO.Path]::PathSeparator
         $env:COMPOSE_FILE = "docker-compose.yaml${ComposeFileSeparator}docker-compose.studio.yaml"
+        Add-ResourceComposeOverride
         $env:DEMO_MODE = "false"
         $env:WAIT_FOR_MYSQL = "false"
 
@@ -447,6 +463,7 @@ switch ($Subcommand) {
             $env:COMPOSE_FILE = "$($env:COMPOSE_FILE)${ComposeFileSeparator}docker-compose.fdw.yaml"
             Write-Host "FDW mode enabled for packaged PostgreSQL."
         }
+        Add-ResourceComposeOverride
 
         if ($ExternalPostgres) {
             Write-Host "Starting in EXTERNAL POSTGRES mode."

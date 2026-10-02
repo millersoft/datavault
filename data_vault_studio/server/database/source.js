@@ -1,4 +1,4 @@
-function createSourceDatabase({ Client, mysql, isPackDialect, getDatabasePack, runJdbcBridge, outboundConnectionPolicy, resolveConnection = body => ({...body}) }){
+function createSourceDatabase({ Client, mysql, isPackDialect, getDatabasePack, runJdbcBridge, outboundConnectionPolicy, connectionTestTimeoutMs = 6000, resolveConnection = body => ({...body}) }){
   function makeClient(body){
     const { host, port, database, user, password } = body || {};
     if (!host || !database || !user) throw new Error('host, database, and user are required.');
@@ -8,7 +8,7 @@ function createSourceDatabase({ Client, mysql, isPackDialect, getDatabasePack, r
       database,
       user,
       password:password || undefined,
-      connectionTimeoutMillis:6000,
+      connectionTimeoutMillis:connectionTestTimeoutMs,
       ssl:body.ssl === false ? false : { rejectUnauthorized:false },
       lookup:body.lookup,
     });
@@ -56,7 +56,7 @@ function createSourceDatabase({ Client, mysql, isPackDialect, getDatabasePack, r
       const destination=await outboundConnectionPolicy.validateNetworkDestination({host,port,defaultPort:3306});
       const conn = await mysql.createConnection({
         host:destination.addresses[0], port:destination.port, database, user,
-        password:password || undefined, connectTimeout:6000,
+        password:password || undefined, connectTimeout:connectionTestTimeoutMs,
       });
       return {
         dialect:'mysql',

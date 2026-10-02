@@ -23,9 +23,11 @@ const { createApp } = require('../server/app');
 const { createApiToken, createApiAccess } = require('../server/api-access');
 const { createApiResponseSanitizer, sanitizeDiagnosticText } = require('../server/api-response-sanitizer');
 const { createRequestControls } = require('../server/request-controls');
+const { createSourceDatabase } = require('../server/database/source');
 const { createPackagedCredentialService } = require('../server/packaged-credentials');
 const { selectStudioLauncher } = require('../server/routes/engine');
 const { registerSchedulerRoutes } = require('../server/routes/scheduler');
+const { MANAGED_FILE } = require('../server/runtime-resources');
 const { readServerSources } = require('./helpers/load-app');
 
 const TEST_API_TOKEN = 'dvs-test-api-token-32-bytes-long';
@@ -35,6 +37,10 @@ let projectRoot;
 
 function readExternalPostgresBootstrap(){
   return fs.readFileSync(path.join(__dirname, '..', '..', 'docker', 'bootstrap_postgres_target.sh'), 'utf8');
+}
+
+function readHopEntrypoint(){
+  return fs.readFileSync(path.join(__dirname, '..', '..', 'hop', 'run_vault.sh'), 'utf8');
 }
 
 function matchRoute(routePath, pathname){
@@ -210,6 +216,7 @@ describe('request controls', () => {
         'STUDIO_MODE=demo',
         'DVS_API_RATE_LIMIT_REQUESTS=7',
         'DVS_MAX_JDBC_DRIVER_BYTES=2048',
+        'DVS_CONNECTION_TEST_TIMEOUT_MS=2000',
         '',
       ].join('\n'));
       const configured = createApp({ env:{ DVS_PROJECT_ROOT:root }, scheduler:false });
@@ -217,9 +224,41 @@ describe('request controls', () => {
       assert.strictEqual(configured.locals.studioMode, 'demo');
       assert.strictEqual(configured.locals.requestControlConfig.rateLimitRequests, 7);
       assert.strictEqual(configured.locals.requestControlConfig.maxJdbcDriverBytes, 2048);
+      assert.strictEqual(configured.locals.requestControlConfig.connectionTestTimeoutMs, 2000);
     } finally {
       fs.rmSync(root, { recursive:true, force:true });
     }
+  });
+
+  test('uses the configured Studio connection-test timeout for native PostgreSQL and MySQL', async () => {
+    const postgresOptions=[];
+    const mysqlOptions=[];
+    const database = createSourceDatabase({
+      Client: class {
+        constructor(options){ postgresOptions.push(options); }
+        async connect() {}
+        async end() {}
+      },
+      mysql:{ createConnection:async options => { mysqlOptions.push(options); return { query:async () => [[],[]], end:async () => {} }; } },
+      isPackDialect:() => false,
+      getDatabasePack:() => null,
+      runJdbcBridge:async () => null,
+      outboundConnectionPolicy:{ validateNetworkDestination:async ({ host, port, defaultPort }) => ({ host, port:Number(port || defaultPort), addresses:['127.0.0.1'] }) },
+      connectionTestTimeoutMs:2000,
+    });
+
+    await database.connectPgWithFallback({ host:'postgres.example', port:5432, database:'vault', user:'user' });
+    await database.openSourceConnection({ dialect:'mysql', host:'mysql.example', port:3306, database:'source', user:'user' });
+
+    assert.strictEqual(postgresOptions[0].connectionTimeoutMillis, 2000);
+    assert.strictEqual(mysqlOptions[0].connectTimeout, 2000);
+  });
+
+  test('rejects Studio connection-test timeout values outside the supported range', () => {
+    assert.throws(
+      () => createRequestControls({ env:{ DVS_CONNECTION_TEST_TIMEOUT_MS:'999' } }),
+      /DVS_CONNECTION_TEST_TIMEOUT_MS must be an integer from 1000 to 30000/
+    );
   });
 
   test('returns a recoverable 429 and allows requests after the configured window', () => {
@@ -528,6 +567,24 @@ describe('Studio-managed Postgres bootstrap scope', () => {
     }
   });
 
+  test('does not render VAULT_PASSWORD into the SQL dump', () => {
+    const password = "pa&ss|word\\with'quotes\"too";
+    const source = "SET app.shared_password = 'VAULT_PASSWORD';\n";
+    const result = runVaultPasswordInit(source, { VAULT_PASSWORD:password });
+
+    assert.strictEqual(result.status, 0, result.stderr);
+    assert.match(result.dump, /SET app\.shared_password = 'VAULT_PASSWORD';/);
+    assert.ok(!result.dump.includes(password));
+  });
+
+  test('loads VAULT_PASSWORD through psql while preserving the shared_password override', () => {
+    const dump = fs.readFileSync(path.join(__dirname, '..', '..', 'db-init', '02-dump.sql'), 'utf8');
+
+    assert.match(dump, /\\if :\{\?shared_password\}[\s\S]*\\getenv shared_password VAULT_PASSWORD[\s\S]*\\endif/);
+    assert.match(dump, /SET app\.shared_password = :'shared_password';/);
+    assert.doesNotMatch(dump, /SET app\.shared_password = 'VAULT_PASSWORD';/);
+  });
+
   test('external init keeps the fallback target line and injects only core target-role grants', () => {
     const source = '\\set target_database datavault\nDO $$\nBEGIN\n  NULL;\nEND\n$$;\nSELECT \'VAULT_PASSWORD\';\n';
     const result = runVaultPasswordInit(source, {
@@ -543,6 +600,48 @@ describe('Studio-managed Postgres bootstrap scope', () => {
     assert.match(result.dump, /GRANT staging TO "bootstrap_admin";/);
     assert.match(result.dump, /GRANT data_vault TO "bootstrap_admin";/);
     assert.doesNotMatch(result.dump, /GRANT sakila TO "bootstrap_admin";/);
+  });
+
+  test('renders Hop passwords exactly into protected, valid JSON', () => {
+    const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'dvs-hop-env-test-'));
+    const templatePath = path.join(temp, 'template.json');
+    const outputPath = path.join(temp, 'resolved.json');
+    const rendererPath = path.join(__dirname, '..', '..', 'hop', 'render-hop-environment.sh');
+    const vaultPassword = "va&|\\'\"\t\r\n\u0001${SOURCE_PASSWORD}";
+    const sourcePassword = "so\\urce\"&|${VAULT_PASSWORD}\b\f";
+    const template = {
+      variables: [
+        { name:'pdi_meta_password', value:'${VAULT_PASSWORD}' },
+        { name:'data_vault_password', value:'${VAULT_PASSWORD}' },
+        { name:'stg_password', value:'${VAULT_PASSWORD}' },
+        { name:'source_password', value:'${SOURCE_PASSWORD}' },
+      ],
+    };
+
+    fs.writeFileSync(templatePath, JSON.stringify(template, null, 2));
+    const result = spawnSync('bash', [rendererPath, templatePath, outputPath], {
+      encoding:'utf8',
+      env:{ ...process.env, VAULT_PASSWORD:vaultPassword, SOURCE_PASSWORD:sourcePassword },
+    });
+
+    try {
+      assert.strictEqual(result.status, 0, result.stderr);
+      const resolved = JSON.parse(fs.readFileSync(outputPath, 'utf8'));
+      assert.deepStrictEqual(
+        resolved.variables.map(variable => variable.value),
+        [vaultPassword, vaultPassword, vaultPassword, sourcePassword],
+      );
+      assert.strictEqual(fs.statSync(outputPath).mode & 0o777, 0o600);
+
+      const entrypoint = readHopEntrypoint();
+      assert.match(entrypoint, /ENV_RUNTIME_DIR="\$\(mktemp -d \/tmp\/datavault-hop-env\.XXXXXX\)"/);
+      assert.match(entrypoint, /trap 'rm -rf "\$ENV_RUNTIME_DIR"' EXIT/);
+      assert.match(entrypoint, /render-hop-environment\.sh "\$ENV_TEMPLATE_FILE" "\$ENV_RESOLVED_FILE"/);
+      assert.match(entrypoint, /--environment-config-files "\$ENV_RESOLVED_FILE"/);
+      assert.doesNotMatch(entrypoint, /sed "s\|\\\$\{VAULT_PASSWORD\}|function json_escape/);
+    } finally {
+      fs.rmSync(temp, { recursive:true, force:true });
+    }
   });
 
   test('parameterizes the operational database name for internal and external bootstrap', () => {
@@ -623,6 +722,26 @@ describe('Studio-managed Postgres bootstrap scope', () => {
     }
     assert.doesNotMatch(wrapper, /\*\.(?:sh|sql|sql\.gz)\)/);
     assert.doesNotMatch(wrapper, /gunzip|Running compressed SQL bootstrap file/);
+  });
+
+  test('database readiness checks have configurable overall and per-probe timeouts', () => {
+    const externalBootstrap = readExternalPostgresBootstrap();
+    const hopEntrypoint = readHopEntrypoint();
+    const compose = fs.readFileSync(path.join(__dirname, '..', '..', 'docker-compose.yaml'), 'utf8');
+
+    for (const script of [externalBootstrap, hopEntrypoint]) {
+      assert.match(script, /DATABASE_READY_TIMEOUT_SECONDS="\$\{DATABASE_READY_TIMEOUT_SECONDS:-300\}"/);
+      assert.match(script, /DATABASE_READY_RETRY_INTERVAL_SECONDS="\$\{DATABASE_READY_RETRY_INTERVAL_SECONDS:-2\}"/);
+      assert.match(script, /DATABASE_READY_CONNECT_TIMEOUT_SECONDS="\$\{DATABASE_READY_CONNECT_TIMEOUT_SECONDS:-5\}"/);
+      assert.match(script, /validate_positive_integer "DATABASE_READY_TIMEOUT_SECONDS"/);
+      assert.match(script, /Timed out after \$\{DATABASE_READY_TIMEOUT_SECONDS\}s waiting for/);
+    }
+
+    assert.match(externalBootstrap, /pg_isready[\s\S]*-t "\$DATABASE_READY_CONNECT_TIMEOUT_SECONDS"/);
+    assert.match(hopEntrypoint, /nc -z -w "\$DATABASE_READY_CONNECT_TIMEOUT_SECONDS"/);
+    assert.match(compose, /DATABASE_READY_TIMEOUT_SECONDS: \$\{DATABASE_READY_TIMEOUT_SECONDS:-300\}/);
+    assert.match(compose, /DATABASE_READY_RETRY_INTERVAL_SECONDS: \$\{DATABASE_READY_RETRY_INTERVAL_SECONDS:-2\}/);
+    assert.match(compose, /DATABASE_READY_CONNECT_TIMEOUT_SECONDS: \$\{DATABASE_READY_CONNECT_TIMEOUT_SECONDS:-5\}/);
   });
 
   test('external bootstrap executes 01 then 02 with target_database before writing the marker', () => {
@@ -1227,6 +1346,54 @@ describe('docker endpoints stay fixed-command and answer JSON', () => {
     }
   });
 
+  test('runtime resource API derives defaults and atomically writes managed overrides', async () => {
+    const composePath = path.join(projectRoot, 'docker-compose.yaml');
+    const resourcePath = path.join(projectRoot, MANAGED_FILE);
+    const original = fs.readFileSync(composePath, 'utf8');
+    try {
+      fs.writeFileSync(composePath, [
+        'services:',
+        '  hop:',
+        '    cpus: 6.0',
+        '    mem_limit: 8g',
+        '  postgres:',
+        '    cpus: 4.0',
+        '    mem_limit: 4GiB',
+        '  mysql:',
+        '    cpus: 2',
+        '    mem_limit: 2048m',
+        '',
+      ].join('\n'));
+      fs.rmSync(resourcePath, { force:true });
+      let response = await api('/api/docker/resources', { method:'GET' });
+      let body = await response.json();
+      assert.strictEqual(response.status, 200);
+      assert.deepStrictEqual(body.defaults, {
+        hop:{ cpu:6, memory:'8GiB' }, postgres:{ cpu:4, memory:'4GiB' }, mysql:{ cpu:2, memory:'2GiB' },
+      });
+      assert.deepStrictEqual(body.configured, {});
+
+      response = await api('/api/docker/resources', { body:{ resources:{ hop:{ cpu:1.5, memory:'1536MiB' }, mysql:{ cpu:0.1, memory:'1GiB' } } } });
+      body = await response.json();
+      assert.strictEqual(response.status, 200);
+      assert.deepStrictEqual(body.configured, {
+        hop:{ cpu:1.5, memory:'1536MiB' }, mysql:{ cpu:0.1, memory:'1GiB' },
+      });
+      assert.strictEqual(body.effective.hop.memory, '1536MiB');
+      const written = fs.readFileSync(resourcePath, 'utf8');
+      assert.match(written, /^# Managed by Data Vault Studio\./);
+      assert.match(written, /hop:\n    cpus: 1\.5\n    mem_limit: 1536MiB/);
+      assert.strictEqual(fs.readdirSync(projectRoot).filter(name => name.includes(`${MANAGED_FILE}.`) && name.endsWith('.tmp')).length, 0);
+
+      response = await api('/api/docker/resources', { body:{ resources:{ postgres:{ cpu:65, memory:'8GiB' } } } });
+      assert.strictEqual(response.status, 400);
+      assert.match((await response.json()).error, /between 0.1 and 64/i);
+    } finally {
+      fs.writeFileSync(composePath, original);
+      fs.rmSync(resourcePath, { force:true });
+    }
+  });
+
   test('engine routes never spawn a hardcoded container engine command', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'server', 'routes', 'engine.js'), 'utf8');
     assert.doesNotMatch(source, /spawn\s*\(\s*['"](?:docker|docker-compose|podman)['"]/);
@@ -1332,6 +1499,28 @@ describe('docker endpoints stay fixed-command and answer JSON', () => {
       const resp = await r.json();
       assert.strictEqual(resp.ok, true);
       assert.strictEqual(fs.readFileSync(logPath, 'utf8').trim(), expected, JSON.stringify(body));
+    }
+  });
+
+  test('engine launches leave current .env values for Compose to resolve', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dvs-launch-env-'));
+    try {
+      fs.writeFileSync(path.join(root, 'docker-compose.yaml'), 'services: {}\n');
+      fs.writeFileSync(path.join(root, 'start.sh'), '#!/bin/bash\nprintenv DATABASE_READY_TIMEOUT_SECONDS > readiness.log || true\n');
+      fs.writeFileSync(path.join(root, '.env'), 'DATABASE_READY_TIMEOUT_SECONDS=300\n');
+      const launcherEnv = { ...process.env, DVS_PROJECT_ROOT:root };
+      delete launcherEnv.DATABASE_READY_TIMEOUT_SECONDS;
+      const localApp = createApp({ studioMode:'production', env:launcherEnv, apiToken:TEST_API_TOKEN, scheduler:false });
+
+      // This is changed after Studio has loaded its configuration. Docker
+      // Compose must read this current value rather than inherit the old one.
+      fs.writeFileSync(path.join(root, '.env'), 'DATABASE_READY_TIMEOUT_SECONDS=7\n');
+      const response = await apiOn(localApp, '/api/docker/run-hop', { body:{ mode:'internal' } });
+
+      assert.strictEqual(response.ok, true);
+      assert.strictEqual(fs.readFileSync(path.join(root, 'readiness.log'), 'utf8'), '');
+    } finally {
+      fs.rmSync(root, { recursive:true, force:true });
     }
   });
 
@@ -1555,7 +1744,10 @@ describe('DVS-002-b packaged credential references', () => {
     const source=service.resolveConnection({credentialRef:'packaged-mysql-source',database:'sakila',dialect:'mysql'});
     assert.strictEqual(source.host,'localhost');assert.strictEqual(source.port,'3306');assert.strictEqual(source.password,'canary-source-secret');
     const target=service.resolveConnection({credentialRef:'internal-postgres-target',database:'Customer_Vault'});
-    assert.strictEqual(target.host,'localhost');assert.strictEqual(target.port,'5433');assert.strictEqual(target.password,'canary-vault-secret');
+    assert.strictEqual(target.host,'127.0.0.1');assert.strictEqual(target.port,'5433');assert.strictEqual(target.password,'canary-vault-secret');
+    const localhostTarget=service.resolveConnection({credentialRef:'internal-postgres-target',host:'localhost',port:'5433',database:'Customer_Vault',dialect:'postgresql'});
+    assert.strictEqual(localhostTarget.host,'localhost');assert.strictEqual(localhostTarget.port,'5433');
+    assert.throws(()=>service.resolveConnection({credentialRef:'internal-postgres-target',host:'db.example',port:'5433',database:'Customer_Vault'}),/that host/i);
     const external=service.resolveConnection({credentialRef:'external-postgres-target',host:'external.example',port:'5432',database:'customer_vault',dialect:'postgresql'});
     assert.strictEqual(external.user,'admin');assert.strictEqual(external.password,'canary-bootstrap-secret');
     assert.deepStrictEqual(service.resolveRedactionValues('external-postgres-target'),{user:'admin',password:'canary-bootstrap-secret'});
@@ -1933,5 +2125,156 @@ describe('Database Packs v0.2.2 manifest lifecycle', () => {
     const data=await r.json();
     assert.strictEqual(r.status,400);
     assert.match(data.error,/Unsupported source dialect "sqlserver"/i);
+  });
+});
+
+describe('schema introspection driver choice', () => {
+  const express = require('express');
+  const { registerSourceRoutes } = require('../server/routes/source');
+
+  function postIntrospect(app, body){
+    return new Promise((resolve, reject) => {
+      const server = app.listen(0, '127.0.0.1', () => {
+        const { port } = server.address();
+        const payload = JSON.stringify(body);
+        const req = http.request({
+          host:'127.0.0.1', port, method:'POST', path:'/api/introspect',
+          headers:{ 'Content-Type':'application/json', 'Content-Length':Buffer.byteLength(payload) },
+        }, res => {
+          const chunks=[];
+          res.on('data', chunk => chunks.push(chunk));
+          res.on('end', () => {
+            server.close(() => resolve({ status:res.statusCode, body:JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}') }));
+          });
+        });
+        req.on('error', error => server.close(() => reject(error)));
+        req.end(payload);
+      });
+    });
+  }
+
+  function mountIntrospect({ openSourceConnection, runJdbcBridge }){
+    const app = express();
+    app.use(express.json());
+    const calls = [];
+    registerSourceRoutes(app, {
+      express,
+      isPackDialect:() => false,
+      getDatabasePackForDialect:dialect => (dialect==='postgresql'||dialect==='postgres'||dialect==='mysql')
+        ? { id:dialect, label:dialect, version:'1.0.0', source:{ enabled:true } }
+        : null,
+      runJdbcBridge: async (pack, connection, mode, payload) => {
+        calls.push({ mode, payload });
+        if (runJdbcBridge) return runJdbcBridge(pack, connection, mode, payload);
+        throw new Error(`JDBC bridge should not run (${mode})`);
+      },
+      packNamespaceFromBody:() => ({ catalog:'', schema:'public' }),
+      firstNonBlank:(...values) => {
+        for (const value of values) if (value!=null && String(value).trim()!=='') return value;
+        return '';
+      },
+      sourceHopCapabilitiesFromJdbcAnalysis:() => ({ basis:'jdbc-type-info' }),
+      sourceHopCapabilitiesFromHopCatalog:() => ({ basis:'hop-catalog-default', supportsTimestamp:true, supportsBoolean:true }),
+      sourceHopCapabilitiesFromTables:() => ({ basis:'introspected-columns' }),
+      applyPackSemanticTypes:(_pack, data) => data,
+      openSourceConnection,
+      packagedCredentialService:{ resolveConnection:body => ({ ...body, user:body.user||'dvuser', password:body.password||'secret' }) },
+      requestControls:createRequestControls({ env:{} }),
+    });
+    return { app, calls };
+  }
+
+  function nativePostgres(){
+    const queries=[];
+    return {
+      queries,
+      openSourceConnection: async () => ({
+        dialect:'postgresql',
+        query: async (sql, params) => {
+          queries.push({ sql, params });
+          if (/information_schema\.columns/i.test(sql)) {
+            return { rows:[{
+              table_name:'hub_sale', table_type:'BASE TABLE', column_name:'hub_sale_key', ordinal_position:1,
+              data_type:'character varying', character_maximum_length:32, numeric_precision:null, numeric_scale:null,
+              is_nullable:'NO', is_pk:true,
+            }] };
+          }
+          if (/FOREIGN KEY/i.test(sql)) return { rows:[] };
+          if (/pg_stat_user_tables/i.test(sql)) return { rows:[{ table_name:'hub_sale', approx_rows:'18' }] };
+          return { rows:[] };
+        },
+        end: async () => {},
+      }),
+    };
+  }
+
+  test('a normal PostgreSQL vault infer uses catalog SQL and does not start Java', async () => {
+    const native=nativePostgres();
+    const { app, calls }=mountIntrospect({ openSourceConnection:native.openSourceConnection });
+    const response=await postIntrospect(app, {
+      dialect:'postgresql', host:'127.0.0.1', port:'5433', database:'datavault', schema:'data_vault', user:'dvuser', password:'secret',
+    });
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(response.body.ok, true);
+    assert.strictEqual(response.body.schema, 'data_vault');
+    assert.strictEqual(response.body.tables.length, 1);
+    assert.strictEqual(response.body.tables[0].name, 'hub_sale');
+    assert.strictEqual(response.body.tables[0].columns[0].type, 'varchar(32)');
+    assert.strictEqual(response.body.tables[0].columns[0].pk, true);
+    assert.strictEqual(response.body.tables[0].approxRows, 18);
+    assert.deepStrictEqual(calls, []);
+    assert.ok(native.queries.some(query => /information_schema\.columns/i.test(query.sql) && query.params[0]==='data_vault'));
+    assert.ok(native.queries.some(query => /statement_timeout/i.test(query.sql)));
+  });
+
+  test('blank JDBC options still use the native catalog driver', async () => {
+    const native=nativePostgres();
+    const { app, calls }=mountIntrospect({ openSourceConnection:native.openSourceConnection });
+    const response=await postIntrospect(app, {
+      dialect:'postgresql', host:'127.0.0.1', port:'5433', database:'datavault', schema:'data_vault', user:'dvuser', options:{ sslmode:'' },
+    });
+    assert.strictEqual(response.status, 200);
+    assert.deepStrictEqual(calls, []);
+    assert.strictEqual(response.body.tables[0].name, 'hub_sale');
+  });
+
+  test('a custom JDBC URL stays on the bridge', async () => {
+    let opened=false;
+    const { app, calls }=mountIntrospect({
+      openSourceConnection: async () => { opened=true; throw new Error('native driver should not open'); },
+      runJdbcBridge: async (_pack, _connection, mode) => {
+        if (mode==='introspect') return { ok:true, tables:[{ name:'hub_sale', columns:[] }], foreignKeys:[], schema:'data_vault' };
+        if (mode==='query') return { ok:true, rows:[], fields:[], rowCount:0 };
+        throw new Error(`unexpected mode ${mode}`);
+      },
+    });
+    const response=await postIntrospect(app, {
+      dialect:'postgresql', host:'127.0.0.1', port:'5433', database:'datavault', schema:'data_vault', user:'dvuser',
+      manualUrl:'jdbc:postgresql://127.0.0.1:5433/datavault?ssl=true',
+    });
+    assert.strictEqual(response.status, 200);
+    assert.strictEqual(opened, false);
+    assert.deepStrictEqual(calls.map(call => call.mode), ['introspect', 'query']);
+  });
+
+  test('a failed infer is logged without the password', async () => {
+    const lines=[];
+    const original=console.error;
+    console.error=(...args) => lines.push(args.join(' '));
+    try {
+      const { app }=mountIntrospect({
+        openSourceConnection: async () => { throw new Error('catalog read failed'); },
+      });
+      const response=await postIntrospect(app, {
+        dialect:'postgresql', host:'127.0.0.1', port:'5433', database:'datavault', schema:'data_vault', user:'dvuser', password:'correct-horse',
+      });
+      assert.strictEqual(response.status, 400);
+      assert.match(response.body.error, /catalog read failed/);
+      assert.match(lines.join('\n'), /schema-introspect\.failed/);
+      assert.match(lines.join('\n'), /data_vault/);
+      assert.doesNotMatch(lines.join('\n'), /correct-horse/);
+    } finally {
+      console.error=original;
+    }
   });
 });

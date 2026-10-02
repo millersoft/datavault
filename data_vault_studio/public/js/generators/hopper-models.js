@@ -46,7 +46,14 @@ function hopperColumnPrecision(column){
   return match ? match[1] : '';
 }
 function hopperSourceFieldName(column){ return targetColumnName(column) || (column && column.name) || ''; }
-function hopperSourceRecordName(table){ return targetIdentifierBase(table && table.name, 'source'); }
+function hopperSourceRecordName(table){
+  const name=table&&table.name;
+  const sameNamed=includedTables().filter(candidate=>String(candidate.name||'').toLowerCase()===String(name||'').toLowerCase());
+  // Hopper catalog source names must be unique. Keep the established simple
+  // name except where two source schemas contain the same physical table.
+  const base=sameNamed.length>1 ? `${sourceTableSchema(table)}_${name}` : name;
+  return targetIdentifierBase(base, 'source');
+}
 function hopperBusinessKeyName(column){ return targetColumnName(column) || (column && column.name) || 'business_key'; }
 function hopperHubKeys(hub){ return hubKeyCols(hub); }
 
@@ -103,13 +110,17 @@ function hopperSatelliteParentFields(satellite, hub, issues){
 
 function buildHopperSourceModel(){
   const layout=hopperGridLayout(includedTables(),hopperSourceTableHeight);
+  const schemas=[...new Set(includedTables().map(sourceTableSchema).filter(Boolean))];
   const lines=[
     '<source-model>',
     hopperTag('name_sync_with_filename','Y','  '),
     hopperTag('configurationName','source-model','  '),
     '  <configuration>',
     hopperTag('defaultDatabase',hopperSourceConnectionName(),'    '),
-    hopperTag('defaultSchema',state.vault.sourceSchema || 'public','    '),
+    // A default only makes sense for a single-schema model. Each table below
+    // always carries its own schema, so an empty default avoids advertising
+    // the Connections-page fallback (often "public") for multi-schema HSMs.
+    hopperTag('defaultSchema',schemas.length===1 ? schemas[0] : '','    '),
     hopperTag('catalogConnection',hopperCatalogConnectionName(),'    '),
     '  </configuration>',
     '  <tables>',
@@ -120,7 +131,7 @@ function buildHopperSourceModel(){
     lines.push(hopperTag('catalogSourceName',hopperSourceRecordName(table),'      '));
     lines.push(hopperTag('physicalType','DATABASE','      '));
     lines.push(hopperTag('databaseName',hopperSourceConnectionName(),'      '));
-    lines.push(hopperTag('schemaName',state.vault.sourceSchema || 'public','      '));
+    lines.push(hopperTag('schemaName',sourceTableSchema(table) || state.vault.sourceSchema || 'public','      '));
     lines.push(hopperTag('tableName',table.name,'      '));
     lines.push('      <columns>');
     let pkPosition=0;
@@ -179,26 +190,41 @@ function buildHopperSourceModel(){
   return `${lines.join('\n')}\n`;
 }
 
-function addHopperHub(lines, hub, position){
-  const table=findTable(hub.tableId);
+function hopperHubExportFeeds(hub, issues){
+  const canonicalKeys=hopperHubKeys(hub);
+  return hubSourceFeeds(hub).map(feed=>{
+    const table=findTable(feed.tableId);
+    const keys=(feed.keyColIds||[]).map(id=>findStagedColumn(table,id)).filter(Boolean);
+    if(!table || keys.length!==canonicalKeys.length){
+      issues.errors.push(`Hub "${hub.entity}" has an incomplete source feed and cannot be exported to Hopper.`);
+      return null;
+    }
+    return {table,keys};
+  }).filter(Boolean);
+}
+
+function addHopperHub(lines, hub, position, issues){
+  const feeds=hopperHubExportFeeds(hub,issues);
   lines.push('    <table>');
-  hopperHubKeys(hub).forEach(key=>{
-    const type=hopperHopType(key);
-    lines.push('      <businessKeys>');
-    lines.push(hopperTag('name',hopperBusinessKeyName(key),'        '));
-    lines.push(hopperTag('description','', '        '));
-    lines.push(hopperTag('dataType',type.name,'        '));
-    lines.push(hopperTag('length',hopperColumnLength(key),'        '));
-    lines.push(hopperTag('composite','N','        '));
-    lines.push(hopperEmpty('sourceFieldNames','        '));
-    lines.push(hopperTag('sourceFieldName',hopperSourceFieldName(key),'        '));
-    lines.push(hopperTag('recordSourceName',hopperSourceRecordName(table),'        '));
-    lines.push('      </businessKeys>');
+  feeds.forEach(feed=>{
+    feed.keys.forEach((key,index)=>{
+      const type=hopperHopType(key), canonical=hopperHubKeys(hub)[index]||key;
+      lines.push('      <businessKeys>');
+      lines.push(hopperTag('name',hopperBusinessKeyName(canonical),'        '));
+      lines.push(hopperTag('description','', '        '));
+      lines.push(hopperTag('dataType',type.name,'        '));
+      lines.push(hopperTag('length',hopperColumnLength(key),'        '));
+      lines.push(hopperTag('composite','N','        '));
+      lines.push(hopperEmpty('sourceFieldNames','        '));
+      lines.push(hopperTag('sourceFieldName',hopperSourceFieldName(key),'        '));
+      lines.push(hopperTag('recordSourceName',hopperSourceRecordName(feed.table),'        '));
+      lines.push('      </businessKeys>');
+    });
   });
   lines.push(hopperTag('hashKeyFieldName',hubKey(hub.entity),'      '));
   lines.push(hopperEmpty('recordSourceFieldName','      '));
   lines.push('      <recordSources>');
-  lines.push(hopperTag('recordSource',hopperSourceRecordName(table),'        '));
+  feeds.forEach(feed=>lines.push(hopperTag('recordSource',hopperSourceRecordName(feed.table),'        ')));
   lines.push('      </recordSources>');
   lines.push(hopperTag('allowInferredInsert','N','      '));
   lines.push(hopperTag('tableName',hubName(hub.entity),'      '));
@@ -390,7 +416,7 @@ function buildHopperDataVaultModel(issues={errors:[],warnings:[]}){
     hopperTag('configurationName',hopperVaultConfigurationName(),'  '),
     '  <tables>',
   ];
-  state.hubs.forEach(hub=>addHopperHub(lines,hub,hubLayout.parentPositions.get(hub.id)));
+  state.hubs.forEach(hub=>addHopperHub(lines,hub,hubLayout.parentPositions.get(hub.id),issues));
   state.hubSats.forEach(satellite=>addHopperHubSatellite(lines,satellite,issues,hubLayout.childPositions.get(satellite.id)));
   state.links.forEach(link=>addHopperLink(lines,link,issues,linkLayout.parentPositions.get(link.id)));
   state.linkSats.forEach(satellite=>addHopperLinkSatellite(lines,satellite,linkLayout.childPositions.get(satellite.id)));

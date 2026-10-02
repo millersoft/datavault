@@ -1,6 +1,7 @@
 'use strict';
 
 const nodePath = require('path');
+const { createRuntimeResourceService } = require('../runtime-resources');
 
 function selectStudioLauncher(projectRoot, args, platform = process.platform, pathImpl = nodePath){
   const windows = platform === 'win32';
@@ -28,10 +29,11 @@ function registerEngineRoutes(parentApp, dependencies){
     licenseAccepted,
     requestControls,
     audit,
-    env,
+    launcherEnv,
   } = dependencies;
   const app = express.Router();
   const DB_SERVICES = ['mysql', 'postgres'];
+  const runtimeResources = createRuntimeResourceService({ fs, path, projectRoot:PROJECT_ROOT });
 
   function projectRootError(extra){
     return `${extra} Resolved project root: ${PROJECT_ROOT}. Start the local server from <project-root>/data_vault_studio or set DVS_PROJECT_ROOT=/path/to/project-root.`;
@@ -48,7 +50,10 @@ function registerEngineRoutes(parentApp, dependencies){
       const child = spawn(launcher.command, launcher.args, {
         cwd: PROJECT_ROOT,
         stdio: ['ignore', 'pipe', 'pipe'], // no stdin — never hang waiting for interactive input
-        env: { ...env, ...envOverrides },
+        // Compose reads PROJECT_ROOT/.env for every invocation. Do not pass
+        // Studio's startup-time .env cache here, because inherited values
+        // take precedence over Compose's current .env values.
+        env: { ...launcherEnv, ...envOverrides },
         detached: process.platform !== 'win32',
       });
       const timeoutResult = () => ({
@@ -275,6 +280,29 @@ function registerEngineRoutes(parentApp, dependencies){
     requestControls.sendResult(res, result);
   });
   
+  // Resource settings are isolated in a managed Compose override. These routes
+  // inherit the app-level /api loopback, origin, token, sanitizer, and rate
+  // limit middleware; no resource values are accepted by launcher commands.
+  app.get('/api/docker/resources', (_req, res) => {
+    try {
+      const resources = runtimeResources.current();
+      res.json({ ok:true, ...resources });
+    } catch (err) {
+      res.status(400).json({ ok:false, error:err.message });
+    }
+  });
+
+  app.post('/api/docker/resources', (req, res) => {
+    try {
+      const resources = runtimeResources.save((req.body || {}).resources);
+      audit('container.resources.configured', { services:Object.keys((req.body || {}).resources || {}), success:true });
+      res.json({ ok:true, ...resources });
+    } catch (err) {
+      audit('container.resources.configured', { success:false });
+      res.status(400).json({ ok:false, error:err.message });
+    }
+  });
+
   // Tail of the hop container's logs — read-only, command fully hardcoded.
   // `up -d` returns as soon as the container starts, so this is how you
   // actually see what the ETL run is doing / why it failed. `tail` is
@@ -344,7 +372,7 @@ function registerEngineRoutes(parentApp, dependencies){
   });
 
   parentApp.use(app);
-  return { ENGINE_MODES, runFixedCommand, runEtlTransition, getHopStatus };
+  return { ENGINE_MODES, runFixedCommand, runEtlTransition, getHopStatus, runtimeResources };
 }
 
 module.exports = { registerEngineRoutes, selectStudioLauncher };

@@ -120,7 +120,7 @@ function renderExport(el){
     </div>
 
     <div class="flex-between mt">
-      <button class="btn ghost" id="btn-back-export">← Back to vault model</button>
+      <button class="btn ghost" id="btn-back-export">← Back to Vault model</button>
       <span></span>
     </div>
   `;

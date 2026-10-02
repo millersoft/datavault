@@ -10,6 +10,12 @@ let schedulerStatus = { enabled:false, intervalMinutes:60, nextRunAt:null, lastR
 let schedulerBusy = false;
 let schedulerPollHandle = null;
 let engineActionBusy = false;
+let runtimeResources = { status:null, error:'', defaults:{}, configured:{}, effective:{} };
+// The Hub polls scheduler status and rerenders every few seconds. Keep edits
+// outside the rebuilt DOM until the user explicitly saves them.
+let runtimeResourceDraft = null;
+let runtimeResourcesOpen = false;
+let runtimeResourcesSaving = false;
 let dashboardStatus = null; // null | 'loading' | 'ok' | 'error'
 let dashboardError = '';
 let dashboardRuns = [];
@@ -378,12 +384,109 @@ function updateDashboardVerificationUi(){
   }
 }
 
+function runtimeResourceServiceNames(){
+  return isDemoRuntime() ? ['hop','postgres','mysql'] : ['hop','postgres'];
+}
+
+function runtimeResourceLabel(service){
+  return ({ hop:'Hop engine', postgres:'Internal PostgreSQL', mysql:'Demo MySQL' })[service] || service;
+}
+
+function resetRuntimeResourceDraft(){
+  runtimeResourceDraft=JSON.parse(JSON.stringify(runtimeResources.effective||{}));
+}
+
+function runtimeResourceDraftValue(service, field){
+  const draft=runtimeResourceDraft&&runtimeResourceDraft[service];
+  return draft&&draft[field] != null ? draft[field] : (runtimeResources.effective||{})[service]?.[field] || '';
+}
+
+function runtimeResourcesHtml(){
+  const services=runtimeResourceServiceNames();
+  const configured=runtimeResources.configured||{};
+  const unavailable=runtimeResources.status==='error';
+  const rows=services.map(service=>{
+    const source=configured[service] ? 'custom' : 'packaged default';
+    return `<div class="grid cols-3 mt" style="align-items:end;">
+      <div><label class="mb0">${runtimeResourceLabel(service)}</label><p class="hint mb0">${source}</p></div>
+      <div class="field mb0"><label for="resource-cpu-${service}">CPU limit <span class="hint">(cores)</span></label><input type="number" id="resource-cpu-${service}" data-resource-service="${service}" data-resource-field="cpu" min="0.1" max="64" step="0.1" value="${escapeHtml(String(runtimeResourceDraftValue(service,'cpu')))}" ${unavailable?'disabled':''}></div>
+      <div class="field mb0"><label for="resource-memory-${service}">Memory limit</label><input type="text" id="resource-memory-${service}" data-resource-service="${service}" data-resource-field="memory" placeholder="8GiB" value="${escapeHtml(String(runtimeResourceDraftValue(service,'memory')))}" ${unavailable?'disabled':''}></div>
+    </div>`;
+  }).join('');
+  const body=runtimeResources.status==='loading'
+    ? '<div class="ai-status busy mt"><span class="dot"></span>Loading container resources…</div>'
+    : unavailable
+      ? `<div class="ai-status err mt">${escapeHtml(runtimeResources.error || 'Could not load container resources.')}</div>`
+      : `${rows}<p class="hint mt">Use whole MiB or GiB values, such as <span class="mono">1536MiB</span> or <span class="mono">8GiB</span>. Changes are stored locally in <span class="mono">docker-compose.resources.yaml</span>, not in this project design.</p>
+          <div class="ai-status busy mt" style="align-items:flex-start;"><span><b>Restart required:</b> saved limits apply when the affected container is recreated. Lowering PostgreSQL memory without also reviewing its database tuning can make the packaged configuration unstable.</span></div>
+          <div class="flex-between mt" style="gap:10px;flex-wrap:wrap;"><span id="runtime-resources-status"></span><button class="btn primary" id="btn-save-runtime-resources" ${runtimeResourcesSaving?'disabled':''}>${runtimeResourcesSaving?'Saving…':'Save resource settings'}</button></div>`;
+  return `<details class="panel mt" id="runtime-resources-panel" ${runtimeResourcesOpen?'open':''}>
+    <summary class="panel-head" style="margin:-18px -20px ${runtimeResourcesOpen?'16px':'-18px'};cursor:pointer;list-style:none;padding:14px 20px;"><h3>Container resources <span class="badge-count">&nbsp;·&nbsp;CPU &amp; memory limits</span></h3><span class="hint" style="margin-left:auto;">${runtimeResourcesOpen?'Collapse':'Configure'} ▾</span></summary>
+    ${body}
+  </details>`;
+}
+
+async function loadRuntimeResources(){
+  if (runtimeResources.status==='loading') return;
+  runtimeResources.status='loading';
+  try {
+    const resp=await localFetch('/api/docker/resources');
+    const data=await resp.json();
+    if (!data.ok) throw new Error(data.error || 'Could not load container resources.');
+    runtimeResources={ status:'ok', error:'', defaults:data.defaults||{}, configured:data.configured||{}, effective:data.effective||{} };
+    if (runtimeResourceDraft===null) resetRuntimeResourceDraft();
+  } catch(err){
+    runtimeResources={ ...runtimeResources, status:'error', error:err.message };
+  }
+  if (appMode==='dashboard') renderAll();
+}
+
+async function saveRuntimeResources(){
+  if (runtimeResourcesSaving) return;
+  const resources={};
+  for (const service of runtimeResourceServiceNames()){
+    const cpuText=String(document.getElementById(`resource-cpu-${service}`)?.value||'').trim();
+    const memory=String(document.getElementById(`resource-memory-${service}`)?.value||'').trim();
+    const cpu=Number(cpuText);
+    if (!Number.isFinite(cpu) || cpu<0.1 || cpu>64){ toast(`${runtimeResourceLabel(service)} CPU must be between 0.1 and 64 cores.`, 'err'); return; }
+    if (!/^\d+(?:\.\d+)?\s*(?:MiB|GiB)$/i.test(memory)){ toast(`${runtimeResourceLabel(service)} memory must use MiB or GiB, for example 8GiB.`, 'err'); return; }
+    resources[service]={ cpu, memory };
+  }
+  runtimeResourcesSaving=true;
+  renderAll();
+  try {
+    const resp=await localFetch('/api/docker/resources', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({resources}) });
+    const data=await resp.json();
+    if (!data.ok) throw new Error(data.error || 'Could not save container resources.');
+    runtimeResources={ status:'ok', error:'', defaults:data.defaults||{}, configured:data.configured||{}, effective:data.effective||{} };
+    resetRuntimeResourceDraft();
+    toast('Container resource settings saved. Recreate affected containers to apply them.', 'ok');
+  } catch(err){
+    toast(`Could not save container resources: ${err.message}`, 'err');
+  }
+  runtimeResourcesSaving=false;
+  renderAll();
+}
+
+function bindRuntimeResourceControls(){
+  const panel=document.getElementById('runtime-resources-panel');
+  if (panel) panel.addEventListener('toggle', ()=>{ runtimeResourcesOpen=panel.open; });
+  document.querySelectorAll('[data-resource-service]').forEach(input=>input.addEventListener('input', ()=>{
+    if (!runtimeResourceDraft) resetRuntimeResourceDraft();
+    const service=input.dataset.resourceService;
+    runtimeResourceDraft[service]={ ...(runtimeResourceDraft[service]||{}), [input.dataset.resourceField]:input.value };
+  }));
+  const save=document.getElementById('btn-save-runtime-resources');
+  if (save) save.addEventListener('click', saveRuntimeResources);
+  if (runtimeResources.status===null) loadRuntimeResources();
+}
+
 function renderDashboard(el){
   // Convenience: borrow the target connection from the Designer if one's
   // already been entered there, but this stays independently editable —
   // the dashboard works on its own.
   if (demoTargetActive() && state.vault.dvDatabase){
-    dashboardConn = {credentialRef:'internal-postgres-target',host:'localhost',port:'5433',database:state.vault.dvDatabase,user:'',password:''};
+    dashboardConn = {credentialRef:'internal-postgres-target',host:'127.0.0.1',port:'5433',database:state.vault.dvDatabase,user:'',password:''};
   } else if (!dashboardConn.database && state.vault.dvDatabase){
     dashboardConn = {host:state.vault.dvHost||'localhost',port:state.vault.dvPort||'5432',database:state.vault.dvDatabase,user:state.vault.dvUser||'',password:state.vault.dvPassword||''};
   }
@@ -427,6 +530,7 @@ function renderDashboard(el){
           <div id="engine-logs-wrap">${engineLogsHtml()}</div>
         </div>
       </div>
+      ${runtimeResourcesHtml()}
       <div class="panel-head" style="margin:16px -20px 16px;"><h3>Post-run verification</h3></div>
       <p class="hint">Checks the latest run for zero-row loads, object errors, and rows in <span class="mono">_err</span> tables. Uses the connection above.</p>
       <button class="btn primary mt" id="btn-verify-load" ${dashboardVerification.status==='loading'?'disabled':''}>${dashboardVerification.status==='loading'?'Verifying…':'Verify latest load'}</button>
@@ -481,6 +585,7 @@ function renderDashboard(el){
   document.getElementById('btn-engine-logs').addEventListener('click', loadEngineLogs);
   bindEngineLogsRefresh();
   pinEngineLogsToBottom();
+  bindRuntimeResourceControls();
 
   document.getElementById('btn-verify-load').addEventListener('click', verifyLatestLoad);
   const bindDash = (id, key) => document.getElementById(id).addEventListener('input', e=> dashboardConn[key]=e.target.value);

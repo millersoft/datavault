@@ -57,6 +57,7 @@ function extractJsonObject(text){
 // the page. This avoids paying for the same failed request on every AI action.
 const aiNoTemperatureModels = new Set();
 const aiNoReasoningEffortModels = new Set();
+const aiNoJsonObjectModels = new Set();
 function aiModelCapabilityKey(){
   const endpoint = aiProvider==='custom' ? (aiBaseUrl || '').replace(/\/+$/,'').toLowerCase() : aiProvider;
   return `${endpoint}|${String(aiModel || '').trim().toLowerCase()}`;
@@ -107,9 +108,11 @@ async function aiChat(rules, userMsg, temperature){
   const body = {
     model: aiModel,
     messages: [{ role:'system', content: rules }, { role:'user', content: userMsg }],
-    response_format: { type:'json_object' },
   };
   const capabilityKey = aiModelCapabilityKey();
+  if (!aiNoJsonObjectModels.has(capabilityKey)){
+    body.response_format = { type:'json_object' };
+  }
   if (!aiModelUsesDefaultTemperature(aiModel) && !aiNoTemperatureModels.has(capabilityKey)){
     body.temperature = temperature!=null ? temperature : 0.2;
   }
@@ -119,9 +122,18 @@ async function aiChat(rules, userMsg, temperature){
   if (aiProvider==='openai' && aiModelUsesReasoningEffort(aiModel) && !aiNoReasoningEffortModels.has(capabilityKey)){
     body.reasoning_effort = AI_OPENAI_REASONING_EFFORT;
   }
-  const send = payload => fetch(`${base}/chat/completions`, {
-    method:'POST', headers, body:JSON.stringify(payload),
-  });
+  const send = async payload => {
+    try{
+      return await fetch(`${base}/chat/completions`, {
+        method:'POST', headers, body:JSON.stringify(payload),
+      });
+    }catch(err){
+      if (aiProvider==='custom'){
+        throw new Error(`Could not reach ${base}/chat/completions from the browser. Check that the base URL includes the API prefix (usually /v1), the server is running, and CORS is enabled. ${err&&err.message?err.message:''}`.trim());
+      }
+      throw err;
+    }
+  };
   let requestBody = Object.assign({}, body);
   let resp;
   for (let attempt=0; attempt<3; attempt++){
@@ -146,6 +158,20 @@ async function aiChat(rules, userMsg, temperature){
       aiNoReasoningEffortModels.add(capabilityKey);
       requestBody = Object.assign({}, requestBody);
       delete requestBody.reasoning_effort;
+      continue;
+    }
+    const jsonObjectUnsupported = resp.status===400
+      && Object.prototype.hasOwnProperty.call(requestBody, 'response_format')
+      && /response[_ .-]*format/i.test(errText)
+      && /(unsupported|unknown|unrecognized|does not support|must be|invalid|json[_ .-]*schema|text)/i.test(errText);
+    if (jsonObjectUnsupported){
+      // Some OpenAI-compatible servers (including LM Studio versions which
+      // accept only json_schema or text) reject the older json_object mode.
+      // The prompts already require JSON and extractJsonObject validates it,
+      // so retrying without this optional hint remains safe and compatible.
+      aiNoJsonObjectModels.add(capabilityKey);
+      requestBody = Object.assign({}, requestBody);
+      delete requestBody.response_format;
       continue;
     }
     throw new Error(`${aiProvider==='custom'?'API':'OpenAI API'} error ${resp.status}: ${errText.slice(0,300)}`);

@@ -10,7 +10,7 @@
     "start": "node server.js",
     "start:demo": "node server.js --mode=demo",
     "start:production": "node server.js --mode=production",
-    "test": "node --test tests/gui.test.js tests/mysql-postgres-pack-migration.test.js tests/project-file-references.test.js tests/server.test.js tests/database-packs-v020.test.js tests/outbound-connections.test.js tests/structure.test.js tests/pdi-meta-limits.test.js tests/studio-limits.test.js",
+    "test": "node --test tests/gui.test.js tests/mysql-postgres-pack-migration.test.js tests/project-file-references.test.js tests/server.test.js tests/database-packs-v020.test.js tests/outbound-connections.test.js tests/structure.test.js tests/statement-timeout.test.js tests/pdi-meta-limits.test.js tests/studio-limits.test.js",
     "check:pdi-meta-schema": "node scripts/check-pdi-meta-limits.js"
   },
   "dependencies": {

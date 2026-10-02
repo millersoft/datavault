@@ -216,6 +216,21 @@ Example .env values:
 `BOOTSTRAP_VERSION=1`
 `FORCE_EXTERNAL_BOOTSTRAP=false`
 
+#### Database readiness timeout
+
+Both the Hop runtime and the external PostgreSQL bootstrap wait for their database hosts only for a bounded period. Add these optional values to `.env` to override the defaults:
+
+```dotenv
+# Total time allowed for a database to become reachable.
+DATABASE_READY_TIMEOUT_SECONDS=300
+# Delay between readiness checks.
+DATABASE_READY_RETRY_INTERVAL_SECONDS=2
+# Maximum duration of one TCP/PostgreSQL readiness probe.
+DATABASE_READY_CONNECT_TIMEOUT_SECONDS=5
+```
+
+All values must be positive integers. When the total timeout expires, the affected container exits with an error identifying the host and port. After changing `.env`, recreate the relevant containers so Docker injects the updated values.
+
 Run first-time external PostgreSQL setup:
 
 `./start.sh --build --external-postgres`

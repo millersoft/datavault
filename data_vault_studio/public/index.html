@@ -38,6 +38,7 @@
       <button class="btn small ghost" id="btn-new-project">New project</button>
       <button class="btn small" id="btn-save-project">Save project</button>
       <button class="btn small" id="btn-load-project">Load project</button>
+      <button class="btn small" id="btn-import-hopper">Import Hopper</button>
       <input type="file" id="file-load-project" accept=".json" style="display:none;">
     </span>
   </div>
@@ -92,6 +93,7 @@ const STUDIO_RUNTIME_MODE = '__STUDIO_RUNTIME_MODE__' === 'demo' ? 'demo' : 'pro
 
 <script src="js/features/ai-assist.js"></script>
 <script src="js/domain/suggestions.js"></script>
+<script src="js/features/hopper-import.js"></script>
 <script src="js/domain/model-coverage.js"></script>
 
 <script src="js/domain/staging-columns.js"></script>
@@ -117,7 +119,17 @@ const STUDIO_RUNTIME_MODE = '__STUDIO_RUNTIME_MODE__' === 'demo' ? 'demo' : 'pro
 <script src="js/features/license.js"></script>
 
 <script src="js/features/dashboard.js"></script>
-<script src="js/features/studio-plus.js"></script>
+<script src="js/features/studio-plus/business-vault.js"></script>
+<script src="js/features/studio-plus/connection.js"></script>
+<script src="js/features/studio-plus/report-library.js"></script>
+<script src="js/features/studio-plus/business-models.js"></script>
+<script src="js/features/studio-plus/builders-html.js"></script>
+<script src="js/features/studio-plus/lineage.js"></script>
+<script src="js/features/studio-plus/workflow.js"></script>
+<script src="js/features/studio-plus/render.js"></script>
+<script src="js/features/studio-plus/introspection.js"></script>
+<script src="js/features/studio-plus/report-generation.js"></script>
+<script src="js/features/studio-plus/report-html.js"></script>
 
 </body>
 </html>

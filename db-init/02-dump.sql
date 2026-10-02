@@ -18,13 +18,13 @@ SET row_security = off;
 -- Bootstrap: database, roles, schemas, and role search paths
 --
 -- Usage:
---   psql -d postgres -v target_database=datavault -v shared_password='replace-with-a-secure-password' -f pdi_meta_data_vault_bootstrap.sql
+--   VAULT_PASSWORD='replace-with-a-secure-password' psql -d postgres -v target_database=datavault -f pdi_meta_data_vault_bootstrap.sql
 --
 -- Notes:
 --   * Run this from a maintenance database such as postgres, not from inside a transaction.
 --   * The executing account needs permission to create/alter roles and create/alter the target database.
 --   * target_database defaults to datavault when it is not supplied.
---   * The password is supplied through the psql variable shared_password and is not stored in this file.
+--   * The password defaults to VAULT_PASSWORD from the psql process environment. Supply -v shared_password=... to override it without storing it in this file.
 --
 
 \if :{?target_database}
@@ -32,8 +32,12 @@ SET row_security = off;
 \set target_database datavault
 \endif
 
--- SET app.shared_password = :'shared_password';
-SET app.shared_password = 'VAULT_PASSWORD';
+\if :{?shared_password}
+\else
+\getenv shared_password VAULT_PASSWORD
+\endif
+
+SET app.shared_password = :'shared_password';
 
 DO $$
 DECLARE

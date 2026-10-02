@@ -61,8 +61,8 @@ function renderVault(el){
     </div>
     <div id="model-sub-view"></div>
     <div class="flex-between mt">
-      <button class="btn ghost" id="btn-back-vault">← Back to staging</button>
-      <button class="btn primary" id="btn-next-vault">Next: export →</button>
+      <button class="btn ghost" id="btn-back-vault">← Back to Staging</button>
+      <button class="btn primary" id="btn-next-vault">Next: Export →</button>
     </div>
   `;
   el.querySelector('#f-dbname').addEventListener('input', e=> v.vaultDbName = e.target.value);

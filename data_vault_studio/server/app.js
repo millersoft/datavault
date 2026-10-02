@@ -72,15 +72,17 @@ function createApp(options = {}){
     packNamespaceFromBody,
   } = databasePackService;
 
+  const requestControls = options.requestControls || createRequestControls({ env });
+
   const { connectPgWithFallback, openSourceConnection } = createSourceDatabase({
     Client, mysql, isPackDialect, getDatabasePack, runJdbcBridge, outboundConnectionPolicy,
+    connectionTestTimeoutMs:requestControls.config.connectionTestTimeoutMs,
     resolveConnection:packagedCredentialService.resolveConnection,
   });
 
   const app = express();
   const auditLogger = options.auditLogger || createAuditLogger();
   const apiAccess = createApiAccess({ apiToken: options.apiToken, audit:auditLogger.audit });
-  const requestControls = options.requestControls || createRequestControls({ env });
   app.locals.studioMode = studioMode;
   app.locals.port = resolvePort(env);
   app.locals.requestControlConfig = requestControls.config;
@@ -126,7 +128,7 @@ function createApp(options = {}){
   }));
 
   const sharedDependencies = {
-    express, fs, path, os, spawn, mysql, studioMode, env,
+    express, fs, path, os, spawn, mysql, studioMode, env, launcherEnv:suppliedEnv,
     appVersion: require('../package.json').version,
     ...paths,
     ...databasePackService,

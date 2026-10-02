@@ -117,7 +117,11 @@ function renderAll(){
 document.getElementById('mode-home').addEventListener('click', ()=>{ stopSchedulerPolling(); appMode='landing'; renderAll(); });
 document.getElementById('mode-designer').addEventListener('click', ()=>{ stopSchedulerPolling(); appMode='designer'; renderAll(); });
 document.getElementById('mode-dashboard').addEventListener('click', ()=>{ appMode='dashboard'; renderAll(); });
-document.getElementById('mode-studioplus').addEventListener('click', ()=>{ stopSchedulerPolling(); appMode='studioplus'; renderAll(); });
+function enterStudioPlus(){
+  stopSchedulerPolling(); appMode='studioplus'; renderAll();
+  if (typeof studioPlusEnter==='function') studioPlusEnter();
+}
+document.getElementById('mode-studioplus').addEventListener('click', enterStudioPlus);
 
 function renderLanding(el){
   el.innerHTML = `
@@ -143,13 +147,12 @@ function renderLanding(el){
         <button class="landing-card" id="landing-studioplus">
           <div class="landing-card-icon">★</div>
           <div class="landing-card-title">Data Vault Studio Plus</div>
-          <p class="landing-card-desc">AI-assisted reporting — connect to a deployed vault and generate SQL, an Excel workbook, and an HTML report.</p>
+          <p class="landing-card-desc">Business Vault, business models & reporting — operate a deployed Vault, build persisted or live business models, then generate reports only from the models you select.</p>
         </button>
       </div>
     </div>`;
   document.getElementById('landing-new').addEventListener('click', ()=> startNewProject(true));
   document.getElementById('landing-edit').addEventListener('click', ()=> document.getElementById('file-load-project').click());
   document.getElementById('landing-hub').addEventListener('click', ()=>{ appMode='dashboard'; renderAll(); });
-  document.getElementById('landing-studioplus').addEventListener('click', ()=>{ appMode='studioplus'; renderAll(); });
+  document.getElementById('landing-studioplus').addEventListener('click', enterStudioPlus);
 }
-

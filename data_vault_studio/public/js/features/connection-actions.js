@@ -65,7 +65,7 @@ function sourceConnectionPayload(){
 }
 function targetConnectionPayload(database=state.vault.dvDatabase){
   const v=state.vault;
-  if(demoTargetActive())return {credentialRef:'internal-postgres-target',database,dialect:'postgresql'};
+  if(demoTargetActive())return {credentialRef:'internal-postgres-target',host:v.dvHost,port:v.dvPort,database,dialect:'postgresql'};
   if(!v.dvPassword)return confirmImportedConnectionTarget({credentialRef:'external-postgres-target',host:v.dvHost,port:v.dvPort,database,dialect:'postgresql'});
   return confirmImportedConnectionTarget({host:v.dvHost,port:v.dvPort,database,user:v.dvUser,password:v.dvPassword,dialect:'postgresql'});
 }

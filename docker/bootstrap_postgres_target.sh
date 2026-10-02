@@ -13,6 +13,9 @@ CREATE_EXTERNAL_DATABASE="${CREATE_EXTERNAL_DATABASE:-false}"
 BOOTSTRAP_NAME="${BOOTSTRAP_NAME:-datavault-core}"
 BOOTSTRAP_VERSION="${BOOTSTRAP_VERSION:-1}"
 FORCE_EXTERNAL_BOOTSTRAP="${FORCE_EXTERNAL_BOOTSTRAP:-false}"
+DATABASE_READY_TIMEOUT_SECONDS="${DATABASE_READY_TIMEOUT_SECONDS:-300}"
+DATABASE_READY_RETRY_INTERVAL_SECONDS="${DATABASE_READY_RETRY_INTERVAL_SECONDS:-2}"
+DATABASE_READY_CONNECT_TIMEOUT_SECONDS="${DATABASE_READY_CONNECT_TIMEOUT_SECONDS:-5}"
 
 is_truthy() {
   case "${1:-}" in
@@ -29,6 +32,43 @@ fail() {
   echo "ERROR: $*" >&2
   exit 1
 }
+
+validate_positive_integer() {
+  local name="$1"
+  local value="$2"
+
+  if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+    fail "$name must be a positive integer; got '$value'."
+  fi
+}
+
+wait_for_postgres() {
+  local started_at now elapsed remaining sleep_seconds
+
+  started_at="$(date +%s)"
+
+  until pg_isready -h "$TARGET_HOST" -p "$TARGET_PORT" -U "$POSTGRES_BOOTSTRAP_USER" -t "$DATABASE_READY_CONNECT_TIMEOUT_SECONDS" >/dev/null 2>&1; do
+    now="$(date +%s)"
+    elapsed=$((now - started_at))
+
+    if (( elapsed >= DATABASE_READY_TIMEOUT_SECONDS )); then
+      fail "Timed out after ${DATABASE_READY_TIMEOUT_SECONDS}s waiting for PostgreSQL at ${TARGET_HOST}:${TARGET_PORT}. Check the host and port, or increase DATABASE_READY_TIMEOUT_SECONDS."
+    fi
+
+    remaining=$((DATABASE_READY_TIMEOUT_SECONDS - elapsed))
+    sleep_seconds="$DATABASE_READY_RETRY_INTERVAL_SECONDS"
+    if (( sleep_seconds > remaining )); then
+      sleep_seconds="$remaining"
+    fi
+
+    echo "Waiting for PostgreSQL at ${TARGET_HOST}:${TARGET_PORT} (${elapsed}s elapsed; timeout ${DATABASE_READY_TIMEOUT_SECONDS}s)..."
+    sleep "$sleep_seconds"
+  done
+}
+
+validate_positive_integer "DATABASE_READY_TIMEOUT_SECONDS" "$DATABASE_READY_TIMEOUT_SECONDS"
+validate_positive_integer "DATABASE_READY_RETRY_INTERVAL_SECONDS" "$DATABASE_READY_RETRY_INTERVAL_SECONDS"
+validate_positive_integer "DATABASE_READY_CONNECT_TIMEOUT_SECONDS" "$DATABASE_READY_CONNECT_TIMEOUT_SECONDS"
 
 resolve_config_value() {
   local value="${1:-}"
@@ -174,11 +214,7 @@ echo "Force bootstrap:         $FORCE_EXTERNAL_BOOTSTRAP"
 echo "============================================================"
 
 echo "Waiting for PostgreSQL at ${TARGET_HOST}:${TARGET_PORT}..."
-
-until pg_isready -h "$TARGET_HOST" -p "$TARGET_PORT" -U "$POSTGRES_BOOTSTRAP_USER" >/dev/null 2>&1; do
-  echo "Waiting for PostgreSQL..."
-  sleep 2
-done
+wait_for_postgres
 
 echo "PostgreSQL is reachable."
 

@@ -42,7 +42,7 @@ function renderConnections(el){
 
   const builtinSourcePanel=`
     <div class="panel">
-      <div class="panel-head" style="margin:-18px -20px 16px;"><h3>① Source connection <span class="badge-count">&nbsp;·&nbsp;${v.name||'&lt;name&gt;'}_source</span></h3></div>
+      <div class="panel-head" style="margin:-18px -20px 16px;"><h3>Source connection <span class="badge-count">&nbsp;·&nbsp;${v.name||'&lt;name&gt;'}_source</span></h3></div>
       <div class="flex-between" style="margin-bottom:14px;gap:10px;">
         <div><label class="mb0">${demo?'MySQL Demo':'Source database'}</label><p class="hint mb0">${demo?'Packaged Sakila container.':'User-defined source read by the Hop engine.'}</p></div>
         <button class="btn primary" id="btn-connect-source">${demo?'Start and connect':'Test connection'}</button>
@@ -68,7 +68,7 @@ function renderConnections(el){
   const sourceHop=sourcePack?resolveHopDatabaseType(sourcePack):null;
   const packSourcePanel=sourcePack?`
     <div class="panel">
-      <div class="panel-head" style="margin:-18px -20px 16px;"><h3>① Source connection <span class="badge-count">&nbsp;·&nbsp;${escapeHtml(sourcePack.label)}</span></h3></div>
+      <div class="panel-head" style="margin:-18px -20px 16px;"><h3>Source connection <span class="badge-count">&nbsp;·&nbsp;${escapeHtml(sourcePack.label)}</span></h3></div>
       <div class="flex-between" style="margin-bottom:14px;gap:10px;">
         <div><label class="mb0">${escapeHtml(sourcePack.label)} source</label><p class="hint mb0">Studio supplies safe defaults; this database type only adds the JDBC details and vendor exceptions it needs.</p></div>
         <button class="btn primary" id="btn-connect-source">Test connection</button>
@@ -100,7 +100,7 @@ function renderConnections(el){
 
   const targetPanel=targetInternal?`
     <div class="panel">
-      <div class="panel-head" style="margin:-18px -20px 16px;"><h3>② Data Vault PostgreSQL <span class="badge-count">&nbsp;·&nbsp;internal container</span></h3></div>
+      <div class="panel-head" style="margin:-18px -20px 16px;"><h3>Data Vault PostgreSQL <span class="badge-count">&nbsp;·&nbsp;internal container</span></h3></div>
       ${targetModeField}
       <div class="flex-between mt" style="margin-bottom:14px;gap:10px;">
         <div><label class="mb0">Packaged PostgreSQL</label><p class="hint mb0">The engine connection and all local Vault support objects live here.</p></div>
@@ -117,7 +117,7 @@ function renderConnections(el){
       <div id="target-status-wrap">${renderTargetStatusHtml()}</div>
     </div>`:`
     <div class="panel">
-      <div class="panel-head" style="margin:-18px -20px 16px;"><h3>② Data Vault PostgreSQL <span class="badge-count">&nbsp;·&nbsp;external server</span></h3></div>
+      <div class="panel-head" style="margin:-18px -20px 16px;"><h3>Data Vault PostgreSQL <span class="badge-count">&nbsp;·&nbsp;external server</span></h3></div>
       ${targetModeField}
       <div class="flex-between mt" style="margin-bottom:14px;gap:10px;">
         <div><label class="mb0">External PostgreSQL</label><p class="hint mb0">All staging, metadata and Data Vault objects are deployed natively to this PostgreSQL database. FDW is not offered for this target mode.</p></div>
@@ -143,7 +143,7 @@ function renderConnections(el){
       seedPackConnectionValues(targetPack,'target');
       physicalTargetPanel=`
         <div class="panel">
-          <div class="panel-head" style="margin:-18px -20px 16px;"><h3>③ Physical storage target <span class="badge-count">&nbsp;·&nbsp;${escapeHtml(targetPack.label)} Pack ${escapeHtml(targetPack.version)}</span></h3></div>
+          <div class="panel-head" style="margin:-18px -20px 16px;"><h3>Physical storage target <span class="badge-count">&nbsp;·&nbsp;${escapeHtml(targetPack.label)} Pack ${escapeHtml(targetPack.version)}</span></h3></div>
           <div class="flex-between" style="margin-bottom:14px;gap:10px;"><div><label class="mb0">${escapeHtml(targetPack.label)} target</label><p class="hint mb0">Core Hub/Link/Satellite tables are stored here. Studio discovers the target SQL type system from the JDBC driver and keeps PostgreSQL as the engine/FDW gateway.</p></div><button class="btn primary" id="btn-connect-external-target">Test connection &amp; map types</button></div>
           <div class="grid cols-3">${packConnectionFieldsHtml(targetPack,'target')}</div>
           ${packConnectionExtrasHtml(targetPack,'target')}
@@ -158,7 +158,7 @@ function renderConnections(el){
     const engineLabel=(DIALECTS[ext.remoteDialect]||{}).label||'External database';
     physicalTargetPanel=`
       <div class="panel">
-        <div class="panel-head" style="margin:-18px -20px 16px;"><h3>③ Physical storage target <span class="badge-count">&nbsp;·&nbsp;core Vault tables</span></h3></div>
+        <div class="panel-head" style="margin:-18px -20px 16px;"><h3>Physical storage target <span class="badge-count">&nbsp;·&nbsp;core Vault tables</span></h3></div>
         <div class="flex-between" style="margin-bottom:14px;gap:10px;">
           <div><label class="mb0">${escapeHtml(engineLabel)} target</label><p class="hint mb0">Only the core Hub, Link, Satellite and Link Satellite tables are stored here.</p></div>
           <button class="btn primary" id="btn-connect-external-target">Test connection</button>
@@ -204,8 +204,9 @@ function renderConnections(el){
     ${sourcePanel}
     ${targetPanel}
     ${physicalTargetPanel}
+    ${(targetInternal||demo)?`<div class="panel mt" style="padding:14px 16px;"><div class="flex-between" style="gap:12px;flex-wrap:wrap;"><span class="hint mb0"><b>Container resources:</b> CPU and memory limits for the packaged Hop engine and database containers are managed separately from connection details.</span><button class="btn ghost" id="btn-open-runtime-resources">Adjust in Data Vault Hub →</button></div></div>`:''}
     ${ext.enabled?'<div id="ext-storage-mount" class="mt"></div>':''}
-    <div class="flex-between mt"><span></span><button class="btn primary" id="btn-next-connections">Next: choose tables →</button></div>`;
+    <div class="flex-between mt"><span></span><button class="btn primary" id="btn-next-connections">Next: Choose Tables →</button></div>`;
 
   const namingValidation={
     'f-name':{rule:'vaultShortName',label:'Vault short name',maxLength:pdiMetaMaxLength('vaultShortName'),reserved:true},
@@ -291,6 +292,7 @@ function renderConnections(el){
   if(internalTargetBtn)internalTargetBtn.addEventListener('click',()=>targetInternal?startAndConnectContainer('target'):testTargetConnection());
   const gatewayBtn=el.querySelector('#btn-start-fdw-postgres'); if(gatewayBtn)gatewayBtn.addEventListener('click',()=>startAndConnectContainer('target'));
   const extConnect=el.querySelector('#btn-connect-external-target'); if(extConnect)extConnect.addEventListener('click',testExternalTargetConnection);
+  const resourcesBtn=el.querySelector('#btn-open-runtime-resources'); if(resourcesBtn)resourcesBtn.addEventListener('click',()=>{ appMode='dashboard'; renderAll(); });
   el.querySelector('#btn-next-connections').addEventListener('click',()=>{
     const invalid=Object.keys(namingValidation).filter(id=>!updateNamingValidation(id));
     if(invalid.length){ const first=el.querySelector('#'+invalid[0]); if(first) first.focus(); return; }

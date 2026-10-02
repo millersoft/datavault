@@ -14,7 +14,9 @@ let lastCommittedSnapshot = modelSnapshot(); // updated on explicit save/load/ne
 
 function projectIsTrivial(s){
   const noModel = s.tables.length===0 && s.hubs.length===0 && s.links.length===0
-    && s.hubSats.length===0 && s.linkSats.length===0;
+    && s.hubSats.length===0 && s.linkSats.length===0 && (!Array.isArray(s.businessViews) || s.businessViews.length===0)
+    && (!Array.isArray(s.businessVaultObjects) || s.businessVaultObjects.length===0)
+    && (!Array.isArray(s.reports) || s.reports.length===0);
   if (!noModel) return false;
   if (isDemoRuntime()){
     return s.vault.name==='sak' && s.vault.prefix==='sak' && s.vault.tenantId==='SAK'
@@ -70,6 +72,11 @@ function restoreAutosave(parsed){
   importedProjectConnectionsRequireConfirmation=parsed.importedProjectConnectionsRequireConfirmation===true;
   confirmedImportedConnectionTargets.clear();
   if (!state.sourceMeta) state.sourceMeta = { foreignKeys: [], approxRows: {}, relationshipSuggestions: [], hopCapabilities: null };
+  if (!Array.isArray(state.businessViews)) state.businessViews=[];
+  if (!Array.isArray(state.businessVaultObjects)) state.businessVaultObjects=[];
+  if (!Array.isArray(state.reports)) state.reports=[];
+  if (!state.studioPlus || typeof state.studioPlus!=='object' || Array.isArray(state.studioPlus)) state.studioPlus={ goal:'', plan:null };
+  if (typeof studioPlusResetSession==='function') studioPlusResetSession();
   if (!state.sourceMeta.relationshipSuggestions) state.sourceMeta.relationshipSuggestions=[];
   if (!state.vault.sourcePackValues) state.vault.sourcePackValues={};
   if (state.vault.sourceCatalog==null) state.vault.sourceCatalog='';

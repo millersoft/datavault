@@ -9,6 +9,12 @@ function positiveInteger(value, fallback, name){
   return parsed;
 }
 
+function boundedPositiveInteger(value, fallback, name, minimum, maximum){
+  const parsed = positiveInteger(value, fallback, name);
+  if (parsed < minimum || parsed > maximum) throw new Error(name + ' must be an integer from ' + minimum + ' to ' + maximum + '.');
+  return parsed;
+}
+
 function bodyLimit(value, fallback, name){
   const text = String(value == null || value === '' ? fallback : value).trim();
   if (!/^\d+(?:b|kb|mb)$/i.test(text)) throw new Error(`${name} must be a byte size such as 256kb or 10mb.`);
@@ -37,6 +43,7 @@ function createRequestControls(options = {}){
     rateLimitRequests: positiveInteger(env.DVS_API_RATE_LIMIT_REQUESTS, 120, 'DVS_API_RATE_LIMIT_REQUESTS'),
     rateLimitWindowMs: positiveInteger(env.DVS_API_RATE_LIMIT_WINDOW_MS, 60000, 'DVS_API_RATE_LIMIT_WINDOW_MS'),
     connectionTestConcurrency: positiveInteger(env.DVS_CONNECTION_TEST_CONCURRENCY, 3, 'DVS_CONNECTION_TEST_CONCURRENCY'),
+    connectionTestTimeoutMs: boundedPositiveInteger(env.DVS_CONNECTION_TEST_TIMEOUT_MS, 6000, 'DVS_CONNECTION_TEST_TIMEOUT_MS', 1000, 30000),
     introspectionConcurrency: positiveInteger(env.DVS_INTROSPECTION_CONCURRENCY, 2, 'DVS_INTROSPECTION_CONCURRENCY'),
     driverDownloadConcurrency: positiveInteger(env.DVS_DRIVER_DOWNLOAD_CONCURRENCY, 2, 'DVS_DRIVER_DOWNLOAD_CONCURRENCY'),
     maxJdbcDriverBytes: positiveInteger(env.DVS_MAX_JDBC_DRIVER_BYTES, 100 * 1024 * 1024, 'DVS_MAX_JDBC_DRIVER_BYTES'),

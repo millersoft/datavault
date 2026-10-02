@@ -18,6 +18,34 @@ function registerSourceRoutes(parentApp, dependencies){
   } = dependencies;
   const app = express.Router();
 
+  function hasJdbcDriverOptions(body){
+    if(!body || typeof body!=='object') return false;
+    if(String(body.manualUrl||body.jdbcUrl||'').trim()) return true;
+    const options=body.options&&typeof body.options==='object'
+      ? body.options
+      : (body.jdbcOptions&&typeof body.jdbcOptions==='object'?body.jdbcOptions:null);
+    if(!options) return false;
+    return Object.keys(options).some(key=>String(options[key]==null?'':options[key]).trim()!=='');
+  }
+  // A full Raw Vault is hundreds of tables. JDBC introspection loads primary
+  // keys and foreign keys once per table, then returns one JSON document
+  // through a capped pipe, so Infer Schema either times out or is killed for
+  // producing too much output. PostgreSQL and MySQL already have a single
+  // catalog query on the native driver. Custom JDBC URLs and driver options
+  // stay on the bridge, because node-pg and mysql2 do not apply those settings.
+  function usesNativeCatalogIntrospection(dialect, body){
+    return (dialect==='postgresql'||dialect==='postgres'||dialect==='mysql') && !hasJdbcDriverOptions(body);
+  }
+  function logSchemaIntrospectFailure(dialect, schema, started, err){
+    console.error(JSON.stringify({
+      event:'schema-introspect.failed',
+      dialect:dialect||'',
+      schema:schema||'',
+      durationMs:Date.now()-started,
+      error:String(err&&err.message||err).slice(0,500),
+    }));
+  }
+
   function packConnectionFor(body, requestedDialect){
     // The bundled demo has a fixed, server-side MySQL credential profile.
     // Keep it on the native mysql2 path, which is also the path it used before
@@ -424,7 +452,8 @@ function registerSourceRoutes(parentApp, dependencies){
   
   app.post('/api/introspect', requestControls.guard('introspection'), async (req, res) => {
     const requestedDialect=String((req.body&&req.body.dialect)||'postgresql').toLowerCase();
-    const resolvedPack=packConnectionFor(req.body,requestedDialect);
+    const started=Date.now();
+    const resolvedPack=usesNativeCatalogIntrospection(requestedDialect, req.body)?null:packConnectionFor(req.body,requestedDialect);
     if (resolvedPack) {
       try {
         const {pack,connection}=resolvedPack;
@@ -472,12 +501,20 @@ ${jdbcSchema}`);
         // connection test and the browser preserves it when present.
         const sourceCapabilities=sourceHopCapabilitiesFromTables(data.tables||[]);
         return res.json({ ok:true, catalog:data.catalog||ns.catalog, schema:data.schema||requestedSchema||ns.schema, tables:data.tables||[], foreignKeys:data.foreignKeys||[], sourceCapabilities, profileSummary:{attemptedColumns:0,profiledColumns:0,warnings:[],infos:['JDBC metadata was used for declared keys and nullability. Where source constraints are incomplete, review the model manually or use AI Assist.']}, pack:{id:pack.id,label:pack.label,version:pack.version} });
-      } catch(err){ return res.status(400).json({ok:false,error:err.message}); }
+      } catch(err){
+        logSchemaIntrospectFailure(requestedDialect, String((req.body&&req.body.schema)||'').trim(), started, err);
+        return res.status(400).json({ok:false,error:err.message});
+      }
     }
     const schema = (req.body && req.body.schema) || ((req.body && req.body.dialect) === 'mysql' ? (req.body.database || '') : 'public');
     let conn;
     try {
       conn = await openSourceConnection(req.body);
+      if(conn.dialect==='postgresql'){
+        // Bound a stuck catalog read. The native driver has no JVM kill, and
+        // information_schema on a just-loaded vault can still be slow.
+        try{ await conn.query("SET statement_timeout = '120s'"); }catch(_){}
+      }
       const result = conn.dialect === 'mysql'
         ? await conn.query(MYSQL_INTROSPECT_SQL, [schema, schema])
         : await conn.query(INTROSPECT_SQL, [schema]);
@@ -523,6 +560,7 @@ ${jdbcSchema}`);
       const sourceCapabilities=sourceHopCapabilitiesFromHopCatalog(conn.dialect);
       res.json({ ok: true, schema, tables, foreignKeys, sourceCapabilities, profileSummary });
     } catch (err) {
+      logSchemaIntrospectFailure(requestedDialect, schema, started, err);
       res.status(400).json({ ok: false, error: err.message });
     } finally {
       if (conn) { try { await conn.end(); } catch (_) {} }

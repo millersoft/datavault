@@ -79,6 +79,14 @@ compose() {
   esac
 }
 
+# Studio writes this local, ignored Compose override when users set container
+# resources in the Hub.  Keep the tracked Compose definition untouched.
+append_resource_override() {
+  if [ -f "docker-compose.resources.yaml" ]; then
+    export COMPOSE_FILE="${COMPOSE_FILE:+${COMPOSE_FILE}:}docker-compose.resources.yaml"
+  fi
+}
+
 check_license_file_exists() {
   if [ ! -f "$LICENSE_FILE" ]; then
     echo "ERROR: License file not found at ${LICENSE_FILE}" >&2
@@ -190,6 +198,11 @@ ensure_license_accepted() {
 
 set_compose_command
 
+# Direct launcher commands such as `stop hop` and `ps` must resolve the same
+# effective Compose project as Studio-managed starts.
+export COMPOSE_FILE="docker-compose.yaml"
+append_resource_override
+
 export COMPOSE_MENU="${COMPOSE_MENU:-false}"
 
 if [ "$#" -eq 0 ]; then
@@ -206,6 +219,7 @@ case "$subcommand" in
     ensure_license_accepted
 
     export COMPOSE_FILE="docker-compose.yaml:docker-compose.studio.yaml"
+    append_resource_override
     export DEMO_MODE=false
     export WAIT_FOR_MYSQL=false
 
@@ -298,6 +312,7 @@ case "$subcommand" in
       export COMPOSE_FILE="${COMPOSE_FILE}:docker-compose.fdw.yaml"
       echo "FDW mode enabled for packaged PostgreSQL."
     fi
+    append_resource_override
 
     if [ "$external_postgres" = true ]; then
       echo "Starting in EXTERNAL POSTGRES mode."

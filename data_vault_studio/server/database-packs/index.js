@@ -565,20 +565,36 @@ function resolveJdbcTargetProfile(pack,analysis){
     discoveredAt:new Date().toISOString(),
   };
 }
+function jdbcProgressNote(stderr){
+  const line=String(stderr||'').split(/\r?\n/).map(item=>item.trim()).filter(item=>item.startsWith('dvs-introspect')).pop()||'';
+  return line?` ${line.slice(0,300)}`:'';
+}
 function spawnCapture(command,args,options={}){
   return new Promise((resolve,reject)=>{
     const child=spawn(command,args,{cwd:options.cwd||PROJECT_ROOT,stdio:['pipe','pipe','pipe'],env:{...process.env,...(options.env||{})}});
     const maxOutput=Number(options.maxOutputBytes||1048576);
     let stdout='',stderr='',settled=false,timer=null;
-    const append=(current,data)=>{const next=current+data.toString();if(Buffer.byteLength(next)>maxOutput)throw new Error(`${command} produced too much output.`);return next;};
+    const append=(stream,current,data)=>{
+      const next=current+data.toString();
+      if(Buffer.byteLength(next)>maxOutput){
+        const error=new Error(`${command} produced too much output (${stream} exceeded ${maxOutput} bytes).${jdbcProgressNote(stream==='stderr'?next:stderr)}`);
+        error.stdoutBytes=Buffer.byteLength(stream==='stdout'?next:stdout);
+        error.stderrBytes=Buffer.byteLength(stream==='stderr'?next:stderr);
+        throw error;
+      }
+      return next;
+    };
     const finish=(error,result)=>{if(settled)return;settled=true;if(timer)clearTimeout(timer);error?reject(error):resolve(result);};
-    child.stdout.on('data',d=>{try{stdout=append(stdout,d);}catch(err){child.kill('SIGKILL');finish(err);}});
-    child.stderr.on('data',d=>{try{stderr=append(stderr,d);}catch(err){child.kill('SIGKILL');finish(err);}});
+    child.stdout.on('data',d=>{try{stdout=append('stdout',stdout,d);}catch(err){child.kill('SIGKILL');finish(err);}});
+    child.stderr.on('data',d=>{try{stderr=append('stderr',stderr,d);}catch(err){child.kill('SIGKILL');finish(err);}});
     child.on('error',err=>finish(err));
     child.on('close',code=>code===0?finish(null,{stdout,stderr}):finish(new Error((stderr||stdout||`${command} exited ${code}`).trim())));
     child.stdin.on('error',err=>{if(err.code!=='EPIPE')finish(err);});
     const timeoutMs=Number(options.timeoutMs||0);
-    timer=timeoutMs>0?setTimeout(()=>{child.kill('SIGKILL');finish(new Error(`${command} operation timed out.`));},timeoutMs):null;
+    timer=timeoutMs>0?setTimeout(()=>{
+      child.kill('SIGKILL');
+      finish(new Error(`${command} operation timed out after ${timeoutMs}ms (stdout ${Buffer.byteLength(stdout)} bytes, stderr ${Buffer.byteLength(stderr)} bytes).${jdbcProgressNote(stderr)}`));
+    },timeoutMs):null;
     if(options.input!=null)child.stdin.end(String(options.input));else child.stdin.end();
   });
 }
@@ -625,13 +641,17 @@ async function runJdbcBridge(pack,body,mode,payload=''){
   const jdbcOptions=packJdbcOptions(body);
   for(const key of Object.keys(jdbcOptions)) jdbcOptions[key]=resolveHostCertificateReferences(jdbcOptions[key],PROJECT_ROOT);
   const encode=value=>Buffer.from(String(value==null?'':value),'utf8').toString('base64');
-  const connectTimeoutMs=Number(env.DVS_JDBC_CONNECT_TIMEOUT_MS||8000);
-  if(!Number.isInteger(connectTimeoutMs)||connectTimeoutMs<1000||connectTimeoutMs>30000) throw new Error('DVS_JDBC_CONNECT_TIMEOUT_MS must be an integer from 1000 to 30000.');
+  const connectTimeoutSetting=env.DVS_CONNECTION_TEST_TIMEOUT_MS||env.DVS_JDBC_CONNECT_TIMEOUT_MS||8000;
+  const connectTimeoutMs=Number(connectTimeoutSetting);
+  if(!Number.isInteger(connectTimeoutMs)||connectTimeoutMs<1000||connectTimeoutMs>30000) throw new Error('DVS_CONNECTION_TEST_TIMEOUT_MS (or DVS_JDBC_CONNECT_TIMEOUT_MS) must be an integer from 1000 to 30000.');
   const bridgeHost=validatedDestination?validatedDestination.host:'';
   const bridgeAddresses=validatedDestination?validatedDestination.addresses.join(','):'';
   const bridgeInput=[url,creds.user,creds.password,String(payload||''),JSON.stringify(jdbcOptions),bridgeHost,bridgeAddresses].map(encode).join('\n')+'\n';
-  const operationTimeoutMs=mode==='execute'?135000:(mode==='query'||mode==='batch-query')?45000:30000;
-  const out=await spawnCapture('java',['-cp',bridgeClassPath,'JdbcBridge',mode,jar,String(pack.jdbc.driverClass),String(connectTimeoutMs)],{cwd:STUDIO_DIR,input:bridgeInput,timeoutMs:operationTimeoutMs});
+  // Introspection of a full Raw Vault is one large metadata document, not a
+  // short connection probe. Query and execute keep their own ceilings.
+  const operationTimeoutMs=mode==='execute'?135000:mode==='introspect'?120000:(mode==='query'||mode==='batch-query')?45000:30000;
+  const maxOutputBytes=mode==='introspect'?16*1024*1024:1048576;
+  const out=await spawnCapture('java',['-cp',bridgeClassPath,'JdbcBridge',mode,jar,String(pack.jdbc.driverClass),String(connectTimeoutMs)],{cwd:STUDIO_DIR,input:bridgeInput,timeoutMs:operationTimeoutMs,maxOutputBytes});
   const line=out.stdout.trim().split(/\r?\n/).filter(Boolean).pop()||'';
   let data; try{data=JSON.parse(line);}catch(_){throw new Error(`JDBC bridge returned invalid JSON: ${line.slice(0,500)}`);}
   if(!data.ok) throw new Error(data.error||'JDBC bridge operation failed.'); return data;

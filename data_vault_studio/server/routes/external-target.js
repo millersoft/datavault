@@ -1,5 +1,7 @@
 'use strict';
 
+const { statementTimeoutSeconds } = require('../statement-timeout');
+
 function registerExternalTargetRoutes(parentApp, dependencies){
   const {
     express,
@@ -482,7 +484,7 @@ function registerExternalTargetRoutes(parentApp, dependencies){
         await conn.query('BEGIN');
         try{
           await conn.query("SET LOCAL lock_timeout='10s'");
-          await conn.query("SET LOCAL statement_timeout='120s'");
+          await conn.query(`SET LOCAL statement_timeout='${statementTimeoutSeconds(req.body&&req.body.timeoutSeconds)}s'`);
           await conn.query(sql);
           await conn.query('COMMIT');
         }catch(err){

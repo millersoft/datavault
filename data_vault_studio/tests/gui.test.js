@@ -8,6 +8,8 @@
  */
 const { test, describe, beforeEach } = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 const { loadApp, readFrontendSources, readServerSources } = require('./helpers/load-app');
 
 // Tests marked `test.skip` below document the superseded v0.1
@@ -304,6 +306,154 @@ describe('Hopper EDW model export', () => {
     assert.ok(issues.warnings.some(w => /Staging SQL override/.test(w)));
     assert.ok(issues.warnings.some(w => /Incremental load settings/.test(w)));
     assert.ok(issues.warnings.some(w => /Status satellite/.test(w)));
+  });
+
+  test('exports every approved Hub source feed as Hopper record-source mappings', () => {
+    const result=app.eval(`(function(){
+      startNewProject(true);
+      state.vault.name='multi'; state.vault.prefix='m'; state.vault.tenantId='MULTI';
+      state.vault.srcCod='MULTI'; state.vault.srcDescription='Multi-source'; state.vault.vaultDbName='datavault_multi';
+      const crm=newTable('crm_customer'); const erp=newTable('erp_customer');
+      crm.columns=[Object.assign(newColumn('customer_id','integer'),{pk:true,nullable:false})];
+      erp.columns=[Object.assign(newColumn('client_code','integer'),{pk:true,nullable:false})];
+      state.tables=[crm,erp];
+      state.hubs=[{id:'hub_customer',entity:'customer',tableId:crm.id,pkColId:crm.columns[0].id,keyColIds:[crm.columns[0].id],sourceFeeds:[{tableId:crm.id,keyColIds:[crm.columns[0].id]},{tableId:erp.id,keyColIds:[erp.columns[0].id]}]}];
+      const output=buildHopperExport(), draft=buildHopperImportDraft(output.hsm,output.hdv);
+      return {issues:output.issues.errors,hdv:output.hdv,keys:draft.vault.hubs[0].keys,records:draft.vault.hubs[0].recordSources};
+    })()`);
+    assert.deepStrictEqual(result.issues,[]);
+    assert.deepStrictEqual(result.records,['crm_customer','erp_customer']);
+    assert.deepStrictEqual(result.keys.map(key=>[key.recordSource,key.sourceField]),[
+      ['crm_customer','customer_id'],['erp_customer','client_code']
+    ]);
+    assert.match(result.hdv,/<recordSource>crm_customer<\/recordSource>[\s\S]*<recordSource>erp_customer<\/recordSource>/);
+  });
+
+  test('exports each source table schema and disambiguates duplicate table names', () => {
+    const hsm=app.eval(`(function(){
+      startNewProject(true); state.vault.name='aw'; state.vault.sourceSchema='public';
+      const sales=newTable('Store'); sales.schema='Sales'; sales.columns=[Object.assign(newColumn('StoreID','integer'),{pk:true,nullable:false})];
+      const purchasing=newTable('Store'); purchasing.schema='Purchasing'; purchasing.columns=[Object.assign(newColumn('StoreID','integer'),{pk:true,nullable:false})];
+      const person=newTable('Person'); person.schema='Person'; person.columns=[Object.assign(newColumn('BusinessEntityID','integer'),{pk:true,nullable:false})];
+      state.tables=[sales,purchasing,person]; return buildHopperExport().hsm;
+    })()`);
+    assert.match(hsm,/<schemaName>Sales<\/schemaName>[\s\S]*?<tableName>Store<\/tableName>/);
+    assert.match(hsm,/<schemaName>Purchasing<\/schemaName>[\s\S]*?<tableName>Store<\/tableName>/);
+    assert.match(hsm,/<schemaName>Person<\/schemaName>[\s\S]*?<tableName>Person<\/tableName>/);
+    assert.match(hsm,/<catalogSourceName>sales_store<\/catalogSourceName>/);
+    assert.match(hsm,/<catalogSourceName>purchasing_store<\/catalogSourceName>/);
+    assert.match(hsm,/<defaultSchema><\/defaultSchema>/);
+    assert.doesNotMatch(hsm,/<schemaName>public<\/schemaName>/);
+  });
+});
+
+describe('Hopper EDW model import', () => {
+  beforeEach(() => { resetApp(); seedFixture(); });
+
+  test('round-trips a Studio HSM/HDV model through live source metadata', () => {
+    const output=app.eval(`suggestModelFromKeys(); buildHopperExport()`);
+    const live=app.eval(`state.tables.map(t=>({name:t.name,schema:t.schema||state.vault.sourceSchema,objectType:'table',columns:t.columns.map(c=>({name:c.name,type:c.type,nullable:c.nullable,pk:c.pk}))}))`);
+    const result=app.eval(`
+      const draft=buildHopperImportDraft(${JSON.stringify(output.hsm)},${JSON.stringify(output.hdv)});
+      const check=validateHopperImportAgainstLive(draft,${JSON.stringify(live)});
+      const summary=applyHopperImport(draft,check);
+      ({summary,errors:validateModel().errors,views:state.tables.map(stagingViewName),hubs:state.hubs.length,links:state.links.length})
+    `);
+    assert.deepStrictEqual(result.errors, []);
+    assert.strictEqual(result.summary.tables, 4);
+    assert.ok(result.hubs > 0 && result.links > 0);
+    assert.ok(result.views.every(name=>/_vw$/.test(name)));
+  });
+
+  test('accepts an HSM without an HDV and retains only source/staging state', () => {
+    const output=app.eval(`buildHopperExport()`);
+    const live=app.eval(`state.tables.map(t=>({name:t.name,schema:t.schema||state.vault.sourceSchema,objectType:'table',columns:t.columns.map(c=>({name:c.name,type:c.type,nullable:c.nullable,pk:c.pk}))}))`);
+    const result=app.eval(`
+      const draft=buildHopperImportDraft(${JSON.stringify(output.hsm)},null);
+      const check=validateHopperImportAgainstLive(draft,${JSON.stringify(live)});
+      const summary=applyHopperImport(draft,check);
+      ({summary,hubs:state.hubs.length,links:state.links.length})
+    `);
+    assert.strictEqual(result.summary.tables,4);
+    assert.strictEqual(result.hubs,0);
+    assert.strictEqual(result.links,0);
+  });
+
+  test('parses Hopper-native models without configuration or catalog source names', () => {
+    const hsm=`<source-model><tables><table><physicalType>DATABASE</physicalType><databaseName>native-source</databaseName><schemaName/><tableName>actor</tableName><columns><column><name>actor_id</name><sourceDataType>INTEGER</sourceDataType><primaryKeyPosition>1</primaryKeyPosition></column><column><name>first_name</name><sourceDataType>VARCHAR</sourceDataType></column></columns></table></tables><relationships/><queries/><name>native</name></source-model>`;
+    const hdv=`<data-vault-model><tables><table><businessKeys><name>actor_id</name><sourceFieldName>actor_id</sourceFieldName><recordSourceName>actor</recordSourceName></businessKeys><recordSources><recordSource>actor</recordSource></recordSources><allowInferredInsert>Y</allowInferredInsert><tableName>hub_actor</tableName><tableType>HUB</tableType><integrationMode>HOP_MANAGED</integrationMode></table><table><hub>hub_actor</hub><attributes><name>first_name</name></attributes><recordSource>actor</recordSource><tableName>sat_actor</tableName><tableType>SATELLITE</tableType><integrationMode>HOP_MANAGED</integrationMode></table><table><tableName>ref_actor</tableName><tableType>REFERENCE</tableType><integrationMode>HOP_MANAGED</integrationMode></table></tables><name>native</name></data-vault-model>`;
+    const result=app.eval(`(function(){const draft=buildHopperImportDraft(${JSON.stringify(hsm)},${JSON.stringify(hdv)});return {record:draft.source.tables[0].recordName,source:draft.source.sourceConnection,hubs:draft.vault.hubs.length,sats:draft.vault.hubSats.length,warnings:draft.warnings};})()`);
+    assert.deepStrictEqual(result.record,'actor');
+    assert.strictEqual(result.source,'native-source');
+    assert.strictEqual(result.hubs,1);
+    assert.strictEqual(result.sats,1);
+    assert.ok(result.warnings.some(w=>/<configuration>/.test(w)));
+    assert.ok(result.warnings.some(w=>/Reference table/.test(w)));
+  });
+
+  test('preserves live profiling data so staging accepts source nulls', () => {
+    const output=app.eval(`buildHopperExport()`);
+    const live=app.eval(`state.tables.map(t=>({name:t.name,schema:t.schema||state.vault.sourceSchema,objectType:'table',columns:t.columns.map(c=>({name:c.name,type:c.type,nullable:c.nullable,pk:c.pk,profile:c.name==='email'?{totalRows:100,nullValues:2,blankValues:0,source:'infer-schema'}:null}))}))`);
+    const ddl=app.eval(`
+      const draft=buildHopperImportDraft(${JSON.stringify(output.hsm)},null);
+      const check=validateHopperImportAgainstLive(draft,${JSON.stringify(live)});
+      applyHopperImport(draft,check);
+      const customer=state.tables.find(t=>t.name==='customers');
+      ddlFromColumns('staging.'+stagingTableName(customer),buildStagingBaseColumns(customer));
+    `);
+    assert.doesNotMatch(ddl,/email VARCHAR\(255\) NOT NULL/);
+    assert.match(ddl,/email VARCHAR\(255\)/);
+  });
+
+  test('parses the bundled Sakila Hopper model pair', () => {
+    const hsm=fs.readFileSync(path.join(__dirname,'..','..','ignore','sak.hsm'),'utf8');
+    const hdv=fs.readFileSync(path.join(__dirname,'..','..','ignore','sak.hdv'),'utf8');
+    const result=app.eval(`(function(){ const draft=buildHopperImportDraft(${JSON.stringify(hsm)},${JSON.stringify(hdv)}); return {tables:draft.source.tables.length,hubs:draft.vault.hubs.length,links:draft.vault.links.length,sats:draft.vault.hubSats.length+draft.vault.linkSats.length}; })()`);
+    assert.deepStrictEqual(result,{tables:16,hubs:14,links:19,sats:16});
+  });
+
+  test('blocks malformed and unsupported Hopper model features', () => {
+    assert.throws(()=>app.eval(`parseHopperSourceModel('<source-model><tables></source-model>')`),/Malformed XML/);
+    assert.throws(()=>app.eval(`parseHopperSourceModel('<source-model><configuration><defaultDatabase>x</defaultDatabase></configuration><queries><query>x</query></queries><tables/></source-model>')`),/queries are not supported/);
+  });
+
+  test('requires an explicit mapping when a Hopper field differs from the live source', () => {
+    const output=app.eval(`buildHopperExport()`);
+    const live=app.eval(`state.tables.map(t=>({name:t.name,schema:t.schema||state.vault.sourceSchema,objectType:'table',columns:t.columns.map(c=>({name:c.name,type:c.type,nullable:c.nullable,pk:c.pk}))}))`);
+    const result=app.eval(`
+      const draft=buildHopperImportDraft(${JSON.stringify(output.hsm)},null);
+      draft.source.tables[0].columns[2].name='hopper_customer_email';
+      const before=validateHopperImportAgainstLive(draft,${JSON.stringify(live)});
+      const after=validateHopperImportAgainstLive(draft,${JSON.stringify(live)},{'customers.hopper_customer_email':'email'});
+      ({before:before.errors,after:after.errors})
+    `);
+    assert.ok(result.before.some(x=>/needs a mapping/.test(x)));
+    assert.deepStrictEqual(result.after,[]);
+  });
+
+  test('uses the response schema when JDBC introspection tables omit it', () => {
+    const output=app.eval(`buildHopperExport()`);
+    const live=app.eval(`state.tables.map(t=>({name:t.name,objectType:'table',columns:t.columns.map(c=>({name:c.name,type:c.type,nullable:c.nullable,pk:c.pk}))}))`);
+    const result=app.eval(`
+      const draft=buildHopperImportDraft(${JSON.stringify(output.hsm)},null);
+      const response={schema:'public',tables:${JSON.stringify(live)}};
+      const normalized=response.tables.map(table=>({...table,schema:table.schema||response.schema||''}));
+      validateHopperImportAgainstLive(draft,normalized).errors;
+    `);
+    assert.deepStrictEqual(result,[]);
+  });
+
+  test('inherits the configured target database as the Vault database during import', () => {
+    const output=app.eval(`buildHopperExport()`);
+    const live=app.eval(`state.tables.map(t=>({name:t.name,schema:t.schema||state.vault.sourceSchema,objectType:'table',columns:t.columns.map(c=>({name:c.name,type:c.type,nullable:c.nullable,pk:c.pk}))}))`);
+    const result=app.eval(`
+      state.vault.vaultDbName=''; state.vault.dvDatabase='configured_target';
+      const draft=buildHopperImportDraft(${JSON.stringify(output.hsm)},null);
+      const check=validateHopperImportAgainstLive(draft,${JSON.stringify(live)});
+      applyHopperImport(draft,check);
+      state.vault.vaultDbName;
+    `);
+    assert.strictEqual(result,'configured_target');
   });
 });
 
@@ -1918,12 +2068,22 @@ describe('packaged container presets (MySQL Demo / Postgres Internal)', () => {
     app.eval(`applyDemoTarget(true)`);
     const v = app.eval(`state.vault`);
     assert.strictEqual(v.targetPreset, 'internal');
-    assert.strictEqual(v.dvHost, 'localhost');
+    assert.strictEqual(v.dvHost, '127.0.0.1');
     assert.strictEqual(v.dvPort, '5433');
     assert.strictEqual(v.dvUser, 'dvuser');
     assert.strictEqual(v.dvPassword, '');
-    assert.deepStrictEqual(app.eval(`targetConnectionPayload()`), {credentialRef:'internal-postgres-target',database:'datavault',dialect:'postgresql'});
+    assert.deepStrictEqual(app.eval(`targetConnectionPayload()`), {credentialRef:'internal-postgres-target',host:'127.0.0.1',port:'5433',database:'datavault',dialect:'postgresql'});
     assert.strictEqual(app.eval(`demoTargetActive()`), true);
+  });
+
+  test('Studio Plus keeps the packaged credential for a loopback host and uses a typed external PostgreSQL connection', () => {
+    app.eval(`applyDemoTarget(true); state.vault.dvDatabase='datavault'; spConn=studioPlusDefaultConnection(); spConn.autoDefault=false; spConn.host='localhost';`);
+    assert.strictEqual(app.eval(`spConnectionPayload().credentialRef`), 'internal-postgres-target');
+    assert.strictEqual(app.eval(`spConnectionPayload().host`), 'localhost');
+    app.eval(`Object.assign(spConn,{host:'db.example',port:'5432',database:'customer_vault',user:'vault_user',password:'secret',schema:'data_vault'});`);
+    assert.deepStrictEqual(app.eval(`spConnectionPayload()`), {
+      dialect:'postgresql', host:'db.example', port:'5432', database:'customer_vault', schema:'data_vault', user:'vault_user', password:'secret',
+    });
   });
 
   test('restored external PostgreSQL uses its deployed server-side credential profile', () => {
@@ -2533,7 +2693,19 @@ describe('landing page layout', () => {
 
     const introspect = app.eval(`spIntrospectSchema.toString()`);
     assert.match(introspect, /\/api\/introspect/);
-    assert.match(introspect, /spQualifiedTable/);
+    assert.match(introspect, /spIntrospectionPayload/);
+    assert.doesNotMatch(introspect, /spQuery\(candidates/);
+    assert.doesNotMatch(introspect, /spQualifiedTable/);
+
+    const sharedTargetPayload = app.eval(`(()=>{
+      state.externalTables.enabled=false;
+      state.vault.dvHost='db.example'; state.vault.dvPort='5432'; state.vault.dvDatabase='vault'; state.vault.dvUser='vault_user'; state.vault.dvPassword='';
+      spConn=studioPlusDefaultConnection();
+      return {actual:spConnectionPayload(),expected:targetConnectionPayload('vault')};
+    })()`);
+    assert.strictEqual(sharedTargetPayload.actual.credentialRef, sharedTargetPayload.expected.credentialRef);
+    assert.strictEqual(sharedTargetPayload.actual.database, sharedTargetPayload.expected.database);
+    assert.strictEqual(sharedTargetPayload.actual.schema, 'data_vault');
     const fs = require('node:fs');
     const path = require('node:path');
     const server = readServerSources();
@@ -3426,7 +3598,7 @@ describe('Data Vault Hub packaged credentials', () => {
     app.eval(`
       applyDemoTarget(true);
       state.vault.dvDatabase='db_after_refresh';
-      dashboardConn={host:'localhost',port:'5433',database:'db_after_refresh',user:'',password:''};
+      dashboardConn={host:'127.0.0.1',port:'5433',database:'db_after_refresh',user:'',password:''};
       capturedDashboardRequest=null;
       localFetch=async(url,options)=>{
         capturedDashboardRequest={url,body:JSON.parse(options.body)};
@@ -4255,6 +4427,44 @@ describe('AI request compatibility', () => {
     assert.ok(!Object.prototype.hasOwnProperty.call(calls[1], 'temperature'));
     assert.ok(!Object.prototype.hasOwnProperty.call(calls[2], 'temperature'));
   });
+
+  test('an OpenAI-compatible endpoint can reject json_object mode', async () => {
+    const calls = [];
+    app.context.fetch = async (_url, options) => {
+      const body = JSON.parse(options.body);
+      calls.push(body);
+      if (Object.prototype.hasOwnProperty.call(body, 'response_format')){
+        return {
+          ok:false,
+          status:400,
+          text:async()=>JSON.stringify({ error:"'response_format.type' must be 'json_schema' or 'text'" }),
+        };
+      }
+      return {
+        ok:true,
+        status:200,
+        json:async()=>({ choices:[{ message:{ content:'{"ok":true}' } }] }),
+      };
+    };
+    app.eval(`aiProvider='custom'; aiKey=''; aiBaseUrl='http://localhost:1234/v1'; aiModel='local-model';`);
+    const first = await app.evalRaw(`aiChat('return json', 'hello', 0.2)`);
+    const second = await app.evalRaw(`aiChat('return json', 'hello again', 0.2)`);
+    assert.strictEqual(first.ok, true);
+    assert.strictEqual(second.ok, true);
+    assert.strictEqual(calls.length, 3);
+    assert.deepStrictEqual(calls[0].response_format, { type:'json_object' });
+    assert.ok(!Object.prototype.hasOwnProperty.call(calls[1], 'response_format'));
+    assert.ok(!Object.prototype.hasOwnProperty.call(calls[2], 'response_format'));
+  });
+
+  test('custom endpoint network failures explain browser connectivity requirements', async () => {
+    app.context.fetch = async () => { throw new TypeError('NetworkError when attempting to fetch resource.'); };
+    app.eval(`aiProvider='custom'; aiKey=''; aiBaseUrl='http://localhost:1234/v1'; aiModel='local-model';`);
+    await assert.rejects(
+      app.evalRaw(`aiChat('return json', 'hello', 0.2)`),
+      /base URL includes the API prefix \(usually \/v1\).*CORS is enabled.*NetworkError/,
+    );
+  });
 });
 
 describe('schema ownership handover (permission denied for schema fix)', () => {
@@ -4768,5 +4978,1175 @@ describe('important naming inline validation', () => {
     assert.ok(result.issues.some(e=>/Staging prefix.*Only letters, numbers, hyphens and underscores/i.test(e)), result.issues.join('\n'));
     assert.ok(result.issues.some(e=>/Source system code.*Spaces are not allowed/i.test(e)), result.issues.join('\n'));
     assert.ok(!result.issues.some(e=>/Source system description.*Only letters/i.test(e)), result.issues.join('\n'));
+  });
+});
+
+describe('Studio Plus Business Vault acceleration, curated data and reporting scope', () => {
+  beforeEach(resetApp);
+
+  test('classifies Vault inputs while keeping curated-view semantics in managed metadata', () => {
+    const kinds = app.eval(`[
+      spBusinessObjectKind({name:'pit_customer',objectType:'table'}),
+      spBusinessObjectKind({name:'br_customer_order',objectType:'table'}),
+      spBusinessObjectKind({name:'vw_customer_current',objectType:'view'}),
+      spBusinessObjectKind({name:'hub_customer',objectType:'table'})
+    ]`);
+    assert.deepStrictEqual(kinds, ['PIT','Bridge','View','Raw Vault']);
+    const labels=app.eval(`[spViewTypeLabel('current'),spViewTypeLabel('history'),spViewTypeLabel('360'),spViewTypeLabel('custom')]`);
+    assert.deepStrictEqual(labels,['Current entity','Entity history','Entity 360','Custom']);
+  });
+
+  test('reporting defaults only to managed deployed curated datasets, never Raw Vault fallback tables', () => {
+    const defaults=app.eval(`(()=>{
+      state.businessViews=[
+        {id:'v1',name:'customer_current',type:'current',materialization:'table',status:'deployed',deployedAt:'2026-09-14T12:00:00Z'},
+        {id:'v2',name:'customer_history',type:'history',status:'draft',deployedAt:null}
+      ];
+      spSchemaTables=[{name:'hub_customer',objectType:'table'}];
+      spBusinessSchemaTables=[
+        {name:'customer_current',objectType:'table',schema:'business_vault'},
+        {name:'customer_history',objectType:'view',schema:'business_vault'}
+      ];
+      return spDefaultReportingSourceNames();
+    })()`);
+    assert.deepStrictEqual(defaults,['customer_current']);
+  });
+
+  test('schema summary is restricted to user-selected managed deployed curated datasets', () => {
+    app.eval(`
+      state.businessViews=[
+        {id:'v1',name:'customer_current',type:'current',materialization:'table',status:'deployed',deployedAt:'2026-09-14T12:00:00Z'},
+        {id:'v2',name:'order_current',type:'current',materialization:'view',status:'deployed',deployedAt:'2026-09-14T12:00:00Z'}
+      ];
+      spSchemaTables=[
+        {name:'hub_customer',objectType:'table',rowCount:10,columns:[{name:'hub_customer_id',type:'uuid'}]}
+      ];
+      spBusinessSchemaTables=[
+        {name:'customer_current',objectType:'table',rowCount:10,schema:'business_vault',columns:[{name:'customer_id',type:'text'},{name:'name',type:'text'}]},
+        {name:'order_current',objectType:'view',rowCount:5,schema:'business_vault',columns:[{name:'order_id',type:'text'}]}
+      ];
+      spReportingSources=new Set(['customer_current']);
+    `);
+    const summary=app.eval(`spSchemaSummaryWithJoinsText()`);
+    assert.match(summary,/customer_current/);
+    assert.doesNotMatch(summary,/hub_customer/);
+    assert.doesNotMatch(summary,/order_current/);
+  });
+
+  test('AI proposals are not persisted until the user explicitly saves the accepted draft', () => {
+    const result=app.eval(`(()=>{
+      state.businessViews=[];
+      spViewDraft={id:null,name:'',label:'',type:'current',materialization:'table',description:'',sourceObjects:['hub_customer'],sql:''};
+      spViewAiProposal={name:'customer_current',label:'Customer Current',description:'Current customer',sql:'SELECT * FROM data_vault.hub_customer'};
+      spAcceptAiViewProposal();
+      return {count:state.businessViews.length,name:spViewDraft.name,sql:spViewDraft.sql};
+    })()`);
+    assert.strictEqual(result.count,0);
+    assert.strictEqual(result.name,'customer_current');
+    assert.match(result.sql,/SELECT \*/);
+  });
+
+  test('deployment defaults to persisted tables and keeps native live-view DDL as an option', () => {
+    const ddl=app.eval(`(()=>{
+      const v={name:'customer_current',materialization:'table',sql:'SELECT customer_id FROM dbo.customer'};
+      spConn={dialect:'postgresql',database:'dv',schema:'data_vault'};
+      const pgTable=spViewDeployDdl(v);
+      spConn={dialect:'mssql',database:'dv',schema:'dbo'};
+      const msTable=spViewDeployDdl(v);
+      v.materialization='view';
+      const msView=spViewDeployDdl(v);
+      return {pgTable,msTable,msView};
+    })()`);
+    assert.match(ddl.pgTable,/CREATE TABLE/i);
+    assert.match(ddl.pgTable,/AS\s+SELECT/i);
+    assert.match(ddl.msTable,/SELECT \* INTO/i);
+    assert.match(ddl.msView,/CREATE OR ALTER VIEW/i);
+  });
+
+  test('managed reporting recognises persisted curated tables as well as live views', () => {
+    const names=app.eval(`(()=>{
+      state.businessViews=[
+        {id:'v1',name:'sales_history',materialization:'table',status:'deployed',deployedAt:'2026-09-21T10:00:00Z'},
+        {id:'v2',name:'sales_current',materialization:'view',status:'deployed',deployedAt:'2026-09-21T10:00:00Z'}
+      ];
+      spSchemaTables=[{name:'hub_sales',objectType:'table',columns:[],rowCount:10}];
+      spBusinessSchemaTables=[
+        {name:'sales_history',objectType:'table',columns:[],rowCount:100,schema:'business_vault'},
+        {name:'sales_current',objectType:'view',columns:[],rowCount:10,schema:'business_vault'}
+      ];
+      return spManagedReportingTables().map(t=>t.name).sort();
+    })()`);
+    assert.deepStrictEqual(names,['sales_current','sales_history']);
+  });
+
+  test('project/autosave state treats managed Business Vault helpers as first-class metadata', () => {
+    const result=app.eval(`(()=>{
+      const candidate=JSON.parse(JSON.stringify(state));
+      candidate.businessVaultObjects=[{id:'b1',type:'pit',name:'pit_customer'}];
+      const shape=projectStateShapeIssue(candidate);
+      const trivial=projectIsTrivial(candidate);
+      candidate.businessVaultObjects={bad:true};
+      return {shape,trivial,bad:projectStateShapeIssue(candidate)};
+    })()`);
+    assert.strictEqual(result.shape,'');
+    assert.strictEqual(result.trivial,false);
+    assert.match(result.bad,/businessVaultObjects.*array/);
+  });
+
+  test('generates an event-driven PIT over a Hub and compatible Satellites', () => {
+    const sql=app.eval(`(()=>{
+      spConn={dialect:'postgresql',database:'dv',schema:'data_vault',autoDefault:false};
+      spSchemaTables=[
+        {name:'hub_opportunity',objectType:'table',columns:[{name:'hub_opportunity_id'},{name:'tenant_id'}]},
+        {name:'sat_opportunity_details',objectType:'table',columns:[{name:'hub_opportunity_id'},{name:'load_dts'},{name:'load_end_dts'},{name:'tenant_id'}]},
+        {name:'sat_opportunity_status',objectType:'table',columns:[{name:'hub_opportunity_id'},{name:'load_dts'},{name:'load_end_dts'},{name:'tenant_id'}]}
+      ];
+      return spBuildPitSelect({type:'pit',parentHub:'hub_opportunity',satellites:['sat_opportunity_details','sat_opportunity_status']});
+    })()`);
+    assert.match(sql,/snapshot_dts/);
+    assert.match(sql,/sat_opportunity_details_load_dts/);
+    assert.match(sql,/sat_opportunity_status_load_dts/);
+    assert.match(sql,/LEFT JOIN/);
+    assert.match(sql,/load_end_dts/);
+    assert.match(sql,/UNION/);
+  });
+
+  test('generates a connected Bridge path and rejects disconnected Links', () => {
+    const connected=app.eval(`(()=>{
+      spConn={dialect:'postgresql',database:'dv',schema:'data_vault',autoDefault:false};
+      spSchemaTables=[
+        {name:'link_opportunity_account',objectType:'table',columns:[{name:'link_opportunity_account_id'},{name:'hub_opportunity_id'},{name:'hub_account_id'},{name:'load_dts'},{name:'tenant_id'}]},
+        {name:'link_account_owner',objectType:'table',columns:[{name:'link_account_owner_id'},{name:'hub_account_id'},{name:'hub_owner_id'},{name:'load_dts'},{name:'tenant_id'}]},
+        {name:'link_product_store',objectType:'table',columns:[{name:'link_product_store_id'},{name:'hub_product_id'},{name:'hub_store_id'},{name:'load_dts'},{name:'tenant_id'}]}
+      ];
+      return spBuildBridgeSelect({type:'bridge',links:['link_opportunity_account','link_account_owner']});
+    })()`);
+    assert.match(connected,/JOIN/);
+    assert.match(connected,/hub_account_id/);
+    assert.throws(()=>app.eval(`spBuildBridgeSelect({type:'bridge',links:['link_opportunity_account','link_product_store']})`),/do not form one connected path/);
+  });
+
+  test('Business Vault helpers are persisted in project state and default to explicit physical deployment', () => {
+    const result=app.eval(`(()=>{
+      state.businessVaultObjects=[];
+      spConn={dialect:'mssql',database:'dv',schema:'dbo',autoDefault:false};
+      spSchemaTables=[
+        {name:'hub_customer',objectType:'table',columns:[{name:'hub_customer_id'},{name:'tenant_id'}]},
+        {name:'sat_customer_details',objectType:'table',columns:[{name:'hub_customer_id'},{name:'load_dts'},{name:'tenant_id'}]}
+      ];
+      spBvDraft={id:null,type:'pit',name:'pit_customer',label:'Customer PIT',description:'',parentHub:'hub_customer',satellites:['sat_customer_details'],links:[]};
+      spSaveBvDraft();
+      const obj=state.businessVaultObjects[0];
+      return {count:state.businessVaultObjects.length,status:obj.status,ddl:spBvDeployDdl(obj)};
+    })()`);
+    assert.strictEqual(result.count,1);
+    assert.strictEqual(result.status,'draft');
+    assert.match(result.ddl,/SELECT \* INTO/i);
+    assert.match(result.ddl,/CREATE INDEX/i);
+  });
+
+  test('Business Vault recommendations can be bulk-added as drafts without deployment', () => {
+    const result=app.eval(`(()=>{
+      state.businessVaultObjects=[];
+      state.businessViews=[];
+      spSchemaTables=[
+        {name:'hub_customer',objectType:'table',columns:[{name:'hub_customer_id'},{name:'tenant_id'}]},
+        {name:'sat_customer_details',objectType:'table',columns:[{name:'hub_customer_id'},{name:'load_dts'},{name:'tenant_id'}]},
+        {name:'sat_customer_status',objectType:'table',columns:[{name:'hub_customer_id'},{name:'load_dts'},{name:'tenant_id'}]},
+        {name:'link_customer_order',objectType:'table',columns:[{name:'link_customer_order_id'},{name:'hub_customer_id'},{name:'hub_order_id'},{name:'load_dts'}]},
+        {name:'link_order_product',objectType:'table',columns:[{name:'link_order_product_id'},{name:'hub_order_id'},{name:'hub_product_id'},{name:'load_dts'}]}
+      ];
+      spAddAllBvRecommendations();
+      return state.businessVaultObjects.map(o=>({name:o.name,type:o.type,status:o.status,deployedAt:o.deployedAt}));
+    })()`);
+    assert.strictEqual(result.length,2);
+    assert.ok(result.some(o=>o.type==='pit'&&o.name==='pit_customer'));
+    assert.ok(result.some(o=>o.type==='bridge'&&o.name==='br_customer_order_order_product'));
+    assert.ok(result.every(o=>o.status==='draft'&&!o.deployedAt));
+  });
+
+  test('Business Vault recommendation names use readable br_ names without repeated vault prefixes', () => {
+    const result=app.eval(`(()=>{
+      state.vault.name='sales';
+      const draft=spBvRecommendationDraft({
+        type:'bridge',
+        label:'Currency rate to order bridge',
+        links:['link_sales_currencyrate_fromcurrencycode','link_sales_salesorderheader']
+      });
+      return {name:draft.name,kind:spBusinessObjectKind({name:draft.name,objectType:'table'})};
+    })()`);
+    assert.deepStrictEqual(result,{name:'br_currencyrate_fromcurrencycode_salesorderheader',kind:'Bridge'});
+  });
+
+  test('AI architecture recommendations are constrained to deterministic Business Vault candidates and deployed source objects', () => {
+    const result=app.eval(`(()=>{
+      state.businessVaultObjects=[];state.businessViews=[];
+      spSchemaTables=[
+        {name:'hub_deal',objectType:'table',columns:[{name:'hub_deal_id'},{name:'tenant_id'}]},
+        {name:'sat_deal_details',objectType:'table',columns:[{name:'hub_deal_id'},{name:'load_dts'},{name:'tenant_id'},{name:'amount'}]},
+        {name:'sat_deal_stage',objectType:'table',columns:[{name:'hub_deal_id'},{name:'load_dts'},{name:'tenant_id'},{name:'stage'}]},
+        {name:'hub_account',objectType:'table',columns:[{name:'hub_account_id'}]},
+        {name:'link_deal_account',objectType:'table',columns:[{name:'link_deal_account_id'},{name:'hub_deal_id'},{name:'hub_account_id'},{name:'load_dts'}]},
+        {name:'link_account_owner',objectType:'table',columns:[{name:'link_account_owner_id'},{name:'hub_account_id'},{name:'hub_owner_id'},{name:'load_dts'}]}
+      ];
+      return spNormalizeAiRecommendations({
+        summary:'Sales trends',
+        business_vault:[{candidate_index:0,reason:'Historical stage reconstruction'},{candidate_index:99,reason:'invented'}],
+        curated_datasets:[{name:'sales_pipeline_history',label:'Sales Pipeline History',type:'history',materialization:'table',description:'Deal stages over time',source_objects:['hub_deal','sat_deal_stage','made_up_table'],reason:'Trend analysis'}]
+      });
+    })()`);
+    assert.strictEqual(result.businessVault.length,1);
+    assert.strictEqual(result.businessVault[0].definition.type,'pit');
+    assert.deepStrictEqual(result.curatedDatasets[0].sourceObjects,['hub_deal','sat_deal_stage']);
+    assert.strictEqual(result.curatedDatasets[0].materialization,'table');
+  });
+
+  test('accepting AI recommendations opens unsaved drafts and curated Review arrives with generated SQL', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      state.businessVaultObjects=[];state.businessViews=[];
+      spSchemaTables=[{name:'hub_deal',objectType:'table',columns:[{name:'hub_deal_id',type:'uuid'}]}];
+      spAiRecommendations={summary:'',businessVault:[{definition:{id:null,type:'pit',name:'pit_deal',label:'Deal PIT',description:'',parentHub:'hub_deal',satellites:['sat_deal_a','sat_deal_b'],links:[]},reason:'Useful history'}],curatedDatasets:[{name:'sales_history',label:'Sales History',type:'history',materialization:'table',description:'Sales history',sourceObjects:['hub_deal'],reason:'Trends'}]};
+      spAiGenerateCuratedSql=async()=>({sql:'SELECT hub_deal_id FROM data_vault.hub_deal',description:'Generated sales history'});
+      spOpenAiBvRecommendation(0);
+      const afterBv={saved:state.businessVaultObjects.length,name:spBvDraft.name};
+      await spOpenAiCuratedRecommendation(0);
+      return {afterBv,viewSaved:state.businessViews.length,viewName:spViewDraft.name,sql:spViewDraft.sql};
+    })()`);
+    assert.strictEqual(result.afterBv.saved,0);
+    assert.strictEqual(result.afterBv.name,'pit_deal');
+    assert.strictEqual(result.viewSaved,0);
+    assert.strictEqual(result.viewName,'sales_history');
+    assert.match(result.sql,/SELECT hub_deal_id/);
+  });
+
+  test('lineage model links Raw Vault to Business Vault to Business Models to saved reports', () => {
+    const model=app.eval(`(()=>{
+      spSchemaTables=[
+        {name:'hub_deal',objectType:'table',columns:[]},
+        {name:'sat_deal_details',objectType:'table',columns:[]},
+        {name:'sat_deal_stage',objectType:'table',columns:[]},
+        {name:'hub_account',objectType:'table',columns:[]}
+      ];
+      state.businessVaultObjects=[{id:'b1',type:'pit',name:'pit_deal',label:'Deal PIT',status:'deployed',deployedAt:'2026-09-23',parentHub:'hub_deal',satellites:['sat_deal_details','sat_deal_stage'],links:[]}];
+      state.businessViews=[{id:'v1',name:'sales_pipeline_history',label:'Sales Pipeline History',type:'history',materialization:'table',status:'deployed',deployedAt:'2026-09-23',sourceObjects:['pit_deal','hub_account']}];
+      state.reports=[{id:'r1',name:'Sales Pipeline Trends',sourceModels:['sales_pipeline_history'],generated:{views:[],sections:[]}}];
+      return spLineageModel();
+    })()`);
+    const edgeKeys=model.edges.map(e=>`${e.from}->${e.to}`);
+    assert.ok(edgeKeys.includes('raw:hub_deal->bv:pit_deal'));
+    assert.ok(edgeKeys.includes('raw:sat_deal_stage->bv:pit_deal'));
+    assert.ok(edgeKeys.includes('bv:pit_deal->curated:sales_pipeline_history'));
+    assert.ok(edgeKeys.includes('raw:hub_account->curated:sales_pipeline_history'));
+    assert.ok(edgeKeys.includes('curated:sales_pipeline_history->report:r1'));
+  });
+
+  test('schema-aware Studio Plus deploys Business Vault and Business Models into business_vault', () => {
+    const result=app.eval(`(()=>{
+      spConn={dialect:'postgresql',database:'dv',schema:'data_vault',autoDefault:false};
+      spBusinessSchemaExists=true;spBusinessSchemaStatus='ready';
+      const model={name:'sales_history',materialization:'table',sql:'SELECT hub_sale_id FROM data_vault.hub_sale'};
+      const bv={id:'b1',name:'pit_sale',type:'pit',parentHub:'hub_sale',satellites:['sat_sale'],links:[]};
+      spSchemaTables=[
+        {name:'hub_sale',objectType:'table',columns:[{name:'hub_sale_id'}]},
+        {name:'sat_sale',objectType:'table',columns:[{name:'hub_sale_id'},{name:'load_dts'}]}
+      ];
+      return {modelDdl:spViewDeployDdl(model),bvDdl:spBvDeployDdl(bv),schemaDdl:spBusinessSchemaCreateDdl()};
+    })()`);
+    assert.match(result.modelDdl,/business_vault/);
+    assert.match(result.bvDdl,/business_vault/);
+    assert.match(result.schemaDdl,/CREATE SCHEMA IF NOT EXISTS/i);
+  });
+
+  test('Business Model inputs exclude other managed Business Models but retain Raw Vault and PIT or Bridge inputs', () => {
+    const names=app.eval(`(()=>{
+      state.businessViews=[{id:'v1',name:'sales_order_line_history',status:'deployed',deployedAt:'2026-09-24'}];
+      spSchemaTables=[{name:'hub_order',objectType:'table',columns:[]}];
+      spBusinessSchemaTables=[
+        {name:'pit_order',objectType:'table',columns:[],schema:'business_vault'},
+        {name:'sales_order_line_history',objectType:'table',columns:[],schema:'business_vault'}
+      ];
+      return spViewSourceTables().map(t=>t.name).sort();
+    })()`);
+    assert.deepStrictEqual(names,['hub_order','pit_order']);
+  });
+
+  test('Focus lineage keeps the complete selected model upstream chain and only its reporting downstream', () => {
+    const result=app.eval(`(()=>{
+      state.tables=[{id:'t1',name:'SalesOrder',included:true,objectType:'table',columns:[]}];
+      state.hubs=[{id:'h1',entity:'order',tableId:'t1'}];state.links=[];state.hubSats=[];state.linkSats=[];
+      const hname=hubName('order');
+      state.businessVaultObjects=[{id:'b1',type:'pit',name:'pit_order',label:'Order PIT',status:'deployed',deployedAt:'2026-09-24',parentHub:hname,satellites:[],links:[]}];
+      state.businessViews=[
+        {id:'v1',name:'sales_history',label:'Sales History',type:'history',materialization:'table',status:'deployed',deployedAt:'2026-09-24',sourceObjects:['pit_order']},
+        {id:'v2',name:'sales_rollup',label:'Sales Rollup',type:'custom',materialization:'table',status:'draft',sourceObjects:['sales_history']}
+      ];
+      spSchemaTables=[{name:hname,objectType:'table',columns:[]}];
+      state.reports=[{id:'r1',name:'Sales Report',sourceModels:['sales_history'],generated:{views:[],sections:[]}}];
+      const full=spLineageModel();const focus=spLineageFocusModel(full,'curated:sales_history');
+      return {hname,nodes:focus.nodes.map(n=>n.id).sort(),edges:focus.edges.map(e=>e.from+'->'+e.to).sort()};
+    })()`);
+    assert.ok(result.nodes.includes('source:t1'));
+    assert.ok(result.nodes.includes('raw:'+result.hname));
+    assert.ok(result.nodes.includes('bv:pit_order'));
+    assert.ok(result.nodes.includes('curated:sales_history'));
+    assert.ok(result.nodes.includes('report:r1'));
+    assert.ok(!result.nodes.includes('curated:sales_rollup'));
+    assert.ok(result.edges.includes('source:t1->raw:'+result.hname));
+    assert.ok(result.edges.includes('raw:'+result.hname+'->bv:pit_order'));
+    assert.ok(result.edges.includes('bv:pit_order->curated:sales_history'));
+    assert.ok(result.edges.includes('curated:sales_history->report:r1'));
+  });
+
+  test('Infer Schema checks business_vault and exposes a compact create action only when missing', () => {
+    const source=readFrontendSources();
+    assert.match(source,/btn-sp-create-business-schema/);
+    assert.match(source,/Business layer schema .* is missing/);
+    assert.match(source,/spEnsureBusinessSchemaOnInfer/);
+    assert.match(source,/spCreateBusinessSchema/);
+    assert.doesNotMatch(source,/id="sp-ensure-business-schema"/);
+  });
+
+  test('Business Model SQL rejects pg_input_is_valid for target-version portability', () => {
+    const issue=app.eval(`spSingleSelectIssue("SELECT pg_input_is_valid(amount, 'numeric'::regtype) FROM data_vault.sat_sales")`);
+    assert.match(issue,/pg_input_is_valid/i);
+  });
+
+  test('Studio Plus dialect guard allows window functions but rejects obvious cross-dialect SQL', () => {
+    const result=app.eval(`(()=>{
+      spConn={dialect:'postgresql',database:'dv',schema:'data_vault'};
+      const pgWindow=spSingleSelectIssue('SELECT customer_id, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date) AS rn FROM business_vault.sales_history');
+      const pgTop=spSingleSelectIssue('SELECT TOP 10 * FROM business_vault.sales_history');
+      const pgDateAdd=spReportSqlIssue("SELECT DATEADD(day, 1, order_date) AS next_day FROM business_vault.sales_history");
+      spConn={dialect:'mssql',database:'dv',schema:'dbo'};
+      const msWindow=spSingleSelectIssue('SELECT customer_id, LAG(revenue) OVER (PARTITION BY customer_id ORDER BY order_date) AS previous_revenue FROM business_vault.sales_history');
+      const msLimit=spSingleSelectIssue('SELECT * FROM business_vault.sales_history LIMIT 10');
+      const msDateTrunc=spReportSqlIssue("SELECT DATE_TRUNC('month', order_date) AS month_start FROM business_vault.sales_history");
+      spConn={dialect:'mysql',database:'dv',schema:'dv'};
+      const myTop=spReportSqlIssue('SELECT TOP 10 * FROM sales_history');
+      const myPgCast=spSingleSelectIssue('SELECT amount::numeric FROM sales_history');
+      return {pgWindow,pgTop,pgDateAdd,msWindow,msLimit,msDateTrunc,myTop,myPgCast};
+    })()`);
+    assert.strictEqual(result.pgWindow,'');
+    assert.match(result.pgTop,/SQL Server TOP/i);
+    assert.match(result.pgDateAdd,/SQL Server DATEADD/i);
+    assert.strictEqual(result.msWindow,'');
+    assert.match(result.msLimit,/LIMIT/i);
+    assert.match(result.msDateTrunc,/DATE_TRUNC/i);
+    assert.match(result.myTop,/SQL Server TOP/i);
+    assert.match(result.myPgCast,/PostgreSQL-style :: cast/i);
+  });
+
+  test('Business Model AI SQL gets one dialect repair pass before review', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      spConn={dialect:'postgresql',database:'dv',schema:'data_vault'};
+      spSchemaTables=[{name:'hub_sale',objectType:'table',columns:[{name:'hub_sale_id',type:'uuid'}]}];spBusinessSchemaTables=[];
+      const original=spCallOpenAI;let calls=0;
+      spCallOpenAI=async()=>{calls++;return {sql:'SELECT * FROM data_vault.hub_sale LIMIT 10'};};
+      try{
+        const sql=await spPrepareGeneratedBusinessModelSql('SELECT TOP 10 * FROM data_vault.hub_sale',['hub_sale'],'Sales sample');
+        return {sql,issue:spSingleSelectIssue(sql),calls};
+      }finally{spCallOpenAI=original;}
+    })()`);
+    assert.match(result.sql,/LIMIT 10/i);
+    assert.strictEqual(result.issue,'');
+    assert.strictEqual(result.calls,1);
+  });
+
+  test('bulk Bridge index names stay unique even when long names share the same truncated prefix', () => {
+    const names=app.eval(`(()=>{
+      const a={name:'bridge_adventureworks_sales_order_customer_product_territory_history_alpha',type:'bridge'};
+      const b={name:'bridge_adventureworks_sales_order_customer_product_territory_history_beta',type:'bridge'};
+      return [spBvIndexName(a,'1'),spBvIndexName(b,'1')];
+    })()`);
+    assert.notStrictEqual(names[0],names[1]);
+    assert.ok(names.every(n=>n.length<=60));
+  });
+
+  test('Business Models SQL formatter makes generated SQL readable without changing quoted text', () => {
+    const formatted=app.eval(`spFormatSqlForEditor("SELECT h.hub_sale_id, s.amount, 'FROM JOIN literal' AS note FROM data_vault.hub_sale h LEFT JOIN data_vault.sat_sale_detail s ON s.hub_sale_id = h.hub_sale_id WHERE s.amount > 0 ORDER BY s.amount")`);
+    assert.match(formatted,/SELECT h\.hub_sale_id,\n  s\.amount,/);
+    assert.match(formatted,/\nFROM data_vault\.hub_sale h/);
+    assert.match(formatted,/\nLEFT JOIN data_vault\.sat_sale_detail s/);
+    assert.match(formatted,/\n  ON s\.hub_sale_id = h\.hub_sale_id/);
+    assert.match(formatted,/\nWHERE s\.amount > 0/);
+    assert.match(formatted,/\nORDER BY s\.amount/);
+    assert.match(formatted,/'FROM JOIN literal'/);
+  });
+
+  test('AI plan curated Review generates SQL before opening the unsaved Business Models draft', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      state.businessViews=[];
+      spSchemaTables=[
+        {name:'hub_sale',objectType:'table',columns:[{name:'hub_sale_id',type:'uuid'}]},
+        {name:'sat_sale_detail',objectType:'table',columns:[{name:'hub_sale_id',type:'uuid'},{name:'amount',type:'numeric'}]}
+      ];
+      spAiRecommendations={summary:'',businessVault:[],curatedDatasets:[{name:'sales_summary',label:'Sales Summary',type:'current',materialization:'table',description:'Sales summary',sourceObjects:['hub_sale','sat_sale_detail'],reason:'Useful sales analysis'}]};
+      spAiGenerateCuratedSql=async()=>({sql:'SELECT h.hub_sale_id, s.amount FROM data_vault.hub_sale h JOIN data_vault.sat_sale_detail s ON s.hub_sale_id=h.hub_sale_id',description:'Generated SQL'});
+      await spOpenAiCuratedRecommendation(0);
+      return {saved:state.businessViews.length,step:spWorkflowStep,sql:spViewDraft.sql,description:spViewDraft.description,loading:spAiReviewCuratedIndex};
+    })()`);
+    assert.strictEqual(result.saved,0);
+    assert.strictEqual(result.step,'build');
+    assert.match(result.sql,/sat_sale_detail/);
+    assert.strictEqual(result.description,'Generated SQL');
+    assert.strictEqual(result.loading,null);
+  });
+
+  test('AI plan apply creates drafts and puts generated SQL directly into Business Models for review', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      state.businessVaultObjects=[];state.businessViews=[];
+      spSchemaTables=[
+        {name:'hub_sale',objectType:'table',columns:[{name:'hub_sale_id',type:'uuid'}]},
+        {name:'sat_sale_detail',objectType:'table',columns:[{name:'hub_sale_id',type:'uuid'},{name:'load_dts',type:'timestamp'},{name:'amount',type:'numeric'}]}
+      ];
+      spAiRecommendations={summary:'',businessVault:[],curatedDatasets:[{name:'sales_history',label:'Sales History',type:'history',materialization:'table',description:'Sales over time',sourceObjects:['hub_sale','sat_sale_detail'],reason:'Trends'}]};
+      spAiSelectedBv=new Set();spAiSelectedCurated=new Set([0]);
+      spAiGenerateCuratedSql=async()=>({sql:'SELECT h.hub_sale_id, s.amount FROM data_vault.hub_sale h JOIN data_vault.sat_sale_detail s ON s.hub_sale_id=h.hub_sale_id',description:'Generated sales history'});
+      await spApplyAiPlan();
+      const v=state.businessViews[0];
+      return {count:state.businessViews.length,status:v.status,sql:v.sql,step:spWorkflowStep,draftSql:spViewDraft.sql};
+    })()`);
+    assert.strictEqual(result.count,1);
+    assert.strictEqual(result.status,'draft');
+    assert.match(result.sql,/SELECT h\.hub_sale_id/);
+    assert.strictEqual(result.step,'build');
+    assert.match(result.draftSql,/sat_sale_detail/);
+  });
+
+  test('Focus lineage keeps referenced source tables even when a restored project marks them excluded', () => {
+    const result=app.eval(`(()=>{
+      state.vault.name='aw';state.vault.prefix='aw';
+      state.tables=[{id:'t1',name:'SalesOrderHeader',included:false,objectType:'table',columns:[]}];
+      state.hubs=[{id:'h1',entity:'sales_order',tableId:'t1'}];state.links=[];state.hubSats=[];state.linkSats=[];
+      const hname=hubName('sales_order');
+      state.businessVaultObjects=[];
+      state.businessViews=[{id:'v1',name:'sales_history',label:'Sales History',type:'history',materialization:'table',status:'deployed',sourceObjects:[hname]}];
+      spSchemaTables=[{name:hname,objectType:'table',columns:[]}];spReportingSources=new Set();
+      const focus=spLineageFocusModel(spLineageModel(),'curated:sales_history');
+      return {nodes:focus.nodes.map(n=>n.id),edges:focus.edges.map(e=>e.from+'->'+e.to),hname};
+    })()`);
+    assert.ok(result.nodes.includes('source:t1'));
+    assert.ok(result.nodes.includes('raw:'+result.hname));
+    assert.ok(result.edges.includes('source:t1->raw:'+result.hname));
+  });
+
+  test('lineage includes source and staging layers before the Raw Vault when project design metadata is available', () => {
+    const model=app.eval(`(()=>{
+      state.vault.name='aw';state.vault.prefix='aw';
+      state.tables=[{id:'t1',name:'SalesOrderHeader',included:true,objectType:'table',columns:[]}];
+      state.hubs=[{id:'h1',entity:'sales_order',tableId:'t1'}];state.links=[];state.hubSats=[];state.linkSats=[];
+      state.businessVaultObjects=[];state.businessViews=[];spReportingSources=new Set();spSchemaTables=[];
+      return spLineageModel();
+    })()`);
+    const edges=model.edges.map(e=>`${e.from}->${e.to}`);
+    assert.ok(model.nodes.some(n=>n.id==='source:t1'&&n.name==='SalesOrderHeader'));
+    assert.ok(model.nodes.some(n=>n.id==='staging:t1'));
+    assert.ok(edges.includes('source:t1->staging:t1'));
+    assert.ok(edges.some(e=>e.startsWith('staging:t1->raw:hub_')));
+  });
+
+
+
+  test('lineage explorer limits the default neighbourhood by depth and direction', () => {
+    const result=app.eval(`(()=>{
+      const model={nodes:[{id:'a'},{id:'b'},{id:'c'},{id:'d'}],edges:[{from:'a',to:'b'},{from:'b',to:'c'},{from:'c',to:'d'}]};
+      return {
+        both:[...spLineageFocusedIds(model,'b',1,'both')].sort(),
+        down:[...spLineageFocusedIds(model,'b',2,'down')].sort(),
+        up:[...spLineageFocusedIds(model,'c',2,'up')].sort()
+      };
+    })()`);
+    assert.deepStrictEqual(result.both,['a','b','c']);
+    assert.deepStrictEqual(result.down,['b','c','d']);
+    assert.deepStrictEqual(result.up,['a','b','c']);
+  });
+
+  test('Studio Plus connection disclosure is expanded before inference and collapses after success', () => {
+    const source=readFrontendSources();
+    assert.match(source,/spConnectionSectionOpen = true/);
+    assert.match(source,/spSchemaStatus='ok';spSchemaError='';if\(!options\.preserveDraft\)spConnectionSectionOpen=false/);
+    assert.match(source,/spSchemaStatus='error';spSchemaError=err\.message;spConnectionSectionOpen=true/);
+    assert.match(source,/Raw Vault objects.*click to change/);
+  });
+
+  test('Business Models source picker and lineage hide technical vw_ views by default', () => {
+    const result=app.eval(`(()=>{
+      state.businessViews=[];
+      spSchemaTables=[
+        {name:'hub_sale',objectType:'table',columns:[]},
+        {name:'vw_hub_sale_upd',objectType:'view',columns:[]},
+        {name:'pit_sale',objectType:'table',columns:[]}
+      ];
+      return spViewSourceTables().map(t=>t.name);
+    })()`);
+    assert.deepStrictEqual(result,['hub_sale','pit_sale']);
+  });
+
+  test('lineage defaults to Focus and exposes Concept, Entire and Matrix modes in order', () => {
+    const source=readFrontendSources();
+    assert.match(source,/let spLineageMode = 'focus'/);
+    assert.match(source,/\['focus','Focus'\],\['concept','Concept'\],\['entire','Entire'\],\['matrix','Matrix'\]/);
+    assert.match(source,/Focus Business Model/);
+    assert.match(source,/spCoverageMatrixHtml/);
+  });
+
+  test('lineage concept, focus and matrix views render from project metadata without technical vw_ objects', () => {
+    const result=app.eval(`(()=>{
+      state.tables=[{id:'t1',name:'SalesOrder',included:true,objectType:'table',columns:[]},{id:'t2',name:'vw_internal_upd',included:true,objectType:'view',columns:[]}];
+      state.hubs=[{id:'h1',entity:'order',tableId:'t1'},{id:'h2',entity:'customer',tableId:'t1'}];
+      state.links=[{id:'l1',entity:'order_customer',tableId:'t1',hubs:[{hubId:'h1'},{hubId:'h2'}]}];
+      state.hubSats=[{id:'s1',entity:'order',hubId:'h1',tableId:'t1'}];state.linkSats=[];
+      state.businessVaultObjects=[];state.businessViews=[{id:'v1',name:'sales_history',label:'Sales History',type:'history',materialization:'table',status:'draft',sourceObjects:['hub_order']}];
+      spSchemaTables=[{name:'hub_order',objectType:'table',columns:[]},{name:'vw_hub_order_lkp',objectType:'view',columns:[]}];
+      spLineageSelection='curated:sales_history';
+      return {focus:spLineageFocusHtml(spLineageModel()),concept:spConceptHtml(),matrix:spCoverageMatrixHtml()};
+    })()`);
+    assert.match(result.focus,/Focus Business Model/);
+    assert.doesNotMatch(result.focus,/vw_hub_order_lkp/);
+    assert.match(result.concept,/order/);
+    assert.match(result.matrix,/SalesOrder/);
+    assert.doesNotMatch(result.matrix,/vw_internal_upd/);
+  });
+
+  test('Studio Plus workflow is Plan, Build and Reporting with Lineage as a secondary view, and blocks Business Models on undeployed PIT or Bridge dependencies', () => {
+    const source=readFrontendSources();
+    assert.match(source,/\['plan','1','Goal & Plan',''\]/);
+    assert.match(source,/\['build','2','Build',/);
+    assert.match(source,/\['reporting','3','Reporting',/);
+    assert.match(source,/button\('lineage','','Lineage','','secondary'\)/);
+    assert.doesNotMatch(source,/\['deploy','4','Deploy'\]/);
+    assert.doesNotMatch(source,/\['bv','2','Business Vault'\]/);
+    const result=app.eval(`(()=>{
+      state.businessVaultObjects=[{id:'b1',type:'pit',name:'pit_sale',status:'draft',deployedAt:null}];
+      const view={id:'v1',name:'sales_history',sourceObjects:['pit_sale'],sql:'SELECT * FROM business_vault.pit_sale'};
+      const before=spBusinessModelDependencyIssue(view);
+      state.businessVaultObjects[0].status='deployed';state.businessVaultObjects[0].deployedAt='2026-09-24T00:00:00Z';
+      const after=spBusinessModelDependencyIssue(view);
+      return {before,after};
+    })()`);
+    assert.match(result.before,/pit_sale/);
+    assert.strictEqual(result.after,'');
+  });
+
+  test('report generation normalises harmless SQL wrapping and rejects multiple statements before /api/query', () => {
+    const result=app.eval(`(()=>({
+      fenced:spNormalizeReportSql('\x60\x60\x60sql\\nSELECT 1;\\n\x60\x60\x60'),
+      trailing:spReportSqlIssue('SELECT 1;'),
+      multiple:spReportSqlIssue('SELECT 1; SELECT 2'),
+      setup:spReportSqlIssue('SET work_mem TO 64; SELECT 1'),
+      literal:spReportSqlIssue("SELECT 'a;b' AS value")
+    }))()`);
+    assert.strictEqual(result.fenced,'SELECT 1');
+    assert.strictEqual(result.trailing,'');
+    assert.match(result.multiple,/one SQL statement|multiple statements/i);
+    assert.match(result.setup,/exactly one SELECT|read-only SELECT/i);
+    assert.strictEqual(result.literal,'');
+  });
+
+  test('report generation automatically repairs invalid multi-statement AI SQL once', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      spSchemaTables=[];spBusinessSchemaTables=[];spReportingSources=new Set();
+      const original=spCallOpenAI;
+      spCallOpenAI=async()=>({views:[{view_name:'sales_summary',sql:'SELECT 1 AS value'}]});
+      try{
+        const views=await spPrepareGeneratedReportViews([{view_name:'sales_summary',sheet_name:'sales_summary',columns:['value'],sql:'SET work_mem TO 64; SELECT 1 AS value'}]);
+        return {sql:views[0].sql,issue:spReportSqlIssue(views[0].sql)};
+      }finally{spCallOpenAI=original;}
+    })()`);
+    assert.strictEqual(result.sql,'SELECT 1 AS value');
+    assert.strictEqual(result.issue,'');
+  });
+
+  test('report generation automatically repairs cross-dialect AI SQL before validation', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      spConn={dialect:'postgresql',database:'dv',schema:'data_vault'};
+      spSchemaTables=[];spBusinessSchemaTables=[];spReportingSources=new Set();
+      const original=spCallOpenAI;
+      spCallOpenAI=async()=>({views:[{view_name:'sales_summary',sql:'SELECT * FROM business_vault.sales_history LIMIT 10'}]});
+      try{
+        const views=await spPrepareGeneratedReportViews([{view_name:'sales_summary',sheet_name:'sales_summary',columns:['value'],sql:'SELECT TOP 10 * FROM business_vault.sales_history'}]);
+        return {sql:views[0].sql,issue:spReportSqlIssue(views[0].sql)};
+      }finally{spCallOpenAI=original;}
+    })()`);
+    assert.match(result.sql,/LIMIT 10/i);
+    assert.strictEqual(result.issue,'');
+  });
+
+  test('target validation error gets one dialect-aware AI repair and revalidation pass', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      spConn={dialect:'postgresql',database:'dv',schema:'data_vault'};
+      spSchemaTables=[];spBusinessSchemaTables=[];spReportingSources=new Set();spOverrides={};
+      const originalAi=spCallOpenAI, originalValidate=spValidateViewList;let validates=0;
+      spCallOpenAI=async()=>({views:[{view_name:'sales_summary',sql:'SELECT 1 AS value'}]});
+      spValidateViewList=async views=>{validates++;return {sales_summary:views[0].sql.includes('bad_target_function')?{ok:false,error:'function bad_target_function() does not exist'}:{ok:true}};};
+      try{
+        const views=[{view_name:'sales_summary',sheet_name:'sales_summary',columns:['value'],sql:'SELECT bad_target_function() AS value'}];
+        const initial={sales_summary:{ok:false,error:'function bad_target_function() does not exist'}};
+        const repaired=await spRepairReportViewsAfterTargetValidation(views,initial);
+        return {sql:repaired.views[0].sql,ok:repaired.validation.sales_summary.ok,repaired:repaired.repaired,validates};
+      }finally{spCallOpenAI=originalAi;spValidateViewList=originalValidate;}
+    })()`);
+    assert.strictEqual(result.sql,'SELECT 1 AS value');
+    assert.strictEqual(result.ok,true);
+    assert.strictEqual(result.repaired,true);
+    assert.strictEqual(result.validates,1);
+  });
+
+  test('saved reports persist final edited SQL/rendering and use the AI report title for filenames', () => {
+    const result=app.eval(`(()=>{
+      state.reports=[];state.businessViews=[{id:'v1',name:'sales_history',status:'deployed',deployedAt:'2026-09-24'}];
+      spReportingSources=new Set(['sales_history']);spDashboardPlan={title:'Sales Performance by Territory',sections:[]};
+      spGenerated={report_title:'Sales Performance by Territory',views:[{view_name:'summary',sheet_name:'summary',sql:'SELECT 1 AS value',columns:['value']}],sections:[{view_name:'summary',title:'Summary',render_js:'el.innerHTML="A";'}],notes:'ok'};
+      spOverrides={summary:'SELECT 2 AS value'};spSectionOverrides={0:'el.innerHTML="B";'};spEditingReportId=null;
+      spSaveCurrentReport();
+      const r=state.reports[0];
+      return {count:state.reports.length,name:r.name,sql:r.generated.views[0].sql,render:r.generated.sections[0].render_js,file:spReportFilenameBase(),id:spEditingReportId};
+    })()`);
+    assert.strictEqual(result.count,1);
+    assert.strictEqual(result.name,'Sales Performance by Territory');
+    assert.strictEqual(result.sql,'SELECT 2 AS value');
+    assert.strictEqual(result.render,'el.innerHTML="B";');
+    assert.strictEqual(result.file,'Sales_Performance_by_Territory');
+    assert.ok(result.id);
+  });
+
+  test('Report Library exposes managed lifecycle actions and project state accepts reports', () => {
+    const source=readFrontendSources();
+    assert.match(source,/Report Library/);
+    assert.match(source,/Open \/ Edit/);
+    assert.match(source,/Duplicate/);
+    assert.match(source,/Delete/);
+    assert.match(source,/Save Report/);
+    assert.match(source,/Regenerate with AI/);
+    assert.match(source,/spReportFilenameBase/);
+    const shape=app.eval(`projectStateShapeIssue({...state,reports:[{id:'r1',name:'Sales'}]})`);
+    assert.strictEqual(shape,'');
+  });
+
+  test('GUI provides curated data materialisation, search/bulk source controls, AI confirmation and dataset-only reporting selection', () => {
+    const source=readFrontendSources();
+    assert.match(source,/Business Vault <span class="sp-optional-badge">optional<\/span>/);
+    assert.match(source,/optional/);
+    assert.match(source,/PIT table/);
+    assert.match(source,/Bridge table/);
+    assert.match(source,/Deploy all pending/);
+    assert.match(source,/Add all recommended/);
+    assert.match(source,/<h3>Business Models<\/h3>/);
+    assert.match(source,/Business Model Library/);
+    assert.match(source,/AI proposal — not saved/);
+    assert.match(source,/Accept into editor/);
+    assert.match(source,/Save Draft/);
+    assert.match(source,/data-sp-view-edit/);
+    assert.match(source,/data-sp-view-deploy/);
+    assert.match(source,/data-sp-view-delete/);
+    assert.match(source,/<strong>Business models<\/strong>/);
+    assert.match(source,/<h3>Build Report<\/h3>/);
+    assert.match(source,/'Saved report':'Generated report'/);
+    assert.doesNotMatch(source,/Reporting · (?:select models|build report|generated report|saved report)/);
+    assert.doesNotMatch(source,/[①②③④⑤] (?:Goal|Reporting|Business)/);
+    assert.match(source,/data-sp-report-view/);
+    assert.match(source,/does not use arbitrary Raw Vault tables/);
+    assert.match(source,/Persisted table \(recommended\)/);
+    assert.match(source,/Search Hubs, Links, Satellites, PITs, Bridges/);
+    assert.match(source,/Add all PITs/);
+    assert.match(source,/Add all Bridges/);
+    assert.match(source,/AI recommendations/);
+    assert.match(source,/Generate AI plan/);
+    assert.match(source,/Apply selected plan/);
+    assert.match(source,/SQL ready/);
+    assert.match(source,/<h3>Lineage<\/h3>/);
+    assert.match(source,/Focus/);
+    assert.match(source,/Concept/);
+    assert.match(source,/Entire/);
+    assert.match(source,/Matrix/);
+    assert.match(source,/sp-connect-section/);
+    assert.match(source,/choose a business model and see only its relevant end-to-end chain/);
+    assert.match(source,/data-sp-lineage-node/);
+    assert.match(source,/sp-workflow-tabs/);
+  });
+
+  test('quiet re-introspection after a deploy keeps the AI plan and unsaved report; a different target resets them', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      spConn={dialect:'postgresql',host:'h',port:'5432',database:'dv',schema:'data_vault',user:'u',password:'p',autoDefault:false,managedTarget:false};
+      localFetch=async(url)=>({ok:true,json:async()=>{
+        if(url==='/api/list-schemas')return {ok:true,schemas:['data_vault','business_vault']};
+        return {ok:true,tables:[{name:'hub_sale',objectType:'table',columns:[{name:'hub_sale_id',type:'uuid'}],approxRows:5}]};
+      }});
+      spLastSchemaSignature='';
+      await spIntrospectSchema({quiet:true});
+      spAiRecommendations={summary:'x',businessVault:[],curatedDatasets:[]};
+      spGenerated={views:[],sections:[]};
+      await spIntrospectSchema({quiet:true,preserveDraft:true});
+      const kept={plan:!!spAiRecommendations,report:!!spGenerated,status:spSchemaStatus};
+      spConn.database='other';
+      await spIntrospectSchema({quiet:true});
+      return {kept,resetPlan:spAiRecommendations,resetReport:spGenerated};
+    })()`);
+    assert.deepStrictEqual({...result.kept},{plan:true,report:true,status:'ok'});
+    assert.strictEqual(result.resetPlan,null);
+    assert.strictEqual(result.resetReport,null);
+  });
+
+  test('Deploy all pending deploys Business Vault first, then models, and re-reads the schema once', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      const order=[];let introspects=0;
+      spConn={...spConn,dialect:'mysql'};
+      state.businessVaultObjects=[{id:'b1',type:'pit',name:'pit_sale',status:'draft',deployedAt:null}];
+      state.businessViews=[
+        {id:'v1',name:'sales_history',sourceObjects:['pit_sale'],sql:'SELECT 1',status:'draft',deployedAt:null},
+        {id:'v2',name:'no_sql',sourceObjects:['hub_sale'],sql:'',status:'draft',deployedAt:null}
+      ];
+      spDeployBvObject=async(id)=>{order.push('bv:'+id);const o=state.businessVaultObjects[0];o.status='deployed';o.deployedAt='t';return true;};
+      spDeployManagedView=async(id)=>{order.push('model:'+id);const v=state.businessViews.find(x=>x.id===id);v.status='deployed';v.deployedAt='t';return true;};
+      spIntrospectSchema=async()=>{introspects++;};
+      confirm=()=>true;
+      const res=await spDeployAllPending();
+      return {order,introspects,done:res.done.length,pending:spPendingSummary().total,blocked:spPendingSummary().blocked};
+    })()`);
+    assert.deepStrictEqual([...result.order],['bv:b1','model:v1']);
+    assert.strictEqual(result.introspects,1);
+    assert.strictEqual(result.done,2);
+    assert.strictEqual(result.pending,1);
+    assert.strictEqual(result.blocked,1);
+  });
+
+  test('Deploy all pending skips a Business Model whose Business Vault dependency failed', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      const order=[];
+      spConn={...spConn,dialect:'mysql'};
+      state.businessVaultObjects=[{id:'b1',type:'pit',name:'pit_sale',status:'draft',deployedAt:null}];
+      state.businessViews=[{id:'v1',name:'sales_history',sourceObjects:['pit_sale'],sql:'SELECT 1',status:'draft',deployedAt:null}];
+      spDeployBvObject=async(id)=>{order.push('bv:'+id);state.businessVaultObjects[0].lastError='boom';return false;};
+      spDeployManagedView=async(id)=>{order.push('model:'+id);return true;};
+      spIntrospectSchema=async()=>{};
+      confirm=()=>true;
+      const res=await spDeployAllPending();
+      return {order,failed:res.failed.length,skipped:res.skipped.length};
+    })()`);
+    assert.deepStrictEqual([...result.order],['bv:b1']);
+    assert.strictEqual(result.failed,1);
+    assert.strictEqual(result.skipped,1);
+  });
+
+  test('Studio Plus workflow tabs are visible but disabled until the schema is inferred, with a Build badge for pending objects', () => {
+    const result=app.eval(`(()=>{
+      spSchemaTables=[];spSchemaStatus=null;state.businessViews=[];state.businessVaultObjects=[];
+      const before=spWorkflowTabsHtml();
+      spSchemaTables=[{name:'hub_sale',objectType:'table',columns:[]}];spSchemaStatus='ok';
+      state.businessViews=[{id:'v1',name:'m',sql:'SELECT 1',status:'error',deployedAt:null}];
+      const after=spWorkflowTabsHtml();
+      return {before,after,bar:spStatusBarHtml()};
+    })()`);
+    assert.match(result.before,/disabled/);
+    assert.doesNotMatch(result.after,/disabled/);
+    assert.match(result.after,/sp-tab-badge err/);
+    assert.match(result.bar,/Deploy all pending/);
+  });
+
+  test('Studio Plus infers automatically on entry only when the configured target is new or changed', async () => {
+    const calls=await app.evalRaw(`(async()=>{
+      let calls=0;
+      spIntrospectSchema=async()=>{calls++;};
+      spSchemaStatus=null;spLastSchemaSignature='';spAutoInferSignature='';
+      spConn={dialect:'postgresql',host:'h',port:'5432',database:'dv',schema:'data_vault',user:'u',password:'',autoDefault:false};
+      await studioPlusEnter();
+      spSchemaStatus='ok';spLastSchemaSignature=spSchemaSignature();
+      await studioPlusEnter();
+      spConn.database='other';
+      await studioPlusEnter();
+      spSchemaStatus=null;spConn.database='';
+      await studioPlusEnter();
+      return calls;
+    })()`);
+    assert.strictEqual(calls,2);
+  });
+
+  test('Studio Plus goal and AI plan persist in the project and prefill the report direction', () => {
+    const result=app.eval(`(()=>{
+      spAiRecommendPrompt='Analyse pipeline velocity';
+      spAiRecommendations={summary:'s',businessVault:[],curatedDatasets:[{name:'m',label:'M',type:'current',materialization:'table',description:'',sourceObjects:['hub_sale'],reason:'r'}]};
+      spAiSelectedCurated=new Set([0]);
+      spPersistPlan();
+      const saved=JSON.parse(JSON.stringify(state.studioPlus));
+      spAiRecommendPrompt='';spAiRecommendations=null;spAiSelectedCurated=new Set();
+      spRestorePlan();
+      spCustomDirection='';spDirectionFromGoal=false;spPrefillReportDirection();
+      const restored={goal:spAiRecommendPrompt,plan:!!spAiRecommendations,selected:[...spAiSelectedCurated],direction:spCustomDirection,fromGoal:spDirectionIsGoal()};
+      studioPlusResetSession();
+      return {saved,restored,afterReset:{goal:spAiRecommendPrompt,plan:spAiRecommendations}};
+    })()`);
+    assert.strictEqual(result.saved.goal,'Analyse pipeline velocity');
+    assert.strictEqual(result.saved.plan.recommendations.curatedDatasets.length,1);
+    assert.deepStrictEqual(result.restored,{goal:'Analyse pipeline velocity',plan:true,selected:[0],direction:'Analyse pipeline velocity',fromGoal:true});
+    assert.deepStrictEqual(result.afterReset,{goal:'',plan:null});
+  });
+
+  test('Save & deploy saves the Business Model then deploys that same object', () => {
+    const result=app.eval(`(()=>{
+      state.businessViews=[];
+      spSchemaTables=[{name:'hub_sale',objectType:'table',columns:[]}];spBusinessSchemaTables=[];
+      spViewDraft={id:null,name:'sales_now',label:'',type:'current',materialization:'table',description:'',sourceObjects:['hub_sale'],sql:'SELECT * FROM hub_sale'};
+      let deployed=null;spDeployManagedView=async(id)=>{deployed=id;return true;};
+      const id=spSaveViewDraft({deploy:true});
+      return {id,deployed,count:state.businessViews.length};
+    })()`);
+    assert.ok(result.id);
+    assert.strictEqual(result.deployed,result.id);
+    assert.strictEqual(result.count,1);
+  });
+
+  test('Business Model source search keeps its filter across re-renders', () => {
+    const html=app.eval(`(()=>{
+      spSchemaTables=[{name:'hub_a',objectType:'table',columns:[]},{name:'hub_b',objectType:'table',columns:[]}];
+      spBusinessSchemaTables=[];state.businessViews=[];
+      spViewDraft={id:null,name:'',label:'',type:'current',materialization:'table',description:'',sourceObjects:[],sql:''};
+      spViewSourceSearch='hub_b';
+      return spViewBuilderHtml();
+    })()`);
+    assert.match(html,/id="sp-view-source-search"[^>]*value="hub_b"/);
+    assert.match(html,/style="display:none" data-sp-source-row data-sp-source-search="hub_a/);
+    assert.doesNotMatch(html,/style="display:none" data-sp-source-row data-sp-source-search="hub_b/);
+  });
+
+  test('scope changes only ask for confirmation when a generated report has unsaved work', () => {
+    const result=app.eval(`(()=>{
+      const out={};
+      confirm=()=>false;
+      spGenerated=null;out.noReport=spConfirmDiscardReport();
+      spGenerated={views:[],sections:[]};spEditingReportId=null;out.unsaved=spConfirmDiscardReport();
+      spEditingReportId='r1';spOverrides={};spSectionOverrides={};out.saved=spConfirmDiscardReport();
+      spOverrides={q:'SELECT 2'};out.savedButEdited=spConfirmDiscardReport();
+      return out;
+    })()`);
+    assert.deepStrictEqual({...result},{noReport:true,unsaved:false,saved:true,savedButEdited:false});
+  });
+
+  test('generated Business Model SQL is checked against the target and repaired once using the real database error', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      spConn={dialect:'postgresql',database:'dv',schema:'data_vault'};
+      spSchemaTables=[{name:'hub_sale',objectType:'table',columns:[{name:'hub_sale_id',type:'uuid'},{name:'load_dts',type:'timestamp'}]}];spBusinessSchemaTables=[];
+      const seen=[];
+      spQuery=async(sql)=>{seen.push(sql);if(/load_end_dts/.test(sql))throw new Error('column hd.load_end_dts does not exist');return [];};
+      let aiInput=null;
+      spCallOpenAI=async(rules,input)=>{aiInput=JSON.parse(input);return {sql:'SELECT h.hub_sale_id FROM data_vault.hub_sale h'};};
+      const report={};
+      const sql=await spPrepareGeneratedBusinessModelSql('SELECT hd.load_end_dts FROM data_vault.hub_sale hd',['hub_sale'],'sales',{validateOnTarget:true,report});
+      return {sql,targetError:report.targetError||'',aiError:aiInput&&aiInput.target_error,queries:seen.length};
+    })()`);
+    assert.doesNotMatch(result.sql,/load_end_dts/);
+    assert.strictEqual(result.targetError,'');
+    assert.match(result.aiError,/load_end_dts does not exist/);
+    assert.strictEqual(result.queries,2);
+  });
+
+  test('a target rejection that survives the repair pass is reported, not thrown, and connectivity errors are never sent to AI', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      spConn={dialect:'postgresql',database:'dv',schema:'data_vault'};
+      spSchemaTables=[{name:'hub_sale',objectType:'table',columns:[{name:'hub_sale_id',type:'uuid'}]}];spBusinessSchemaTables=[];
+      let aiCalls=0;spCallOpenAI=async()=>{aiCalls++;return {sql:'SELECT bad FROM data_vault.hub_sale'};};
+      spQuery=async()=>{throw new Error('column "bad" does not exist');};
+      const stubborn={};
+      const kept=await spPrepareGeneratedBusinessModelSql('SELECT bad FROM data_vault.hub_sale',['hub_sale'],'',{validateOnTarget:true,report:stubborn});
+      const afterStubborn=aiCalls;
+      spQuery=async()=>{throw new Error('Local server not reachable at http://localhost:3001');};
+      const offline={};
+      await spPrepareGeneratedBusinessModelSql('SELECT 1 FROM data_vault.hub_sale',['hub_sale'],'',{validateOnTarget:true,report:offline});
+      return {kept,stubborn:stubborn.targetError,afterStubborn,aiCallsAfterOffline:aiCalls,offline:offline.targetError,repairable:[spIsRepairableTargetError('column x does not exist'),spIsRepairableTargetError('canceling statement due to statement timeout'),spIsRepairableTargetError('Local server not reachable')]};
+    })()`);
+    assert.match(result.kept,/bad/);
+    assert.match(result.stubborn,/"bad" does not exist/);
+    assert.strictEqual(result.afterStubborn,1);
+    assert.strictEqual(result.aiCallsAfterOffline,1);
+    assert.match(result.offline,/not reachable/);
+    assert.deepStrictEqual([...result.repairable],[true,false,false]);
+  });
+
+  test('materialising a Business Model asks for a longer statement timeout and explains timeouts and missing columns', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      spConn={dialect:'postgresql',host:'h',port:'5432',database:'dv',schema:'data_vault',user:'u',password:'p',autoDefault:false,managedTarget:false};
+      ensureLocalServerReachable=async()=>{};
+      const bodies=[];
+      localFetch=async(url,options)=>{bodies.push({url,body:JSON.parse(options.body)});return {json:async()=>({ok:true})};};
+      await spExecuteViewDdl('SELECT 1',{timeoutSeconds:SP_MATERIALISE_TIMEOUT_SECONDS});
+      await spExecuteViewDdl('DROP TABLE x');
+      return {withTimeout:bodies[0].body.timeoutSeconds,without:bodies[1].body.timeoutSeconds,
+        timeout:spExplainDeployError('canceling statement due to statement timeout'),
+        column:spExplainDeployError('column hd.load_end_dts does not exist'),
+        other:spExplainDeployError('permission denied')};
+    })()`);
+    assert.strictEqual(result.withTimeout,1800);
+    assert.strictEqual(result.without,undefined);
+    assert.match(result.timeout,/30 minutes.*Live view/);
+    assert.match(result.column,/Fix with AI/);
+    assert.strictEqual(result.other,'permission denied');
+  });
+
+  test('a failed Business Model offers Fix with AI, which loads the repaired SQL into the editor unsaved', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      spSchemaTables=[{name:'hub_sale',objectType:'table',columns:[{name:'hub_sale_id',type:'uuid'}]}];spBusinessSchemaTables=[];
+      state.businessViews=[{id:'v1',name:'sales_history',label:'Sales',type:'history',materialization:'table',description:'d',sourceObjects:['hub_sale'],sql:'SELECT hd.load_end_dts FROM data_vault.hub_sale hd',status:'error',deployedAt:null,lastError:'column hd.load_end_dts does not exist'},
+        {id:'v2',name:'slow',sourceObjects:['hub_sale'],sql:'SELECT 1',status:'error',deployedAt:null,lastError:'canceling statement due to statement timeout'}];
+      const html=spViewLibraryHtml();
+      spCallOpenAI=async()=>({sql:'SELECT h.hub_sale_id FROM data_vault.hub_sale h'});
+      spQuery=async()=>[];
+      await spAiFixManagedView('v1');
+      return {fixButtons:(html.match(/data-sp-view-fix=/g)||[]).length,draftSql:spViewDraft.sql,draftId:spViewDraft.id,savedSql:state.businessViews[0].sql,step:spWorkflowStep};
+    })()`);
+    assert.strictEqual(result.fixButtons,1);
+    assert.match(result.draftSql,/hub_sale_id/);
+    assert.strictEqual(result.draftId,'v1');
+    assert.match(result.savedSql,/load_end_dts/);
+    assert.strictEqual(result.step,'build');
+  });
+
+  test('Build step lists Business Models before the optional Business Vault, and both editors start collapsed', () => {
+    const result=app.eval(`(()=>{
+      spSchemaTables=[{name:'hub_sale',objectType:'table',columns:[{name:'hub_sale_id',type:'uuid'}]}];spBusinessSchemaTables=[];
+      state.businessVaultObjects=[{id:'b1',type:'pit',name:'pit_sale',label:'PIT',status:'draft',deployedAt:null,satellites:[],links:[],parentHub:''}];
+      state.businessViews=[{id:'v1',name:'sales_now',label:'Sales',type:'current',materialization:'table',sourceObjects:['hub_sale'],sql:'SELECT 1',status:'draft',deployedAt:null}];
+      spViewBuilderOpen=false;spBvBuilderOpen=false;spBvSectionOpen=true;
+      spViewDraft={id:null,name:'',label:'',type:'current',materialization:'table',description:'',sourceObjects:[],sql:''};
+      const step=spBuildStepHtml();
+      const closedModel=/id="sp-view-builder" >/.test(step),closedBv=/id="sp-bv-builder" >/.test(step);
+      spEditManagedView('v1');spEditBvObject('b1');
+      const reopened=spBuildStepHtml();
+      return {modelsFirst:step.indexOf('<h3>Business Models</h3>')<step.indexOf('id="sp-bv-acceleration"'),closedModel,closedBv,
+        openModel:/id="sp-view-builder" open>/.test(reopened),openBv:/id="sp-bv-builder" open>/.test(reopened),
+        continueLast:step.lastIndexOf('Continue to Reporting')>step.indexOf('id="sp-bv-acceleration"')};
+    })()`);
+    assert.deepStrictEqual({...result},{modelsFirst:true,closedModel:true,closedBv:true,openModel:true,openBv:true,continueLast:true});
+  });
+
+  test('Report Library is always expanded with a coloured New report button, and Select models starts collapsed', () => {
+    const result=app.eval(`(()=>{
+      state.reports=[{id:'r1',name:'Sales',sourceModels:['customer_current'],updatedAt:'2026-09-29T00:00:00Z'}];
+      state.businessViews=[{id:'v1',name:'customer_current',type:'current',materialization:'table',status:'deployed',deployedAt:'2026-09-29T00:00:00Z'}];
+      spSchemaTables=[];spBusinessSchemaTables=[{name:'customer_current',objectType:'table',schema:'business_vault',columns:[]}];
+      spReportingSources=new Set(['customer_current']);spReportScopeOpen=false;
+      spGenerated={views:[],sections:[]};
+      const withReportOpen=spReportLibraryHtml();
+      const scope=spReportingScopeHtml();
+      spReportScopeOpen=true;
+      return {libraryDetails:/<details/.test(withReportOpen),newPrimary:/btn small primary" id="btn-sp-report-new"/.test(withReportOpen),
+        scopeClosed:/id="sp-report-scope" >/.test(scope),scopeOpen:/id="sp-report-scope" open>/.test(spReportingScopeHtml()),summary:/1 of 1 models selected/.test(scope)};
+    })()`);
+    assert.deepStrictEqual({...result},{libraryDetails:false,newPrimary:true,scopeClosed:true,scopeOpen:true,summary:true});
+  });
+
+  test('opening a saved report scrolls to its editor', () => {
+    const args=app.eval(`(()=>{
+      state.reports=[{id:'r1',name:'Sales',sourceModels:[],generated:{views:[],sections:[]}}];
+      let seen=null;spRevealEditor=(container,focus)=>{seen=[container,focus];};
+      spOpenReport('r1');
+      return seen;
+    })()`);
+    assert.deepStrictEqual(args,['sp-report-editor','sp-report-name']);
+  });
+
+  test('Suggest sub reports sends the typed direction to the AI and omits it when empty', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      state.businessViews=[{id:'v1',name:'customer_current',type:'current',materialization:'table',status:'deployed',deployedAt:'2026-09-29T00:00:00Z'}];
+      spSchemaTables=[];spBusinessSchemaTables=[{name:'customer_current',objectType:'table',schema:'business_vault',columns:[{name:'a',type:'int'}]}];
+      spReportingSources=new Set(['customer_current']);
+      const inputs=[];
+      spCallOpenAI=async(rules,input)=>{inputs.push(input);return {title:'T',sections:[{name:'S',description:'d'}]};};
+      spCustomDirection='focus on churn';await spSuggestDashboardPlan();
+      spCustomDirection='';await spSuggestDashboardPlan();
+      return {withFocus:inputs[0],without:inputs[1]};
+    })()`);
+    assert.match(result.withFocus,/focus on churn/);
+    assert.doesNotMatch(result.without,/stated focus/);
+  });
+
+  test('Generate is disabled while a report is being generated and cannot be started twice', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      state.businessViews=[{id:'v1',name:'customer_current',type:'current',materialization:'table',status:'deployed',deployedAt:'2026-09-29T00:00:00Z'}];
+      spSchemaTables=[{name:'hub_sale',objectType:'table',columns:[]}];spBusinessSchemaTables=[{name:'customer_current',objectType:'table',schema:'business_vault',columns:[{name:'a',type:'int'}]}];
+      spReportingSources=new Set(['customer_current']);spWorkflowStep='reporting';spCustomDirection='focus';
+      let calls=0;spGenerateBusinessReadyReport=async()=>{calls++;await new Promise(r=>setTimeout(r,0));};
+      const el={innerHTML:'',querySelectorAll:()=>[],querySelector:()=>null};
+      spGenerateStatus='loading';renderStudioPlus(el);
+      const disabledWhileLoading=/id="btn-sp-generate" disabled/.test(el.innerHTML);
+      await spGenerateReport();
+      const blocked=calls;
+      spGenerateStatus=null;renderStudioPlus(el);
+      const enabledAfter=!/id="btn-sp-generate" disabled/.test(el.innerHTML);
+      return {disabledWhileLoading,blocked,enabledAfter};
+    })()`);
+    assert.deepStrictEqual({...result},{disabledWhileLoading:true,blocked:0,enabledAfter:true});
+  });
+
+  test('Reporting labels, download button order and right-aligned validation badges', () => {
+    const source=readFrontendSources();
+    assert.match(source,/Suggest sub reports/);
+    assert.match(source,/Suggest different sub reports/);
+    assert.match(source,/Update Report In Library/);
+    assert.match(source,/Validate SQL Syntax/);
+    assert.doesNotMatch(source,/Validate SQL now|Update saved report|Suggest business-ready report/);
+    const html=source.indexOf('id="btn-sp-dl-html-data"'),excel=source.indexOf('id="btn-sp-dl-excel"'),empty=source.indexOf('id="btn-sp-dl-html"');
+    assert.ok(html>0&&html<excel&&excel<empty);
+    assert.match(source,/class="btn primary" id="btn-sp-dl-html-data"/);
+    assert.match(source,/class="btn ghost" id="btn-sp-dl-excel"/);
+    const row=app.eval(`(()=>{spViewValidation={q:{ok:true}};spExpanded={};spOverrides={};return spViewRowHtml({view_name:'q',sheet_name:'Q',columns:['a'],sql:'SELECT 1'});})()`);
+    assert.match(row,/badge-count sp-validation-badge ok">✓ validated/);
+    assert.match(source,/\.sp-validation-badge\{margin-left:auto/);
+  });
+
+  test('HTML report can embed a data snapshot safely and still parses as a script', () => {
+    const result=app.eval(`(()=>{
+      spSectionOverrides={};
+      spGenerated={report_title:'Sales',views:[{view_name:'v',sheet_name:'S',columns:['a'],sql:'SELECT 1'}],sections:[{view_name:'v',title:'T',render_js:'el.textContent=rows.length;'}]};
+      const plain=spBuildReportHtml();
+      const withData=spBuildReportHtml({snapshot:{rows:{v:[{a:'</script><b>'}]},takenAt:'2026-09-29T00:00:00.000Z',note:''}});
+      return {plain,withData};
+    })()`);
+    assert.doesNotMatch(result.plain,/var SP_EMBEDDED = /);
+    assert.match(result.withData,/var SP_EMBEDDED = /);
+    assert.match(result.withData,/\\u003c\/script>\\u003cb>/);
+    const script=result.withData.split('<script>').pop().split('</script>')[0];
+    assert.doesNotThrow(()=>new Function(script));
+  });
+
+  test('HTML report looks up the same 31-character sheet names Excel can store', () => {
+    const result=app.eval(`(()=>{
+      const views=[
+        {view_name:'salesperson_territory_contribution',sheet_name:'Salesperson Territory Contribution',columns:['a'],sql:'SELECT 1'},
+        {view_name:'customer_portfolio_concentration',sheet_name:'Customer Portfolio Concentration',columns:['a'],sql:'SELECT 1'},
+        {view_name:'executive_sales_summary',sheet_name:'Executive Sales Summary',columns:['a'],sql:'SELECT 1'},
+        {view_name:'dup_a',sheet_name:'abcdefghijklmnopqrstuvwxyz12345EXTRA',columns:['a'],sql:'SELECT 1'},
+        {view_name:'dup_b',sheet_name:'abcdefghijklmnopqrstuvwxyz12345ALSO',columns:['a'],sql:'SELECT 1'}
+      ];
+      const named=spViewsWithExcelSheetNames(views).map(v=>v.sheet_name);
+      spSectionOverrides={};
+      spGenerated={report_title:'Sales',views,sections:[]};
+      const html=spBuildReportHtml();
+      const row=spViewRowHtml(views[0]);
+      return {named,html,row};
+    })()`);
+    assert.deepStrictEqual(result.named.slice(0,3),[
+      'Salesperson Territory Contribut',
+      'Customer Portfolio Concentratio',
+      'Executive Sales Summary',
+    ]);
+    assert.ok(result.named.every(name=>name.length<=31));
+    assert.notStrictEqual(result.named[3],result.named[4]);
+    assert.match(result.html,/Salesperson Territory Contribut/);
+    assert.match(result.html,/Customer Portfolio Concentratio/);
+    assert.doesNotMatch(result.html,/Salesperson Territory Contribution/);
+    assert.doesNotMatch(result.html,/Customer Portfolio Concentration/);
+    assert.match(result.row,/shortened for Excel/);
+    assert.match(result.row,/Salesperson Territory Contribut/);
+  });
+
+  test('section scripts are syntax-checked and trailing garbage is removed before HTML is built', () => {
+    const result=app.eval(`(()=>{
+      const wrapped=[
+        'function render(rows, el, echarts) {',
+        '  const option = { series: [{ data: rows.map(function(r){ return r.value; }) }] };',
+        '  el.textContent = String(rows.length);',
+        '}',
+        ']'
+      ].join('\\n');
+      const normalised=spNormalizeSectionRenderJs(wrapped);
+      const anonymous=[
+        'function (rows, el, echarts) {',
+        '  el.textContent = "ok";',
+        '}',
+        ']'
+      ].join('\\n');
+      const arrow=[
+        '(rows, el, echarts) => {',
+        '  const option = { series: [{ data: rows.map(function(r){ return r.value; }) }] };',
+        '  el.textContent = String(rows.length);',
+        '}'
+      ].join('\\n');
+      const regexWrapped=[
+        'function render(rows, el, echarts) {',
+        '  el.innerHTML = String(rows.length).replace(/}/g, "");',
+        '}'
+      ].join('\\n');
+      const helper=[
+        'function helper(rows){ return rows.length; }',
+        'el.textContent = String(helper(rows));'
+      ].join('\\n');
+      const fence=String.fromCharCode(96).repeat(3);
+      const fenced=spNormalizeSectionRenderJs(fence+'js\\nfunction (rows, el, echarts) { el.textContent = "ok"; }\\n'+fence);
+      return {
+        normalised, issue:spSectionRenderIssue(wrapped),
+        anonymous:spNormalizeSectionRenderJs(anonymous),
+        arrow:spNormalizeSectionRenderJs(arrow),
+        regex:spNormalizeSectionRenderJs(regexWrapped),
+        helper:spNormalizeSectionRenderJs(helper),
+        fenced, empty:spSectionRenderIssue('  ')
+      };
+    })()`);
+    assert.strictEqual(result.issue, '');
+    assert.match(result.normalised, /el\.textContent/);
+    assert.doesNotMatch(result.normalised, /function render/);
+    assert.strictEqual(result.anonymous, 'el.textContent = "ok";');
+    assert.match(result.arrow, /el\.textContent/);
+    assert.doesNotMatch(result.arrow, /=>/);
+    assert.match(result.regex, /replace\(\/}/);
+    assert.doesNotMatch(result.regex, /^function render/);
+    assert.match(result.helper, /helper\(rows\)/);
+    assert.strictEqual(result.fenced, 'el.textContent = "ok";');
+    assert.match(result.empty, /empty/i);
+  });
+
+  test('a section script that cannot be repaired locally gets one AI repair pass', async () => {
+    const result=await app.evalRaw(`(async()=>{
+      const calls=[];
+      const original=spCallOpenAI;
+      spCallOpenAI=async(rules, input)=>{calls.push({rules, input});return {sections:[{index:0,view_name:'summary',render_js:'el.textContent=String(rows.length);'}]};};
+      try{
+        const broken='const option = { series: [ rows.map(function(r){ return r.value; }) };';
+        const prepared=await spPrepareGeneratedReportSections([{view_name:'summary',title:'Sub report',render_js:broken}],[{view_name:'summary',columns:['value']}]);
+        return {calls:calls.length,ok:prepared.validation[0].ok,js:prepared.sections[0].render_js,rules:calls[0]&&calls[0].rules,input:calls[0]&&calls[0].input};
+      }finally{spCallOpenAI=original;}
+    })()`);
+    assert.strictEqual(result.calls, 1);
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.js, 'el.textContent=String(rows.length);');
+    assert.match(result.rules, /new Function\("rows", "el", "echarts", render_js\)/);
+    assert.match(result.input, /unexpected|SyntaxError|\}|\]/i);
+  });
+
+  test('HTML download is refused when a section script cannot be parsed', () => {
+    const result=app.eval(`(()=>{
+      let downloads=0;
+      downloadBlob=()=>{downloads++;};
+      const messages=[];
+      const originalToast=toast;
+      toast=(msg)=>{messages.push(msg);};
+      spGenerated={report_title:'Sales',views:[{view_name:'v',sheet_name:'S',columns:['a'],sql:'SELECT 1'}],sections:[{view_name:'v',title:'Sub report',render_js:'const option = { series: [1 };'}]};
+      spSectionOverrides={};spSectionValidation={};spExpanded={};
+      spDownloadReportHtml();
+      const refused={downloads,ok:spSectionValidation[0]&&spSectionValidation[0].ok,error:spSectionValidation[0]&&spSectionValidation[0].error,messages:messages.join('\\n'),expanded:!!spExpanded['sec:0']};
+      downloads=0;messages.length=0;
+      spGenerated.sections[0].render_js='el.textContent=String(rows.length);';
+      spSectionValidation={};spExpanded={};
+      spDownloadReportHtml();
+      const allowed={downloads,ok:spSectionValidation[0]&&spSectionValidation[0].ok};
+      spGenerated.sections[0].render_js='el.innerHTML="</script><b>";';
+      const html=spBuildReportHtml();
+      toast=originalToast;
+      return {refused,allowed,html};
+    })()`);
+    assert.strictEqual(result.refused.downloads, 0);
+    assert.strictEqual(result.refused.ok, false);
+    assert.strictEqual(result.refused.expanded, true);
+    assert.match(result.refused.messages, /not downloaded/);
+    assert.strictEqual(result.allowed.downloads, 1);
+    assert.strictEqual(result.allowed.ok, true);
+    const script=result.html.split('<script>').pop().split('</script>')[0];
+    assert.doesNotThrow(()=>new Function(script));
+    assert.match(result.html, /\\u003c\/script>/);
+    const row=app.eval(`(()=>{
+      spSectionValidation={0:{ok:false,error:"unexpected garbage after function body, starting with ']'"}};
+      spExpanded={'sec:0':true};spSectionOverrides={};
+      return spSectionRowHtml({view_name:'v',title:'Sub report',render_js:'const option = { series: [1 };'},0);
+    })()`);
+    assert.match(row, /unexpected garbage after function body, starting with &#39;\]&#39;/);
+    assert.match(row, /✕ failed/);
   });
 });

@@ -11,6 +11,7 @@ services:
     cpus: 4.0
     mem_limit: 8g
     mem_reservation: 4g
+    shm_size: 1gb
     command:
       - postgres
       - -c
@@ -88,6 +89,9 @@ services:
       BOOTSTRAP_NAME: ${BOOTSTRAP_NAME:-datavault-core}
       BOOTSTRAP_VERSION: ${BOOTSTRAP_VERSION:-1}
       FORCE_EXTERNAL_BOOTSTRAP: ${FORCE_EXTERNAL_BOOTSTRAP:-false}
+      DATABASE_READY_TIMEOUT_SECONDS: ${DATABASE_READY_TIMEOUT_SECONDS:-300}
+      DATABASE_READY_RETRY_INTERVAL_SECONDS: ${DATABASE_READY_RETRY_INTERVAL_SECONDS:-2}
+      DATABASE_READY_CONNECT_TIMEOUT_SECONDS: ${DATABASE_READY_CONNECT_TIMEOUT_SECONDS:-5}
       EXTERNAL_POSTGRES_BOOTSTRAP: "true"
     volumes:
       - ./hop/postgres-environment.json:/app/postgres-environment.json:ro
@@ -126,6 +130,9 @@ services:
       # Demo mode controls whether Hop waits for the bundled MySQL source.
       DEMO_MODE: ${DEMO_MODE:-false}
       WAIT_FOR_MYSQL: ${WAIT_FOR_MYSQL:-false}
+      DATABASE_READY_TIMEOUT_SECONDS: ${DATABASE_READY_TIMEOUT_SECONDS:-300}
+      DATABASE_READY_RETRY_INTERVAL_SECONDS: ${DATABASE_READY_RETRY_INTERVAL_SECONDS:-2}
+      DATABASE_READY_CONNECT_TIMEOUT_SECONDS: ${DATABASE_READY_CONNECT_TIMEOUT_SECONDS:-5}
 
     volumes:
       - ./data_vault:/app/data_vault

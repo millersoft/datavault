@@ -1,5 +1,7 @@
 'use strict';
 
+const { statementTimeoutSeconds } = require('../statement-timeout');
+
 function registerTargetRoutes(parentApp, dependencies){
   const {
     express,
@@ -63,7 +65,7 @@ function registerTargetRoutes(parentApp, dependencies){
         // makes the apply hang FOREVER with no feedback in the GUI. Fail fast
         // with a recognisable error instead; scoped to this transaction only.
         await client.query("SET LOCAL lock_timeout = '10s'");
-        await client.query("SET LOCAL statement_timeout = '120s'");
+        await client.query(`SET LOCAL statement_timeout = '${statementTimeoutSeconds(req.body && req.body.timeoutSeconds)}s'`);
         await client.query(sql);
         await client.query('COMMIT');
         audit('sql.deployed', { target:'postgresql', success:true });

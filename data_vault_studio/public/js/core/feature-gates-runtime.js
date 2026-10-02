@@ -140,7 +140,7 @@ function applyFeatureGates(){
 
 // Packaged containers, selectable from the connection dropdowns.
 // GUI/local server reach them via the HOST-mapped ports (localhost:3306 /
-// localhost:5433). The hop engine runs INSIDE the compose network, so the
+// 127.0.0.1:5433). The hop engine runs INSIDE the compose network, so the
 // generated postgres-environment.json uses the service hostnames instead
 // (mysql:3306 / postgres:5432) — see buildHopEnvironmentJson.
 // Fallbacks only — runtime credentials live in <project-root>/.env. Studio
@@ -148,7 +148,7 @@ function applyFeatureGates(){
 // source password plus native external-PostgreSQL credentials through a
 // narrow allowlisted server endpoint. Internal DB_* values remain untouched.
 const DEMO_SOURCE = { dialect:'mysql', srcHost:'localhost', srcPort:'3306', srcDatabase:'sakila', srcUser:'sakila', srcPassword:'' };
-const DEMO_TARGET = { dvHost:'localhost', dvPort:'5433', dvUser:'dvuser', dvPassword:'' };
+const DEMO_TARGET = { dvHost:'127.0.0.1', dvPort:'5433', dvUser:'dvuser', dvPassword:'' };
 let envDefaults = null; // Non-secret users and passwordConfigured flags only.
 let envFileStatus = null; // null = server unavailable/not checked | { ok, found, error? }
 async function refreshEnvDefaults(){

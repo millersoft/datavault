@@ -96,12 +96,15 @@ function createPackagedCredentialService({ envFilePath, hopEnvironmentPath }){
     const values=env();
     if(!values)throw new Error('Packaged database credentials are not configured.');
     if(reference===REFERENCES.INTERNAL_POSTGRES){
-      assertFixed(body,{hosts:['localhost','127.0.0.1','::1'],port:'5433',dialect:'postgresql'});
+      const loopbackHosts=['localhost','127.0.0.1','::1'];
+      assertFixed(body,{hosts:loopbackHosts,port:'5433',dialect:'postgresql'});
       const database=String(body.database||'').trim();
       if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(database))throw new Error('Internal PostgreSQL database must be a plain identifier.');
       const user=values.DB_USER||'';const password=values.DB_PASSWORD||values.VAULT_PASSWORD||'';
       if(!configured(user)||!configured(password))throw new Error('Internal PostgreSQL credentials are not configured.');
-      return {...base,dialect:'postgresql',host:'localhost',port:'5433',database,user,password};
+      const requestedHost=String(body.host||'').trim().toLowerCase();
+      const host=loopbackHosts.includes(requestedHost)?requestedHost:'127.0.0.1';
+      return {...base,dialect:'postgresql',host,port:'5433',database,user,password};
     }
     if(reference===REFERENCES.EXTERNAL_POSTGRES){
       if(body.dialect!==undefined&&String(body.dialect).toLowerCase()!=='postgresql')throw new Error('External PostgreSQL credential reference cannot be used with that dialect.');

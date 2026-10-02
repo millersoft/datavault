@@ -3,14 +3,13 @@ set -e
 
 DUMP_FILE="/docker-entrypoint-initdb.d/02-dump.sql"
 
-echo "=== Resolving VAULT_PASSWORD in 02-dump.sql ==="
+echo "=== Validating VAULT_PASSWORD for 02-dump.sql ==="
 
 if [ -z "${VAULT_PASSWORD:-}" ]; then
   echo "ERROR: VAULT_PASSWORD is not set."
   exit 1
 fi
 
-sed -i "s|VAULT_PASSWORD|${VAULT_PASSWORD}|g" "$DUMP_FILE"
 
 if [ "${EXTERNAL_POSTGRES_BOOTSTRAP:-false}" != "true" ]; then
 
